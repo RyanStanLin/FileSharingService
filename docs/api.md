@@ -227,6 +227,20 @@ Root 为 `{id,deviceId,rootKey,label,writable,enabled,revision}`。TCC 管理包
 
 启动前订阅 `jobs.output` 和 `jobs.changed`。输出事件的 `payload` 形如 `{jobId,index,stream,data}`。编号从 1 递增，`stream` 是 `stdout` 或 `stderr`，`data` 是 Base64 编码的原始字节。分别增量解码两个流的 UTF-8 数据，按 `jobId,index` 去重。丢失 WS 或遇到编号间隙时用 `/jobs/{id}/output?after=...` 读取已保存的分片。收到终态后读取 `/jobs/{id}`，结果有 `stdout,stderr,exitCode,data,truncated,timedOut`。`completed` 表示设备返回了退出码，程序成功与否由 `exitCode` 判断。连接失效导致的 `failed` 保留已收到的分片。
 
+## 原生对话框和本地通知
+
+两个接口都要求 Passkey 会话和已授权的在线设备连接，并返回 `202 Job` 与作业位置。订阅 `jobs.changed` 接收完成提示，再读取 `GET /jobs/{id}`。WebSocket 不可用时轮询这个作业 API。
+
+向 `POST /devices/D/interactions/dialogs` 发送以下请求。 `icon` 可选值为 `info,warning,question,stop`。选项 1–3 个，ID 必须唯一，使用 1–32 个英文字母、数字、横线或下划线。标题最多 100 字符，提示最多 1000 字符，按钮最多 40 字符。超时范围 10–120 秒，默认 90 秒。文本输入默认关闭，开启 `textRequired` 时先开启 `askText`。
+
+```json
+{"title":"维护确认","message":"请选择是否允许进入维护窗口，并填写原因。","icon":"warning","choices":[{"id":"allow","label":"同意"},{"id":"deny","label":"暂缓"}],"askText":true,"textRequired":true,"timeoutSeconds":60}
+```
+
+应用使用原生 NSAlert，始终展示 FileSharingService 与当前服务器地址。用户可以取消，每台设备同时展示一个请求。作业的 `result` 为 `{outcome,choiceId,text,respondedAt}`，结果 `submitted` 携带选择与最多 1024 字符的说明，`dismissed` 和 `expired` 的选择与说明为空。已锁定、已注销或退出当前用户的 Mac 不能答复。取消管理会话、撤销远程授权或设备断线会结束进行中的显示。答复作为作业结果保存，设备端自行运行的其他操作与此作业独立。
+
+向 `POST /devices/D/interactions/notifications` 提交 `{"title":"维护提醒","message":"18:00 开始维护。","sound":false}`。标题最多 100 字符，正文最多 500 字符，声音默认关闭。用户先在已安装 App 选择「启用本地通知」。成功的 `result` 为 `{status:"scheduled",scheduledAt}`，表示系统接受本地通知，展示行为遵从 macOS 设置。未获授权时作业失败并给出 `notification_permission_required`。
+
 ## WebSocket 订阅
 
 连接 `GET /api/v1/events/ws`，携带同源 Cookie 和 Origin。服务器先发送 `ready`。客户端为每个订阅选一个 1–64 字符的 `id`。订阅所收事件带同一个 id，可按 `sequence` 去重。每条连接最多 16 个订阅。

@@ -705,6 +705,76 @@ class Acceptance(unittest.TestCase):
         self.assertEqual(client.pwd(), "/")
         client.quit()
 
+    def test_dialog_response_notification_and_session_cancellation(self):
+        self.register()
+        self.unlock()
+        for transport in ("wss", "https"):
+            with self.subTest(transport=transport):
+                device = str(uuid.uuid4())
+                hello = {"type": "hello", "deviceId": device, "name": "Interaction fixture"}
+                if transport == "wss":
+                    agent = connect(self.origin.replace("http:", "ws:") + "/agent/v1/ws", proxy=None, open_timeout=6)
+                    self.addCleanup(agent.close)
+                    agent.send(json.dumps(hello))
+                    self.receive(agent, lambda value: value["type"] == "ready")
+
+                    def next_message():
+                        return self.receive(agent, lambda value: value["type"] in ("command", "cancel"))
+
+                    def reply(frame):
+                        agent.send(json.dumps(frame))
+                else:
+                    channel = self.api("POST", "/agent/v1/connect", json=hello).json()
+                    header = {"X-FileSharing-Channel": channel["channel"]}
+
+                    def next_message():
+                        message, = self.api("GET", "/agent/v1/commands", headers=header).json()
+                        return message
+
+                    def reply(frame):
+                        self.api("POST", "/agent/v1/frames", 204, headers=header, json={"frames": [frame]})
+
+                route = f"{API}/devices/{device}"
+                dialogs = route + "/interactions/dialogs"
+                notifications = route + "/interactions/notifications"
+                request = {"title": "Restart review", "message": "Provide a reason.", "icon": "warning",
+                           "choices": [{"id": "submit", "label": "Submit"}], "askText": True,
+                           "textRequired": True, "timeoutSeconds": 30}
+                stamp = "2026-11-20T03:00:00Z"
+                self.api("POST", dialogs, 403, json=request)
+                presence = self.api("GET", route).json()["connection"]
+                self.api("PUT", route + "/connection-access", json={"connectionId": presence["connectionId"], "enabled": True})
+                self.api("POST", dialogs, 400, json=request | {"icon": "file:///tmp/icon"})
+                with self.channel() as events:
+                    events.send(json.dumps({"type": "subscribe", "id": "jobs", "deviceId": device, "topic": "jobs.changed"}))
+                    self.receive(events, lambda value: value["type"] == "subscribed")
+                    job = self.api("POST", dialogs, 202, json=request).json()
+                    command = next_message()
+                    self.assertEqual((command["kind"], command["id"], command["payload"]),
+                                     ("interaction.dialog", job["id"], request))
+                    answer = {"outcome": "submitted", "choiceId": "submit", "text": "Approved maintenance", "respondedAt": stamp}
+                    reply({"type": "result", "id": command["id"], "ok": True, "payload": answer})
+                    event = self.receive(events, lambda value: value["type"] == "event")["item"]["payload"]
+                    self.assertEqual(event, {"id": job["id"], "state": "completed", "kind": "interaction.dialog"})
+                    result = self.finished_job(job)["result"]
+                    self.assertEqual((result["choiceId"], result["text"]), ("submit", "Approved maintenance"))
+
+                notification = self.api("POST", notifications, 202, json={"title": "Maintenance", "message": "Starts at 18:00."}).json()
+                command = next_message()
+                self.assertEqual((command["kind"], command["id"]), ("interaction.notification", notification["id"]))
+                reply({"type": "result", "id": command["id"], "ok": True,
+                       "payload": {"status": "scheduled", "scheduledAt": stamp}})
+                self.assertEqual(self.finished_job(notification)["result"]["status"], "scheduled")
+                pending = self.api("POST", dialogs, 202, json=request).json()
+                self.assertEqual(next_message()["id"], pending["id"])
+                self.api("POST", API + "/auth/lock", 204)
+                cancel = next_message()
+                self.assertEqual((cancel["type"], cancel["id"]), ("cancel", pending["id"]))
+                self.unlock()
+                completed = self.finished_job(pending)
+                self.assertEqual((completed["state"], completed["error"], completed["result"]),
+                                 ("cancelled", "review_ended", None))
+
     def test_diagnostic_outputs_stream_and_resume_on_wss_and_https(self):
         self.setup_device()
         for protocol in ("wss", "https"):
@@ -880,7 +950,8 @@ precondition(board.setString("ISOLATED_CLIPBOARD_CONTENT", forType: .string))
                          "/api/v1/devices/{id}/policy", "/api/v1/devices/{id}/connection-access", "/api/v1/devices/{id}/files/thumbnail",
                          "/api/v1/devices/{id}/files/trash", "/api/v1/devices/{id}/files/renames",
                          "/api/v1/ftp/accounts/{id}/password", "/api/v1/transfers/{id}/content", "/api/v1/events/ws",
-                         "/api/v1/jobs/{id}/output"):
+                         "/api/v1/jobs/{id}/output", "/api/v1/devices/{id}/interactions/dialogs",
+                         "/api/v1/devices/{id}/interactions/notifications"):
             self.assertIn(expected, paths)
         self.assertNotIn("/api/v1/enrollments", paths)
         self.assertIn("101", paths["/api/v1/events/ws"]["get"]["responses"])

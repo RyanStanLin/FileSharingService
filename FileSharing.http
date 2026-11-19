@@ -233,6 +233,22 @@ Content-Type: application/json
 GET {{api}}/jobs?deviceId={{device}}&limit=30
 Cookie: {{cookie}}
 
+### Request a native response and reason
+POST {{api}}/devices/{{device}}/interactions/dialogs
+Cookie: {{cookie}}
+Origin: {{origin}}
+Content-Type: application/json
+
+{"title":"Maintenance review","message":"Select a response and provide a reason.","icon":"warning","choices":[{"id":"allow","label":"Allow"},{"id":"defer","label":"Defer"}],"askText":true,"textRequired":true,"timeoutSeconds":60}
+
+### Schedule a local macOS notification
+POST {{api}}/devices/{{device}}/interactions/notifications
+Cookie: {{cookie}}
+Origin: {{origin}}
+Content-Type: application/json
+
+{"title":"Maintenance window","message":"Scheduled maintenance begins at 18:00.","sound":false}
+
 ### Job result
 GET {{api}}/jobs/{{job}}
 Cookie: {{cookie}}

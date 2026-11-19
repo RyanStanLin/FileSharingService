@@ -33,6 +33,7 @@ internal sealed class AgentBroker(Database db, AgentRegistration registration, I
         public string? Channel { get; } = protocol == "https" ? Secrets.New() : null;
         public CancellationToken Lifetime => stop.Token;
         public Dictionary<string, Pending> Pending { get; } = [];
+        public Queue<AgentCommand> Cancellations { get; } = [];
         public SemaphoreSlim Signal { get; } = new(0, 1);
         public long Seen { get; set; } = Clock.Now;
         public long Connected { get; } = Clock.Now;
@@ -244,6 +245,8 @@ internal sealed class AgentBroker(Database db, AgentRegistration registration, I
             {
                 if (!Online(link))
                     return [];
+                if (link.Cancellations.TryDequeue(out var cancellation))
+                    return [cancellation];
                 if (link.AccessGranted)
                 {
                     var now = Clock.Now;
@@ -276,6 +279,20 @@ internal sealed class AgentBroker(Database db, AgentRegistration registration, I
         lock (link)
             if (Online(link) && link.AccessGranted && link.Pending.TryGetValue(frame.Id, out var pending))
                 pending.Completion.TrySetResult(frame);
+    }
+
+    public void CancelCommand(string device, string connectionId, string id)
+    {
+        if (!links.TryGetValue(device, out var link) || link.Id != connectionId)
+            return;
+        lock (link)
+        {
+            if (!Online(link) || !link.Pending.TryGetValue(id, out var pending) || !pending.Completion.TrySetCanceled())
+                return;
+            if (link.Cancellations.Count < 24)
+                link.Cancellations.Enqueue(new AgentCommand("cancel", id, "", Wire.Element<object?>(null)));
+            Wake(link);
+        }
     }
 
     public Task Progress(Link link, AgentFrame frame, CancellationToken ct)
@@ -345,7 +362,7 @@ internal sealed class AgentBroker(Database db, AgentRegistration registration, I
 
     private static Fault RemoteFault(string? code) => code switch
     {
-        "permission_denied" or "invalid_path" => Fault.Forbidden(code),
+        "permission_denied" or "invalid_path" or "notification_permission_required" or "interactive_session_required" => Fault.Forbidden(code),
         "not_found" => Fault.Missing(code),
         "version_mismatch" => new Fault(412, code),
         "already_exists" or "invalid_offset" or "snapshot_changed" or "directory_not_empty" or "trash_unavailable" or "delete_incomplete" or "cross_volume" => Fault.Conflict(code),

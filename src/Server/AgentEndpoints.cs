@@ -11,6 +11,7 @@ internal sealed record LocalRoot(string RootKey, string Label, bool Writable, bo
 }
 internal sealed record AgentFrames(IReadOnlyList<AgentFrame> Frames);
 internal sealed record AgentPulse(double LatencyMs);
+internal sealed record AgentPolicy(string DeviceId, long Revision, bool Inherited, Sampling Settings, bool AccessGranted);
 
 internal sealed class AgentIngest(Database db, AgentBroker broker, WatchRegistry watches)
 {
@@ -163,10 +164,12 @@ internal static class AgentEndpoints
         group.MapGet("/ws", Socket).RequireRateLimiting("agent-connect");
     }
 
-    private static async Task<DevicePolicy> Policy(AgentBroker.Link link, AgentBroker broker, DeviceService devices, CancellationToken ct)
+    private static async Task<AgentPolicy> Policy(AgentBroker.Link link, AgentBroker broker, DeviceService devices, CancellationToken ct)
     {
         var policy = await devices.Policy(link.Device, ct);
-        return broker.HasAccess(link) ? policy : policy with { Settings = policy.Settings with { KeepAwake = false } };
+        var authorized = broker.HasAccess(link);
+        return new(policy.DeviceId, policy.Revision, policy.Inherited,
+            authorized ? policy.Settings : policy.Settings with { KeepAwake = false }, authorized);
     }
 
     private static async Task Socket(HttpContext context, AgentBroker broker, AgentIngest ingest, DeviceService devices, CancellationToken ct)

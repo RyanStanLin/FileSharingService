@@ -95,6 +95,9 @@ final class AgentTransport {
     private var wake: AsyncStream<Void>.Continuation?
     private var seen = [String: Date]()
     private var operations = [String: Task<Void, Never>]()
+    private var managedOperations = Set<String>()
+    private var activeOrigin: URL?
+    private lazy var interactions = DeviceInteractions()
     private var recent = [(id: String, value: JSON)]()
     private var networkGeneration = 0
     private var heartbeat = Date()
@@ -229,7 +232,7 @@ final class AgentTransport {
     private func updatePollingPolicy(_ http: AgentHttp, channel: String) async {
         let started = ContinuousClock.now
         if let response = try? await http.call("policy", channel: channel), !Task.isCancelled {
-            telemetry.setPolicy(Sampling(response["settings"]))
+            applyPolicy(response)
             let elapsed = started.duration(to: .now).components
             let milliseconds = Double(elapsed.seconds) * 1_000 + Double(elapsed.attoseconds) / 1e15
             _ = try? await http.call("pulse", body: ["latencyMs": .decimal(milliseconds)], channel: channel)
@@ -244,6 +247,7 @@ final class AgentTransport {
         let current = http.session.webSocketTask(with: request)
         current.maximumMessageSize = 1_500_000
         socket = current
+        activeOrigin = http.base
         heartbeat = Date()
         changesObserved = false
         seen.removeAll()
@@ -289,10 +293,10 @@ final class AgentTransport {
                 urgent.append(["type": "pong", "id": value["id"]])
                 wake?.yield()
             case "policy":
-                telemetry.setPolicy(Sampling(value["payload"]["settings"]))
+                applyPolicy(value["payload"])
             case "ack":
                 if let id = value["id"].string { acknowledge([id]) }
-            case "command":
+            case "command", "cancel":
                 accept(value)
             default:
                 throw AgentError("invalid_message")
@@ -343,6 +347,7 @@ final class AgentTransport {
         let response = try await http.call("connect", body: hello)
         guard response["deviceId"].string == id else { throw AgentError("invalid_message") }
         let channel = try response.requireString("channel")
+        activeOrigin = http.base
         logger.notice("HTTP polling connection established.")
         let report = Task { await reportConnection() }
         let refresh = Task {
@@ -402,6 +407,14 @@ final class AgentTransport {
     private func endCommandSession() {
         for task in operations.values { task.cancel() }
         urgent.removeAll()
+        activeOrigin = nil
+    }
+
+    private func applyPolicy(_ policy: JSON) {
+        telemetry.setPolicy(Sampling(policy["settings"]))
+        if policy["accessGranted"].bool == false {
+            for id in managedOperations { operations[id]?.cancel() }
+        }
     }
 
     private func emit(topic: String, data: JSON, snapshot: Bool) {
@@ -433,8 +446,12 @@ final class AgentTransport {
     }
 
     private func accept(_ command: JSON) {
-        guard command["type"].string == "command", let id = command["id"].string, UUID(uuidString: id) != nil,
-              let kind = command["kind"].string else { return }
+        guard let id = command["id"].string, UUID(uuidString: id) != nil else { return }
+        if command["type"].string == "cancel" {
+            operations[id]?.cancel()
+            return
+        }
+        guard command["type"].string == "command", let kind = command["kind"].string else { return }
         if let previous = recent.first(where: { $0.id == id }) {
             urgent.append(previous.value)
             wake?.yield()
@@ -448,9 +465,14 @@ final class AgentTransport {
             return
         }
         let input = command["payload"]
+        let managed = ["diagnostics.run", "interaction.dialog", "interaction.notification"].contains(kind)
+        if managed { managedOperations.insert(id) }
         operations[id] = Task {
             let response: JSON
-            defer { operations.removeValue(forKey: id) }
+            defer {
+                operations.removeValue(forKey: id)
+                managedOperations.remove(id)
+            }
             do {
                 let result = try await perform(kind, input, id: id)
                 response = ["type": "result", "id": .string(id), "ok": true, "payload": result]
@@ -459,7 +481,7 @@ final class AgentTransport {
                             "code": .string((error as? AgentError)?.code ?? "device_operation_failed")]
             }
             let fileWrite = ["files.mkdir", "files.move", "files.trash", "files.purge", "files.commit"].contains(kind)
-            if kind == "diagnostics.run" && !Task.isCancelled || fileWrite && response["ok"].bool == true {
+            if managed && !Task.isCancelled || fileWrite && response["ok"].bool == true {
                 recent.append((id, response))
                 if recent.count > 24 { recent.removeFirst() }
             }
@@ -496,6 +518,12 @@ final class AgentTransport {
             }
         case "permissions.request":
             return try await telemetry.permission(input.requireString("permission"))
+        case "interaction.dialog":
+            guard let activeOrigin else { throw AgentError("connection_unavailable") }
+            return try await interactions.present(input, from: activeOrigin)
+        case "interaction.notification":
+            guard let activeOrigin else { throw AgentError("connection_unavailable") }
+            return try await interactions.notify(input, id: id, from: activeOrigin)
         case "app.icon": return try await telemetry.icon(input.requireString("applicationId"))
         case "files.watch": return try await observer.start(input)
         case "files.unwatch": return try observer.stop(input)

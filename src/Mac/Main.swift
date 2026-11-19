@@ -6,18 +6,33 @@ import OSLog
 @main
 struct FileSharingAgent {
     @MainActor
-    static func main() async {
+    static func main() {
         _ = umask(0o077)
+        let arguments = CommandLine.arguments.dropFirst().filter { !$0.hasPrefix("-psn_") }
+        if arguments == ["version"] {
+            print(Telemetry.version)
+            return
+        }
+        #if !FILESHARING_TEST
+        guard getuid() >= 501 else { return }
+        if let user = EndpointProfile.managedUser, user != NSUserName() { return }
+        #endif
+        #if FILESHARING_APP
+        if arguments.isEmpty || arguments == ["run"] {
+            let app = NSApplication.shared
+            app.setActivationPolicy(.accessory)
+            Task { await execute(arguments); exit(EXIT_SUCCESS) }
+            app.run()
+            return
+        }
+        #endif
+        Task { await execute(arguments); exit(EXIT_SUCCESS) }
+        dispatchMain()
+    }
+
+    @MainActor
+    private static func execute(_ arguments: [String]) async {
         do {
-            let arguments = CommandLine.arguments.dropFirst().filter { !$0.hasPrefix("-psn_") }
-            if arguments == ["version"] {
-                print(Telemetry.version)
-                return
-            }
-            #if !FILESHARING_TEST
-            guard getuid() >= 501 else { return }
-            if let user = EndpointProfile.managedUser, user != NSUserName() { return }
-            #endif
             #if FILESHARING_APP
             if arguments.isEmpty {
                 await FirstLaunch.show()

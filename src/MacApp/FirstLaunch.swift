@@ -19,8 +19,6 @@ enum FirstLaunch {
 
     static func show() async {
         let app = NSApplication.shared
-        app.setActivationPolicy(.accessory)
-        app.finishLaunching()
         guard isInstalled else {
             showMessage("请先安装 FileSharingService", "将 App 拖到「应用程序」，然后从「应用程序」打开。")
             return
@@ -49,12 +47,20 @@ enum FirstLaunch {
             }
             alert.addButton(withTitle: "关闭")
             alert.addButton(withTitle: "停用后台服务")
+            alert.addButton(withTitle: "启用本地通知")
             app.activate()
             let choice = alert.runModal()
             if choice == .alertFirstButtonReturn && EndpointProfile.localDemo {
                 NSWorkspace.shared.open(EndpointProfile.origins[0].appendingPathComponent("demo"))
             } else if choice == .alertThirdButtonReturn {
                 await disable()
+            } else if choice.rawValue == NSApplication.ModalResponse.alertFirstButtonReturn.rawValue + 3 {
+                let allowed = (try? await DeviceInteractions.requestNotificationPermission()) ?? false
+                if allowed {
+                    showMessage("通知已启用", "管理服务发送的通知会按 macOS 的通知设置显示。")
+                } else {
+                    showMessage("通知未启用", "可在「系统设置 → 通知」中开启 FileSharingService 通知。")
+                }
             }
         case .requiresApproval:
             alert.messageText = "请允许后台运行"

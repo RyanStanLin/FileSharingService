@@ -22,7 +22,7 @@ internal sealed record JobView(string Id, string DeviceId, string Kind, string S
 internal sealed class JobService(Database db, AgentBroker broker, ReviewService reviews, JobOutputs outputs, ILogger<JobService> logger)
 {
     private readonly SemaphoreSlim slots = new(9);
-    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> diagnostics = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<(string Device, string Kind), byte> exclusive = new();
 
     public async Task<JobView> Start(Review review, string device, string kind, object data, CancellationToken ct)
     {
@@ -30,10 +30,10 @@ internal sealed class JobService(Database db, AgentBroker broker, ReviewService 
         if (!slots.Wait(0))
             throw new Fault(429, "job_limit");
         var job = new JobRecord(Secrets.Id(), review.Initiator, device, kind, "queued", Clock.Now, null, null, null, review.Id);
-        if (kind == "diagnostics.run" && !diagnostics.TryAdd(device, 0))
+        if (Exclusive(kind) && !exclusive.TryAdd((device, kind), 0))
         {
             slots.Release();
-            throw new Fault(429, "diagnostic_already_running");
+            throw new Fault(429, kind == "diagnostics.run" ? "diagnostic_already_running" : "interaction_already_running");
         }
         try
         {
@@ -54,7 +54,8 @@ internal sealed class JobService(Database db, AgentBroker broker, ReviewService 
     {
         try
         {
-            var commandTimeout = job.Kind == "permissions.request" ? TimeSpan.FromMinutes(3) : TimeSpan.FromSeconds(28);
+            var commandTimeout = data is DialogRequest dialog ? TimeSpan.FromSeconds(dialog.TimeoutSeconds + 8) :
+                job.Kind == "permissions.request" ? TimeSpan.FromMinutes(3) : TimeSpan.FromSeconds(28);
             using var timeout = new CancellationTokenSource(commandTimeout + TimeSpan.FromSeconds(7));
             var ct = timeout.Token;
             if (await reviews.ActiveById(job.ReviewId, ct) is null)
@@ -65,8 +66,22 @@ internal sealed class JobService(Database db, AgentBroker broker, ReviewService 
             Func<JsonElement, CancellationToken, Task>? progress = job.Kind == "diagnostics.run"
                 ? (part, token) => outputs.Write(job, part, token)
                 : null;
-            var payload = await broker.Invoke(job.DeviceId, job.Kind, data, ct, commandId: job.Id,
+            var pending = broker.Invoke(job.DeviceId, job.Kind, data, ct, commandId: job.Id,
                 timeout: commandTimeout, connectionId: connectionId, progress: progress);
+            if (job.Kind == InteractionEndpoints.Dialog)
+            {
+                while (await Task.WhenAny(pending, Task.Delay(TimeSpan.FromSeconds(2), ct)) != pending)
+                {
+                    if (await reviews.ActiveById(job.ReviewId, ct) is not null)
+                        continue;
+                    broker.CancelCommand(job.DeviceId, connectionId, job.Id);
+                    try { await pending; }
+                    catch (OperationCanceledException) { }
+                    await Finish(job, "cancelled", null, "review_ended");
+                    return;
+                }
+            }
+            var payload = InteractionEndpoints.Result(data, await pending);
             if (await reviews.ActiveById(job.ReviewId, ct) is null)
                 await Finish(job, "cancelled", null, "review_ended");
             else
@@ -91,10 +106,12 @@ internal sealed class JobService(Database db, AgentBroker broker, ReviewService 
 
     private void Release(JobRecord job)
     {
-        if (job.Kind == "diagnostics.run")
-            diagnostics.TryRemove(job.DeviceId, out _);
+        if (Exclusive(job.Kind))
+            exclusive.TryRemove((job.DeviceId, job.Kind), out _);
         slots.Release();
     }
+
+    private static bool Exclusive(string kind) => kind is "diagnostics.run" or InteractionEndpoints.Dialog or InteractionEndpoints.Notification;
 
     private async Task Finish(JobRecord job, string state, string? result, string? error)
     {
@@ -136,6 +153,7 @@ internal static class DataEndpoints
             .WithSummary("Poll ordered stdout and stderr segments for a diagnostic");
         api.MapGet("/events", Events).WithTags("Events").WithSummary("Read a page of live-event history over REST");
         api.MapGet("/events/ws", BrowserEvents.Handle).WithTags("Events").WithSummary("Subscribe to events using WebSocket");
+        InteractionEndpoints.Map(devices);
         FileEndpoints.Map(devices, api);
     }
 
