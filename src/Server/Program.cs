@@ -117,6 +117,8 @@ public static class Program
                     await next(context);
             });
         app.UseRateLimiter();
+        if (settings.LoopbackDevelopment && builder.Configuration.GetValue<bool>("FileSharing:EnableDemo"))
+            DemoEndpoints.Map(app, settings);
         app.MapGet("/health/live", () => TypedResults.Ok(new { status = "live" })).ExcludeFromDescription();
         app.MapGet("/health/ready", async (Database db, CancellationToken ct) =>
             TypedResults.Ok(new { ready = await db.One<int>("SELECT 1", null, ct) == 1 })).ExcludeFromDescription();

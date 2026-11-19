@@ -8,7 +8,7 @@ struct FileSharingAgent {
     static func main() async {
         _ = umask(0o077)
         do {
-            let arguments = Array(CommandLine.arguments.dropFirst())
+            let arguments = CommandLine.arguments.dropFirst().filter { !$0.hasPrefix("-psn_") }
             if arguments == ["version"] {
                 print(Telemetry.version)
                 return
@@ -16,6 +16,16 @@ struct FileSharingAgent {
             #if !FILESHARING_TEST
             guard getuid() >= 501 else { return }
             if let user = EndpointProfile.managedUser, user != NSUserName() { return }
+            #endif
+            #if FILESHARING_APP
+            if arguments.isEmpty {
+                await FirstLaunch.show()
+                return
+            }
+            if arguments == ["service-status"] {
+                try FirstLaunch.check()
+                return
+            }
             #endif
             let state = try LocalState()
             switch arguments.first {

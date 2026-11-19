@@ -11,7 +11,7 @@ flowchart LR
     Server -->|"归档暂存与成品"| Files["受保护持久卷"]
     Agent["macOS Swift LaunchAgent"] -->|"公网 WSS / HTTPS 长轮询自动登记"| Proxy
     Agent -->|"文件描述符与 FSEvents"| Home["HOME 与批准的目录"]
-    Agent -->|"短时本地租约"| Power["专用电源 LaunchDaemon"]
+    Agent -->|"短时本地租约"| Power["可选独立电源 LaunchDaemon"]
     Power -->|"固定 pmset 操作与电源策略"| OS["macOS"]
 ```
 

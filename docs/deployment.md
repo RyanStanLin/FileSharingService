@@ -23,15 +23,15 @@ DNS/证书续期由部署环境维护。生产反向代理覆盖 `Host`、`X-For
 
 将 FTP/FTPS 控制端口与整个被动端口范围逐端口做 TCP 映射，被动端口必须一一对应并从同一客户端 IP 可达。显式 FTPS 使用 `AUTH TLS` 与 `PROT P`。传统 FTP 数据及账号密码是明文，部署在专用网络入口和受限 CIDR。优先采用保留来源 IP 的 DNAT。代理重写来源 IP 时将实际访问控制落实在入口防火墙。部署配置示例为 [compose.yaml](../deploy/compose.yaml) 和 [nginx.conf.template](../deploy/nginx.conf.template)。标准见 [RFC 4217](https://www.rfc-editor.org/info/rfc4217/) 与 [RFC 3659](https://www.rfc-editor.org/info/rfc3659/)。
 
-## macOS 企业打包
+## macOS 拖装 DMG
 
-1. 在具备 Developer ID 证书的 Mac 上设置 `FILESHARING_ORIGIN`，并授权构建使用 `FILESHARING_DEVELOPER_ID_APPLICATION`、`FILESHARING_DEVELOPER_ID_INSTALLER` 和 `FILESHARING_NOTARY_PROFILE`。网络配置可以只提供服务端 URL。用可选的 `FILESHARING_MANAGED_USER` 限定登录账户，用可选的 `FILESHARING_ALLOW_HOME_WRITE=1` 为 HOME 允许写操作。默认使用本机登录用户和只读 HOME。
-2. 运行 `scripts/build-agent.sh package`。脚本生成 arm64 / x86_64 Universal 2、Hardened Runtime 签名、签名 PKG、Apple 公证及 stapling。同一服务器的多个设备可用同一份安装包。Agent 首次启动后自动登记，并保存本机 UUID。可选备份端点应转发到同一 FileSharing 实例，保持后端校验的 Host。
-3. 管理台会在客户端首次连上时显示在线设备及当前来源。选定设备连接后使用 `PUT /api/v1/devices/{id}/connection-access` 开启文件和远程操作。连接中断后管理员依据新的连接 ID 再次授权。
-4. 通过企业 MDM 静默分发签名 PKG，并用受管登录项目策略批准 FileSharing 的 LaunchAgent 和 LaunchDaemon。FileSharing 以 `/Applications/FileSharingAgent.app` 的无界面后台可执行文件运行。macOS 在目标用户登录后启动该程序，安装脚本对已经登录的用户启动或重启对应服务。软件包的电源辅助进程采用系统 LaunchDaemon，且仅读取目标用户的有限租约。仅在已授权目标上运行 `sudo installer -pkg <pkg-path> -target /` 作为 MDM 的同等安装入口。
-5. 用 MDM 的 PPPC 或目标用户在系统提示中处理 Desktop、Documents、Downloads 权限。签名主体、bundle ID 和代码要求要与 PPPC 配置一致。按需将额外企业目录交给 Agent 的 `roots add read|write /absolute/path` 命令，重启用户 Agent，再由管理员在 `file-roots` 中授权。空路径从 HOME 授权根开始。
+在 Xcode 打开 `FileSharingService.xcodeproj`。App 和后台进程共用一个 App bundle，内置 LaunchAgent 由 `SMAppService` 在首次打开时注册。
 
-MDM 应独立设置屏保超时与锁屏密码，并在目标机型验证合盖工作。电源服务采用 AC、电池、温度和短租约门槛。开启后通过设备 `power` 样本核对 `closedLid.state` 为 `active`、`sleepDisabled` 为真并在合盖后验证实时文件传输。主动关闭策略或断开电源后应观测到释放。卸载前先关闭对应设备策略并确认恢复再卸载 LaunchDaemon。参考 [Apple 的 LaunchAgent 与 LaunchDaemon 模型](https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPSystemStartup/Chapters/DesigningDaemons.html) 与 [Apple 设备管理 PPPC 服务列表](https://developer.apple.com/documentation/devicemanagement/privacypreferencespolicycontrol/services-data.dictionary)。
+- 用 `FILESHARING_ORIGIN=https://filesharing.example.com scripts/build-agent.sh dmg` 构建部署包。产物位于 `artifacts`。可选的 `FILESHARING_MANAGED_USER` 限定登录账户，远程部署可用 `FILESHARING_ALLOW_HOME_WRITE=YES` 允许 HOME 写入。
+- 打开 DMG，把 App 拖入 Applications，再打开已安装的 App。首次打开遵照 macOS 的单 App 放行流程。包内的启动脚本打开已安装 App。
+- App 首次打开会通过 Service Management 注册内置 LaunchAgent。按系统提示在「登录项与扩展」允许后台运行。此后由 launchd 管理登录启动和异常重启。用户可再次打开 App 查看状态或停用服务。
+- Agent 上线后，选择当前设备连接开启远程文件操作。Desktop、Documents 和 Downloads 由用户在 macOS 的授权弹窗或系统设置中处理。若需新增企业目录，在受管用户进程调用 App 内的 `roots add read|write /absolute/path`，重启后台服务后在管理端授权。
+- DMG 采用本地 ad-hoc 签名的非公证 App，并内置用户 LaunchAgent。仓库中的特权电源辅助代码独立于这份拖装包。文件联调用默认本机地址时，Agent 保持只读并关闭电源修改。 [Apple 的首次打开说明](https://support.apple.com/en-us/102445) · [Apple 的内置 LaunchAgent 布局](https://developer.apple.com/documentation/servicemanagement/updating-helper-executables-from-earlier-versions-of-macos)
 
 ## 从早期设备协议升级
 
@@ -42,4 +42,4 @@ MDM 应独立设置屏保超时与锁屏密码，并在目标机型验证合盖�
 - 管理域名验证证书、Passkey 建立和重置、关闭管理会话后 HTTP 受限及 WSS 退出。
 - 连接内网 FTP 和 FTPS，下载到测试目录并计算哈希。打开目录订阅后在 Mac 的测试目录内手工重命名文件，检查客户端推送。
 - 定期对 SQLite 做在线一致性备份，例如 SQLite 的 `.backup` 命令。停止服务后迁移整个持久卷也可获得一致状态。滚动升级提前备份并复测登录和传输，单实例重启待设备重新连接后继续已登记的单文件传输。
-- 发布前使用 `scripts/test-local.sh` 运行本机验收，通过 `scripts/build-agent.sh check` 编译两种架构。需要真实 TCC、锁屏和合盖试验时使用专门受管测试 Mac。
+- 发布前使用 `scripts/test-local.sh` 运行本机验收，通过 `scripts/build-agent.sh dmg` 编译两种架构并检查镜像。实际登录项批准和 TCC 请在目标 Mac 上试用。

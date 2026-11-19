@@ -8,6 +8,8 @@ artifacts/
 !deploy/.env.example
 .DS_Store
 **/__pycache__/
+/FileSharingService.xcodeproj/xcuserdata/
+/FileSharingService.xcodeproj/project.xcworkspace/xcuserdata/
 /deploy/state/
 /deploy/tls/
 /deploy/updates/

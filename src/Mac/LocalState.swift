@@ -71,7 +71,7 @@ struct LocalState {
         #else
         directory = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask,
                                                 appropriateFor: nil, create: true)
-            .appendingPathComponent("FileSharingAgent", isDirectory: true)
+            .appendingPathComponent(EndpointProfile.localDemo ? "FileSharingServiceDemo" : "FileSharingAgent", isDirectory: true)
         #endif
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])

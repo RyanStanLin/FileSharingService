@@ -59,7 +59,7 @@ private final class DiskObserver {
 
 @MainActor
 final class Telemetry {
-    static let version = "0.2.0"
+    static let version = "0.3.0"
     private let boot = Date()
     private let roots: [LocalRoot]
     private let emit: (String, JSON, Bool) -> Void
@@ -349,7 +349,7 @@ final class Telemetry {
 
     private func updatePower() {
         externalPower = battery()["externalPower"]
-        let enabled = sampling.keepAwake && Date().timeIntervalSince(policyCheckedAt) < 35
+        let enabled = !EndpointProfile.localDemo && sampling.keepAwake && Date().timeIntervalSince(policyCheckedAt) < 35
         lid.update(enabled: enabled)
         #if !FILESHARING_TEST
         let suitable = externalPower.bool == true && !ProcessInfo.processInfo.isLowPowerModeEnabled

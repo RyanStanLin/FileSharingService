@@ -5,129 +5,99 @@ umask 077
 root="$(cd "$(dirname "$0")/.." && pwd)"
 mkdir -p "$root/.local" "$root/artifacts"
 stage="$(mktemp -d "$root/.local/agent-build.XXXXXXXX")"
-trap 'rm -rf "$stage"' EXIT
-mode="${1:-test}"
-target=15.0
+mount=""
+cleanup() {
+    if [ -n "$mount" ]; then
+        diskutil eject "$mount" >/dev/null 2>&1 || return
+    fi
+    rm -rf "$stage"
+}
+trap cleanup EXIT
+mode="${1:-dmg}"
 
 if [ "$mode" = test ]; then
-    swiftc -swift-version 5 -O -target "$(uname -m)-apple-macosx$target" -D FILESHARING_TEST \
+    swiftc -swift-version 5 -O -target "$(uname -m)-apple-macosx15.0" -D FILESHARING_TEST \
         "$root"/src/Mac/*.swift -o "$stage/FileSharingAgent.loopback"
     mv "$stage/FileSharingAgent.loopback" "$root/artifacts/FileSharingAgent.loopback"
     exit 0
 fi
 
-case "$mode" in check|package) ;; *) printf '%s\n' 'Usage: scripts/build-agent.sh test|check|package' >&2; exit 1;; esac
+case "$mode" in check|dmg) ;; *) printf '%s\n' 'Usage: scripts/build-agent.sh test|check|dmg' >&2; exit 1;; esac
 
-python3 - "$stage/BuildConfiguration.swift" "$mode" <<'PY'
-import json
-import os
-from pathlib import Path
+origin="${FILESHARING_ORIGIN:-http://localhost:8847}"
+backup="${FILESHARING_BACKUP_ORIGIN:-}"
+user="${FILESHARING_MANAGED_USER:-}"
+writable="${FILESHARING_ALLOW_HOME_WRITE:-NO}"
+python3 - "$origin" "$backup" "$user" "$writable" <<'PY'
 import re
 import sys
 from urllib.parse import urlsplit
 
-release = sys.argv[2] == "package"
-primary = os.environ.get("FILESHARING_ORIGIN", "" if release else "https://filesharing.example.com")
-origins = [primary]
-if backup := os.environ.get("FILESHARING_BACKUP_ORIGIN"):
-    origins.append(backup)
-for origin in origins:
-    parsed = urlsplit(origin)
-    if any(not 32 < ord(char) < 127 for char in origin) or parsed.scheme != "https" or not parsed.hostname or (
-        parsed.username or parsed.password or parsed.path not in ("", "/") or parsed.query or parsed.fragment
-    ):
-        raise SystemExit("Every endpoint must be an HTTPS origin.")
-user = os.environ.get("FILESHARING_MANAGED_USER")
+origin, backup, user, writable = sys.argv[1:]
+for value in filter(None, (origin, backup)):
+    url = urlsplit(value)
+    if any(not 32 < ord(char) < 127 for char in value) or not url.hostname or url.username or url.password or (
+        url.scheme != "https" and not (url.scheme == "http" and url.hostname == "localhost")
+    ) or url.path not in ("", "/") or url.query or url.fragment:
+        raise SystemExit("Use an HTTPS server origin, or HTTP with localhost.")
+if backup and (urlsplit(origin).hostname == "localhost") != (urlsplit(backup).hostname == "localhost"):
+    raise SystemExit("Use the same local or remote mode for both origins.")
 if user and not re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_-]{0,62}", user):
     raise SystemExit("Use a valid optional managed macOS account name.")
-writable = os.environ.get("FILESHARING_ALLOW_HOME_WRITE", "0")
-if writable not in ("0", "1"):
-    raise SystemExit("FILESHARING_ALLOW_HOME_WRITE must be 0 or 1.")
-Path(sys.argv[1]).write_text(
-    "enum BuildConfiguration {\n"
-    f"    static let originStrings = {json.dumps(origins)}\n"
-    f"    static let user: String? = {json.dumps(user) if user else 'nil'}\n"
-    f"    static let homeWritable = {str(writable == '1').lower()}\n"
-    "}\n"
-)
+if writable not in ("YES", "NO"):
+    raise SystemExit("FILESHARING_ALLOW_HOME_WRITE must be YES or NO.")
 PY
 
-app="$stage/payload/Applications/FileSharingAgent.app"
-mac="$app/Contents/MacOS"
-helper="$stage/payload/Library/PrivilegedHelperTools"
-agent_plists="$stage/payload/Library/LaunchAgents"
-daemon_plists="$stage/payload/Library/LaunchDaemons"
-mkdir -p "$mac" "$helper" "$agent_plists" "$daemon_plists"
-chmod 755 "$stage/payload" "$stage/payload/Applications" "$app" "$app/Contents" "$mac" "$stage/payload/Library" "$helper" "$agent_plists" "$daemon_plists"
-install -m 644 "$root/src/Mac/Info.plist" "$app/Contents/Info.plist"
-install -m 644 "$root/src/Mac/in.ryanl.filesharing.agent.plist" "$agent_plists/in.ryanl.filesharing.agent.plist"
+xcodebuild -project "$root/FileSharingService.xcodeproj" -scheme FileSharingService -configuration Release \
+    -destination 'generic/platform=macOS' -derivedDataPath "$stage/DerivedData" -quiet \
+    'ARCHS=arm64 x86_64' ONLY_ACTIVE_ARCH=NO \
+    FILESHARING_ORIGIN="$origin" FILESHARING_BACKUP_ORIGIN="$backup" FILESHARING_MANAGED_USER="$user" \
+    FILESHARING_ALLOW_HOME_WRITE="$writable"
 
-for arch in arm64 x86_64; do
-    swiftc -swift-version 5 -O -target "$arch-apple-macosx$target" "$root"/src/Mac/*.swift "$stage/BuildConfiguration.swift" \
-        -o "$stage/agent.$arch"
-    swiftc -swift-version 5 -O -target "$arch-apple-macosx$target" -parse-as-library "$root/src/Power/Main.swift" -o "$stage/power.$arch"
-done
-
-lipo -create "$stage/agent.arm64" "$stage/agent.x86_64" -output "$mac/FileSharingAgent"
-chmod 755 "$mac/FileSharingAgent"
-power="$helper/in.ryanl.filesharing.power"
-lipo -create "$stage/power.arm64" "$stage/power.x86_64" -output "$power"
-chmod 755 "$power"
-for arch in arm64 x86_64; do
-    lipo "$mac/FileSharingAgent" -verify_arch "$arch"
-    lipo "$power" -verify_arch "$arch"
-done
-plutil -lint "$app/Contents/Info.plist" "$agent_plists/in.ryanl.filesharing.agent.plist" "$root/src/Power/launchd.plist"
-
-user="${FILESHARING_MANAGED_USER:-}"
-daemon="$daemon_plists/in.ryanl.filesharing.power.plist"
-sed "s/MANAGED_USER/$user/g" "$root/src/Power/launchd.plist" > "$daemon"
-chmod 644 "$daemon"
-plutil -lint "$daemon"
-mkdir -p "$stage/scripts"
-sed "s/MANAGED_USER/$user/g" "$root/scripts/pkg-postinstall.sh" > "$stage/scripts/postinstall"
-chmod 755 "$stage/scripts/postinstall"
-version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")"
-pkg="$stage/FileSharingAgent-$version.pkg"
-components="$stage/components.plist"
-python3 - "$components" <<'PLIST'
-import plistlib
-import sys
-
-with open(sys.argv[1], "wb") as output:
-    plistlib.dump([{
-        "RootRelativeBundlePath": "Applications/FileSharingAgent.app",
-        "BundleIsRelocatable": False,
-        "BundleIsVersionChecked": True,
-        "BundleHasStrictIdentifier": True,
-        "BundleOverwriteAction": "upgrade",
-    }], output)
-PLIST
-layout=(--root "$stage/payload" --component-plist "$components" --ownership recommended --scripts "$stage/scripts"
-        --identifier in.ryanl.filesharing.agent.pkg --version "$version" --install-location /)
+app="$stage/DerivedData/Build/Products/Release/FileSharingService.app"
+verify_app() {
+    local bundle="$1"
+    local binary="$bundle/Contents/MacOS/FileSharingService"
+    local plist="$bundle/Contents/Library/LaunchAgents/in.ryanl.filesharing.agent.plist"
+    lipo "$binary" -verify_arch arm64
+    lipo "$binary" -verify_arch x86_64
+    plutil -lint "$bundle/Contents/Info.plist" "$plist"
+    codesign --verify --strict "$bundle"
+    "$binary" version
+    "$binary" service-status
+}
 
 if [ "$mode" = check ]; then
-    "$mac/FileSharingAgent" version
-    pkgbuild "${layout[@]}" "$pkg"
-    pkgutil --payload-files "$pkg" > "$stage/manifest"
-    for expected in Applications/FileSharingAgent.app/Contents/MacOS/FileSharingAgent \
-        Library/LaunchDaemons/in.ryanl.filesharing.power.plist Library/LaunchAgents/in.ryanl.filesharing.agent.plist \
-        Library/PrivilegedHelperTools/in.ryanl.filesharing.power; do
-        rg --fixed-strings "$expected" "$stage/manifest"
-    done
+    verify_app "$app"
     exit 0
 fi
 
-: "${FILESHARING_DEVELOPER_ID_APPLICATION:?Developer ID Application is required}"
-: "${FILESHARING_DEVELOPER_ID_INSTALLER:?Developer ID Installer is required}"
-: "${FILESHARING_NOTARY_PROFILE:?Notarytool keychain profile is required}"
-codesign --force --options runtime --timestamp --sign "$FILESHARING_DEVELOPER_ID_APPLICATION" "$app"
-codesign --force --options runtime --timestamp --sign "$FILESHARING_DEVELOPER_ID_APPLICATION" "$power"
-codesign --verify --strict --verbose=2 "$app"
-codesign --verify --strict --verbose=2 "$power"
-pkgbuild "${layout[@]}" --sign "$FILESHARING_DEVELOPER_ID_INSTALLER" "$pkg"
-xcrun notarytool submit "$pkg" --keychain-profile "$FILESHARING_NOTARY_PROFILE" --wait
-xcrun stapler staple "$pkg"
-xcrun stapler validate "$pkg"
-pkgutil --check-signature "$pkg"
-mv "$pkg" "$root/artifacts/FileSharingAgent-$version${user:+-$user}.pkg"
+payload="$stage/volume"
+mkdir -p "$payload" "$stage/mount"
+ditto "$app" "$payload/FileSharingService.app"
+ln -s /Applications "$payload/Applications"
+install -m 755 "$root/scripts/open-installed-app.command" "$payload/Open FileSharingService.command"
+cat > "$payload/安装说明.txt" <<'TEXT'
+1. 将 FileSharingService 拖进 Applications。
+2. 双击 Open FileSharingService.command，或从 Applications 打开 FileSharingService。
+3. macOS 如拦截首次打开，在「系统设置 → 隐私与安全性」选择「仍要打开」。
+4. 首次启动会注册后台服务。系统要求确认时，请在「登录项与扩展」允许 FileSharingService。
+5. 再次打开 App 可以查看状态或停用后台服务。
+TEXT
+
+image="$stage/FileSharingService.dmg"
+hdiutil create -quiet -volname FileSharingService -srcfolder "$payload" -format UDZO -fs HFS+ "$image"
+hdiutil verify -quiet "$image"
+hdiutil attach -quiet -readonly -nobrowse -mountpoint "$stage/mount" "$image"
+mount="$stage/mount"
+verify_app "$mount/FileSharingService.app"
+test "$(readlink "$mount/Applications")" = /Applications
+test -x "$mount/Open FileSharingService.command"
+diskutil eject "$mount" >/dev/null
+mount=""
+version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")"
+name="FileSharingService-$version.dmg"
+mv "$image" "$root/artifacts/$name"
+cd "$root/artifacts"
+shasum -a 256 "$name" > "$name.sha256"
+printf '%s\n' "$root/artifacts/$name"

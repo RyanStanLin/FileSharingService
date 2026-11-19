@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="zh-Hans">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FileSharing 本机联调</title>
+  <link rel="stylesheet" href="/demo/demo.css">
+  <script type="module" src="/demo/demo.js"></script>
+</head>
+<body>
+  <header class="page-header">
+    <h1>FileSharing 本机联调</h1>
+    <button id="lock" hidden>锁定后台</button>
+  </header>
+  <main>
+    <div id="notice" role="status" aria-live="polite"></div>
+    <section id="auth" hidden>
+      <h2>用 Passkey 解锁</h2>
+      <form id="setup" hidden>
+        <label for="secret">本机部署密钥</label>
+        <div class="row">
+          <input id="secret" type="password" autocomplete="off" required>
+          <button class="primary" type="submit">注册 Passkey</button>
+        </div>
+        <p>首次使用时，从 <code>.local/demo/.env</code> 复制 <code>FILESHARING_BOOTSTRAP_SECRET</code> 的值。</p>
+      </form>
+      <button id="unlock" class="primary" hidden>解锁后台</button>
+    </section>
+    <div id="workspace" hidden>
+      <section>
+        <h2>设备</h2>
+        <div class="row">
+          <label for="devices">选择设备</label>
+          <select id="devices" disabled></select>
+          <button id="access" class="primary" disabled>授权当前连接</button>
+          <button id="refresh" disabled>刷新状态</button>
+        </div>
+        <p id="device-status" aria-live="polite"></p>
+      </section>
+      <section>
+        <div class="section-title">
+          <h2>系统权限</h2>
+          <span id="feed-status">等待设备</span>
+        </div>
+        <table>
+          <thead><tr><th scope="col">权限</th><th scope="col">状态</th><th scope="col">最近检测</th><th scope="col">操作</th></tr></thead>
+          <tbody id="permissions"></tbody>
+        </table>
+      </section>
+      <section>
+        <h2>读取文件</h2>
+        <form id="browse" class="row">
+          <label for="path">相对 HOME 的目录</label>
+          <input id="path" value="Downloads" spellcheck="false">
+          <button id="browse-button" class="primary" disabled>列出文件</button>
+          <button id="parent" type="button" disabled>上一级</button>
+        </form>
+        <div class="row shortcuts">
+          <button type="button" data-directory="Downloads">下载</button>
+          <button type="button" data-directory="Documents">文稿</button>
+          <button type="button" data-directory="Desktop">桌面</button>
+        </div>
+        <p id="file-status"></p>
+        <table id="files" hidden>
+          <thead><tr><th scope="col">名称</th><th scope="col">大小</th><th scope="col">操作</th></tr></thead>
+          <tbody id="entries"></tbody>
+        </table>
+        <button id="next-page" hidden>加载下一页</button>
+        <div id="preview" hidden>
+          <h3 id="preview-title"></h3>
+          <pre id="preview-content"></pre>
+        </div>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

@@ -4,9 +4,11 @@
 <dict>
     <key>Label</key>
     <string>in.ryanl.filesharing.agent</string>
+    <key>BundleProgram</key>
+    <string>Contents/MacOS/FileSharingService</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/Applications/FileSharingAgent.app/Contents/MacOS/FileSharingAgent</string>
+        <string>FileSharingService</string>
         <string>run</string>
     </array>
     <key>LimitLoadToSessionType</key>
