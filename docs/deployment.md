@@ -29,7 +29,7 @@ DNS/证书续期由部署环境维护。生产反向代理覆盖 `Host`、`X-For
 
 - 用 `FILESHARING_ORIGIN=https://filesharing.example.com scripts/build-agent.sh dmg` 构建部署包。产物位于 `artifacts`。可选的 `FILESHARING_MANAGED_USER` 限定登录账户，远程部署可用 `FILESHARING_ALLOW_HOME_WRITE=YES` 允许 HOME 写入。
 - 打开 DMG，把 App 拖入 Applications，再打开已安装的 App。首次打开遵照 macOS 的单 App 放行流程。包内的启动脚本打开已安装 App。
-- App 首次打开会通过 Service Management 注册内置 LaunchAgent。按系统提示在「登录项与扩展」允许后台运行。此后由 launchd 管理登录启动和异常重启。用户可再次打开 App 查看状态或停用服务。
+- 从 `/Applications/FileSharingService.app` 首次打开会通过 Service Management 注册内置 LaunchAgent。App 记录当前构建的指纹并在升级后首次打开时刷新注册。按系统提示在「登录项与扩展」允许后台运行。此后由 launchd 管理登录启动和异常重启。用户可再次打开 App 查看注册状态或停用服务。
 - Agent 上线后，选择当前设备连接开启远程文件操作。Desktop、Documents 和 Downloads 由用户在 macOS 的授权弹窗或系统设置中处理。若需新增企业目录，在受管用户进程调用 App 内的 `roots add read|write /absolute/path`，重启后台服务后在管理端授权。
 - DMG 采用本地 ad-hoc 签名的非公证 App，并内置用户 LaunchAgent。仓库中的特权电源辅助代码独立于这份拖装包。文件联调用默认本机地址时，Agent 保持只读并关闭电源修改。 [Apple 的首次打开说明](https://support.apple.com/en-us/102445) · [Apple 的内置 LaunchAgent 布局](https://developer.apple.com/documentation/servicemanagement/updating-helper-executables-from-earlier-versions-of-macos)
 
@@ -42,4 +42,4 @@ DNS/证书续期由部署环境维护。生产反向代理覆盖 `Host`、`X-For
 - 管理域名验证证书、Passkey 建立和重置、关闭管理会话后 HTTP 受限及 WSS 退出。
 - 连接内网 FTP 和 FTPS，下载到测试目录并计算哈希。打开目录订阅后在 Mac 的测试目录内手工重命名文件，检查客户端推送。
 - 定期对 SQLite 做在线一致性备份，例如 SQLite 的 `.backup` 命令。停止服务后迁移整个持久卷也可获得一致状态。滚动升级提前备份并复测登录和传输，单实例重启待设备重新连接后继续已登记的单文件传输。
-- 发布前使用 `scripts/test-local.sh` 运行本机验收，通过 `scripts/build-agent.sh dmg` 编译两种架构并检查镜像。实际登录项批准和 TCC 请在目标 Mac 上试用。
+- 使用 `scripts/test-local.sh` 运行集成测试，通过 `scripts/build-agent.sh dmg` 编译两种架构并静态检查镜像。使用本机测试包安装或升级后，运行 `python3 tests/installed_agent_smoke.py` 验证实际的 launchd 启动和心跳，并在目标 Mac 检查 TCC 流程。

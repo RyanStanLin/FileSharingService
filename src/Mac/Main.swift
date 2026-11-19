@@ -1,6 +1,7 @@
 import AppKit
 import Darwin
 import Foundation
+import OSLog
 
 @main
 struct FileSharingAgent {
@@ -26,6 +27,10 @@ struct FileSharingAgent {
                 try FirstLaunch.check()
                 return
             }
+            if arguments == ["service-repair"] {
+                try await FirstLaunch.repair()
+                return
+            }
             #endif
             let state = try LocalState()
             switch arguments.first {
@@ -40,6 +45,9 @@ struct FileSharingAgent {
             }
         } catch {
             let reason = (error as? AgentError)?.code ?? "local_operation_failed"
+            let failure = error as NSError
+            Logger(subsystem: "in.ryanl.filesharing.agent", category: "Startup")
+                .error("Startup failed: \(reason, privacy: .public) (\(failure.domain, privacy: .public) \(failure.code, privacy: .public)).")
             FileHandle.standardError.write(Data("FileSharingAgent: \(reason)\n".utf8))
             exit(1)
         }

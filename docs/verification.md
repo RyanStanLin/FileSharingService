@@ -18,6 +18,7 @@
 | 旧 SQLite 设备、别名和根授权可迁移 | `test_sqlite_upgrade_preserves_preexisting_device_and_grant` |
 | 机器可读 REST 合同 | `test_openapi_contract` |
 | 本机网页 Passkey、剪贴板等待期间的设备长轮询、文件夹权限、WebSocket 回报与实际文件字节 | `test_browser_reports_pending_pasteboard_and_previews_file_over_polling` |
+| 已安装 App 的 launchd 构建版本、实际可执行路径和持续心跳 | `tests/installed_agent_smoke.py` |
 | 容器部署、测试 CA 验证、HTTPS、Agent 与浏览器 WSS、FTPS 被动数据 | `test_nginx_https_wss_and_embedded_ftps` |
 
 ## 执行结果
@@ -26,6 +27,8 @@ Agent 0.3.1 的 13 项本机集成测试和 1 项浏览器回归通过，.NET �
 
 0.3.0 实机安装后曾出现启动超过两分钟才发起首个 WebSocket 尝试。长轮询上线后，应用遥测占用主线程，导致失去心跳并使权限任务以 `device_unavailable` 结束。0.3.1 将应用扫描移到工作队列，让轮询心跳在权限探测等待期间继续运行。浏览器回归在剪贴板探测未返回时完成下载目录权限申请和预览，释放模拟探测后检查任务结果及连接 ID。
 
+0.3.1 的打包验收曾从临时挂载路径执行同标识 App。实机的 launchd 随后从已卸载的镜像路径启动旧注册，因找不到文件以 `EX_CONFIG` 结束。0.3.2 改为只通过静态方式校验镜像，并在安装目录内首次打开时刷新旧构建的注册。重新打包前后核对了原有 launchd 记录。
+
 ## 复现
 
 ```bash
@@ -33,10 +36,11 @@ scripts/test-local.sh
 scripts/build-agent.sh dmg
 python3 tests/demo_browser.py
 python3 tests/deployment_smoke.py
+python3 tests/installed_agent_smoke.py
 ```
 
 本地集成用 Python WebAuthn 虚拟凭证模拟真实签名及 RP、Origin 和用户验证检查。文件操作测试写入独立目录。稀疏文件测试验证超过 4 GiB 的逻辑偏移及对应数据。生产代理测试按测试 CA 进行真实 TLS 验证，使用独立 Compose 项目、网络、数据卷和样例证书。Xcode 构建输出 arm64 与 x86_64，挂载 DMG 检查 App 中的 SMAppService 资源和配置。
 
 ## 现场验收
 
-0.3.1 的实机验收仍待执行。首次打开 App 后检查登录项注册和设备上线，等待至少一个 45 秒心跳窗口后执行剪贴板申请。目标用户确认 macOS 反馈，然后在授权的 Downloads、Documents 或 Desktop 打开文件预览。最后验证退出网页、锁屏及再次登录后的连接状态。 [本机联调](local-demo.md)
+首次打开或升级 App 后，运行 `tests/installed_agent_smoke.py` 检查实际进程版本、安装路径，以及同一连接上的 60 秒心跳。等待上线后执行剪贴板申请，由目标用户确认 macOS 反馈，再在授权的 Downloads、Documents 或 Desktop 打开样本文件预览。最后验证退出网页、锁屏及再次登录后的连接状态。 [本机联调](local-demo.md)
