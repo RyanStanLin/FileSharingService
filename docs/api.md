@@ -185,14 +185,18 @@ Root 为 `{id,deviceId,rootKey,label,writable,enabled,revision}`。TCC 管理包
 | 方法与路径 | 参数 / 请求体 | 响应 |
 | --- | --- | --- |
 | `GET /ftp/connection` | 无 | `200 [{mode,host,port,scheme,address}]` |
+| `GET /ftp/connections` | 可选 `accountId` | `200 [{id,accountId,protocol,peerAddress,connectedAt,lastActivityAt}]` |
 | `GET /ftp/accounts` | `cursor,limit` | `200 Page<FtpAccount>` |
-| `POST /ftp/accounts` | `{name,mode,rootIds,password?}` | `201 {account,password,endpoints}` |
+| `POST /ftp/accounts` | `{name,mode,scope?,rootIds?,password?}` | `201 {account,password,endpoints}` |
 | `GET /ftp/accounts/{id}` | 无 | `200 FtpAccount` |
-| `PUT /ftp/accounts/{id}` | `{name,disabled,revision,rootIds}` | `200 FtpAccount` |
+| `PUT /ftp/accounts/{id}` | `{name,disabled,revision,scope?,rootIds?}` | `200 FtpAccount` |
 | `PUT /ftp/accounts/{id}/password` | `{revision,password?}` | `200 {account,password,endpoints}` |
+| `POST /ftp/accounts/{id}/password/reveal` | 无，要求最近五分钟内的 Passkey 登录 | `200 {name,password}` |
 | `DELETE /ftp/accounts/{id}` | 无 | `204` |
 
-账号 `mode` 取 `ftp` 或 `ftps`，创建和换密码时可省略 `password` 生成随机值。明文密码只在这两个操作的响应中出现，复制按钮从响应复制用户名、密码和选定端点。后续查询支持复制地址与账号，丢失的密码通过轮换处理。连接模式分别为 `plain`、`explicitTls`（URI 仍为 ftp，客户端选 Require explicit FTP over TLS）及 `implicitTls`（ftps）。管理员锁定时账号仍可以访问已授权目录且本次连接已开放远程操作的在线设备。修改账号授权、用户名、启用状态或密码会使旧 FTP 会话失效。
+账号 `mode` 取 `ftp` 或 `ftps`。创建和换密码时可省略 `password` 生成随机值。列表和详情提供 `passwordChangedAt` 和 `passwordRetrievable`。配置加密密钥后，可用专门的 reveal 接口查看新设密码。过期登录返回 `403 fresh_passkey_required`。第一次设定密钥之前的账号需要轮换一次密码，旧密码仅有哈希。三种密码响应均为 `Cache-Control: no-store`。连接模式为 `plain`、`explicitTls` 和 `implicitTls`。修改账号授权、用户名、启用状态或密码会使旧连接失效。
+
+`scope:"activeHomes"` 将所有在线、当前连接已授权且主目录根已启用的 Mac 映射为 `/mac1/`、`/mac2/` 等顶层目录。根内容是相应账号的 HOME 范围。挂载名根据首次公布的设备名称持久分配，重名附 UUID。此范围使用空的 `rootIds`。需要逐一授权时用 `scope:"grants"` 和指定的 `rootIds`，目录布局为 `/{deviceId}/{rootId}/`。创建时省略 `scope`，有 `rootIds` 则选择 `grants`，否则选择 `activeHomes`。两种范围均使用设备现有目录访问策略，文件网关开放目录浏览及下载。
 
 ```json
 {"account":{"id":"fcd35110-9677-4fd7-83db-6f59cd838dc8","name":"download-ops","mode":"ftps","disabled":false,"revision":1,"rootIds":["84a38c77-f769-4e27-b6d0-331281675ebd"]},"password":"example-issued-secret","endpoints":[{"mode":"explicitTls","host":"filesharing.example.com","port":2122,"scheme":"ftp","address":"ftp://filesharing.example.com:2122/"}]}

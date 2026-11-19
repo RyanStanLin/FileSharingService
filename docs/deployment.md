@@ -18,6 +18,7 @@
 | `FILESHARING_FTP_PASSIVE_MIN/MAX/ADDRESS` | PASV/EPSV 共享端口范围及 PASV 公布的 IPv4 地址。 |
 | `FILESHARING_FTP_PLAIN_CLIENTS` | 明文监听器允许的客户端 CIDR，逗号分隔。使用组织私网或 VPN 的访问控制。 |
 | `FILESHARING_TLS_DIR` | 证书目录。新证书就绪后重建或重启服务及 Nginx，再验证两种 TLS 入口。 |
+| `FILESHARING_GATEWAY_KEY` | 可选。由 `openssl rand -hex 32` 单独生成，用于加密供管理员查看的网关密码。与数据库备份分开保管。 |
 
 DNS/证书续期由部署环境维护。生产反向代理覆盖 `Host`、`X-Forwarded-Host`、`X-Forwarded-For`、`X-Forwarded-Proto`。仅将直接上游代理 IP 加到 `FileSharing__KnownProxies`。Nginx 模板还转发 WebSocket Upgrade 并关闭流量缓冲。Caddy 可以用 `reverse_proxy` 保持这些头部和升级语义。Kestrel 的 HTTP 端口仅留在容器网络。
 

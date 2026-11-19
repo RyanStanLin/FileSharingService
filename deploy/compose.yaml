@@ -11,6 +11,7 @@ services:
       FileSharing__DataDirectory: /data
       FileSharing__MaxDevices: ${FILESHARING_MAX_DEVICES:-100}
       FileSharing__BootstrapSecret: ${FILESHARING_BOOTSTRAP_SECRET:?}
+      FileSharing__GatewayCredentialKey: ${FILESHARING_GATEWAY_KEY:-}
       FileSharing__Ftp__Bind: 0.0.0.0
       FileSharing__Ftp__Host: ${FILESHARING_FTP_HOST:?}
       FileSharing__Ftp__PlainPort: ${FILESHARING_FTP_PLAIN_PORT:-2121}

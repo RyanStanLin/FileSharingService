@@ -36,15 +36,18 @@ internal sealed class Database(Settings settings)
                 break;
             case 2:
             case 3:
+            case 4:
                 break;
             default:
                 throw new InvalidOperationException($"Unsupported database version {version}");
         }
         if (version < 3)
             connection.Execute(MigrateJobOutput, transaction: transaction);
+        if (version < 4)
+            connection.Execute(MigrateGateways, transaction: transaction);
         if (connection.Query("PRAGMA foreign_key_check", transaction: transaction).Any())
             throw new InvalidOperationException("Database foreign key check failed.");
-        connection.Execute("PRAGMA user_version=3", transaction: transaction);
+        connection.Execute("PRAGMA user_version=4", transaction: transaction);
         transaction.Commit();
         connection.Execute("PRAGMA foreign_keys=ON");
     }
@@ -111,6 +114,21 @@ internal sealed class Database(Settings settings)
         CREATE TABLE IF NOT EXISTS JobOutput(
             JobId TEXT NOT NULL REFERENCES Jobs(Id) ON DELETE CASCADE, Ordinal INTEGER NOT NULL,
             Stream TEXT NOT NULL, Data TEXT NOT NULL, PRIMARY KEY(JobId,Ordinal));
+        """;
+
+    private const string MigrateGateways = """
+        CREATE TABLE FtpAccountsNext(
+            Id TEXT PRIMARY KEY, Name TEXT NOT NULL COLLATE NOCASE UNIQUE, Owner TEXT NOT NULL REFERENCES Operators(Id),
+            Mode TEXT NOT NULL CHECK(Mode IN ('ftp','ftps','sftp')), SecretHash TEXT NOT NULL,
+            Disabled INTEGER NOT NULL DEFAULT 0, Failed INTEGER NOT NULL DEFAULT 0,
+            LockUntil INTEGER NOT NULL DEFAULT 0, Revision INTEGER NOT NULL DEFAULT 1,
+            Scope TEXT NOT NULL CHECK(Scope IN ('grants','activeHomes')), SecretCipher TEXT, PasswordChanged INTEGER);
+        INSERT INTO FtpAccountsNext(Id,Name,Owner,Mode,SecretHash,Disabled,Failed,LockUntil,Revision,Scope)
+        SELECT Id,Name,Owner,Mode,SecretHash,Disabled,Failed,LockUntil,Revision,'grants' FROM FtpAccounts;
+        DROP TABLE FtpAccounts;
+        ALTER TABLE FtpAccountsNext RENAME TO FtpAccounts;
+        CREATE TABLE GatewayMounts(
+            DeviceId TEXT PRIMARY KEY REFERENCES Devices(Id), Name TEXT NOT NULL COLLATE NOCASE UNIQUE);
         """;
 
     private const string Schema = """

@@ -391,6 +391,10 @@ Origin: {{origin}}
 GET {{api}}/ftp/connection
 Cookie: {{cookie}}
 
+### List active protocol connections for an account
+GET {{api}}/ftp/connections?accountId={{ftpAccount}}
+Cookie: {{cookie}}
+
 ### List gateway accounts
 GET {{api}}/ftp/accounts?limit=20
 Cookie: {{cookie}}
@@ -406,6 +410,11 @@ Content-Type: application/json
 ### Read FTP account
 GET {{api}}/ftp/accounts/{{ftpAccount}}
 Cookie: {{cookie}}
+
+### Reveal an encrypted password after a fresh Passkey sign-in
+POST {{api}}/ftp/accounts/{{ftpAccount}}/password/reveal
+Cookie: {{cookie}}
+Origin: {{origin}}
 
 ### Update FTP account
 PUT {{api}}/ftp/accounts/{{ftpAccount}}

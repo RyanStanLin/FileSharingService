@@ -162,6 +162,7 @@ class Acceptance(unittest.TestCase):
             "FileSharing__Origin": self.origin,
             "FileSharing__DataDirectory": str(self.work / "db"),
             "FileSharing__BootstrapSecret": self.setup_key,
+            "FileSharing__GatewayCredentialKey": secrets.token_hex(32),
             "FileSharing__MaxDevices": "3",
             "FileSharing__Ftp__Bind": "127.0.0.1",
             "FileSharing__Ftp__PlainPort": str(self.plain_port),
@@ -424,6 +425,8 @@ class Acceptance(unittest.TestCase):
         registration = self.setup_device()
         self.api("PUT", self.device_api, json={"name": "Existing Mac", "profileId": "default",
                                                "revision": registration["revision"]})
+        legacy = self.api("POST", API + "/ftp/accounts", 201,
+                          json={"name": "legacy", "mode": "ftp", "rootIds": [self.root_id]}).json()
         self.stop(self.agent)
         self.stop(self.server)
         with closing(sqlite3.connect(self.work / "db" / "filesharing.db")) as data, data:
@@ -434,14 +437,26 @@ class Acceptance(unittest.TestCase):
                 CREATE TABLE Activations(Id TEXT PRIMARY KEY, SecretHash TEXT);
                 INSERT INTO Activations VALUES('old-ticket', 'fixture');
                 UPDATE Devices SET PublicKey=X'010203';
+                DROP TABLE GatewayMounts;
+                CREATE TABLE FtpAccountsPrior(
+                    Id TEXT PRIMARY KEY, Name TEXT NOT NULL COLLATE NOCASE UNIQUE, Owner TEXT NOT NULL REFERENCES Operators(Id),
+                    Mode TEXT NOT NULL CHECK(Mode IN ('ftp','ftps')), SecretHash TEXT NOT NULL,
+                    Disabled INTEGER NOT NULL DEFAULT 0, Failed INTEGER NOT NULL DEFAULT 0,
+                    LockUntil INTEGER NOT NULL DEFAULT 0, Revision INTEGER NOT NULL DEFAULT 1);
+                INSERT INTO FtpAccountsPrior SELECT Id,Name,Owner,Mode,SecretHash,Disabled,Failed,LockUntil,Revision FROM FtpAccounts;
+                DROP TABLE FtpAccounts;
+                ALTER TABLE FtpAccountsPrior RENAME TO FtpAccounts;
                 PRAGMA user_version=1;
             """)
         self.start_server()
         existing = self.api("GET", self.device_api).json()
         self.assertEqual(existing["name"], "Existing Mac")
         self.assertEqual(self.api("GET", self.device_api + "/file-roots").json()["items"][0]["id"], self.root_id)
+        account = self.api("GET", API + "/ftp/accounts/" + legacy["account"]["id"]).json()
+        self.assertEqual((account["scope"], account["rootIds"], account["passwordRetrievable"]), ("grants", [self.root_id], False))
+        self.api("POST", f"{API}/ftp/accounts/{account['id']}/password/reveal", 409)
         with closing(sqlite3.connect(self.work / "db" / "filesharing.db")) as data, data:
-            self.assertEqual(data.execute("PRAGMA user_version").fetchone()[0], 3)
+            self.assertEqual(data.execute("PRAGMA user_version").fetchone()[0], 4)
             self.assertEqual(data.execute("PRAGMA foreign_key_check").fetchall(), [])
             self.assertNotIn("PublicKey", [row[1] for row in data.execute("PRAGMA table_info(Devices)")])
             self.assertEqual(data.execute("SELECT COUNT(*) FROM sqlite_master WHERE name IN ('AgentTokens','Activations')").fetchone()[0], 0)
@@ -704,6 +719,59 @@ class Acceptance(unittest.TestCase):
         client = self.open_ftp("explicitTls", self.ftps_port, rotated)
         self.assertEqual(client.pwd(), "/")
         client.quit()
+
+    def test_gateway_live_home_scope_connections_and_encrypted_password_reveal(self):
+        registration = self.setup_device()
+        self.api("PUT", self.device_api, json={"name": "Mac1", "profileId": "default", "revision": registration["revision"]})
+        (self.home / "shared.txt").write_text("First Mac")
+        second_home = self.work / "second-home"
+        second_home.mkdir()
+        (second_home / "shared.txt").write_text("Second Mac")
+        self.spawn([str(APP), "run"], "second-agent.log", self.env | {
+            "FILESHARING_TEST_HOME": str(second_home),
+            "FILESHARING_TEST_STATE": str(self.work / "second-agent"),
+        })
+        other = self.wait(lambda: next((item for item in self.api("GET", API + "/devices").json()["items"]
+                                       if item["id"] != self.device and item["connection"]["online"]), None))
+        other_route = f"{API}/devices/{other['id']}"
+        self.api("PUT", other_route, json={"name": "Mac2", "profileId": "default", "revision": other["revision"]})
+        group = API + "/ftp/accounts"
+        credential = self.api("POST", group, 201, json={"name": "operator-homes", "mode": "ftps", "scope": "activeHomes"}).json()
+        account = credential["account"]
+        path = group + "/" + account["id"]
+        self.assertEqual((account["scope"], account["rootIds"]), ("activeHomes", []))
+        self.assertNotIn("password", self.api("GET", path).json())
+        self.assertTrue(account["passwordRetrievable"])
+        self.api("POST", path + "/password/reveal", 401, session=self.client())
+        reveal = self.api("POST", path + "/password/reveal").json()
+        self.assertEqual(reveal, {"name": account["name"], "password": credential["password"]})
+        with closing(sqlite3.connect(self.work / "db" / "filesharing.db")) as data, data:
+            stored = data.execute("SELECT SecretHash,SecretCipher FROM FtpAccounts WHERE Id=?", (account["id"],)).fetchone()
+            self.assertTrue(all(value and credential["password"] not in value for value in stored))
+            data.execute("UPDATE Reviews SET Created=Created-301 WHERE Revoked IS NULL")
+        self.assertEqual(self.api("POST", path + "/password/reveal", 403).json()["code"], "fresh_passkey_required")
+        self.unlock()
+
+        endpoint = next(item for item in credential["endpoints"] if item["mode"] == "explicitTls")
+        with self.open_ftp("explicitTls", endpoint["port"], credential) as client:
+            self.assertEqual(client.nlst("/"), ["mac1"])
+            connection, = self.api("GET", API + "/ftp/connections", params={"accountId": account["id"]}).json()
+            self.assertEqual((connection["accountId"], connection["protocol"]), (account["id"], "ftps"))
+            self.wait(lambda: self.api("GET", other_route + "/file-roots").json()["items"])
+            self.api("PUT", other_route + "/connection-access",
+                     json={"connectionId": other["connection"]["connectionId"], "enabled": True})
+            self.assertEqual(set(client.nlst("/")), {"mac1", "mac2"})
+            for name, text in (("mac1", b"First Mac"), ("mac2", b"Second Mac")):
+                output = io.BytesIO()
+                client.retrbinary(f"RETR /{name}/shared.txt", output.write)
+                self.assertEqual(output.getvalue(), text)
+            self.set_access(registration["connection"]["connectionId"], False)
+            self.assertEqual(client.nlst("/"), ["mac2"])
+            updated = self.api("PUT", path + "/password", json={"revision": account["revision"]}).json()
+            self.assertEqual(self.api("POST", path + "/password/reveal").json()["password"], updated["password"])
+            self.assertEqual(self.api("GET", API + "/ftp/connections").json(), [])
+            with self.assertRaises(ftplib.error_perm):
+                client.nlst("/")
 
     def test_dialog_response_notification_and_session_cancellation(self):
         self.register()

@@ -15,6 +15,8 @@ public static class Program
         builder.Services.AddSingleton(settings);
         builder.Services.AddSingleton(FtpSettings.Read(builder.Configuration, settings));
         builder.Services.AddSingleton<FtpAccounts>();
+        builder.Services.AddSingleton<GatewayCredentialVault>();
+        builder.Services.AddSingleton<GatewaySessions>();
         builder.Services.AddSingleton<FtpFiles>();
         builder.Services.AddHostedService<FtpGateway>();
         builder.Services.AddSingleton<Database>();

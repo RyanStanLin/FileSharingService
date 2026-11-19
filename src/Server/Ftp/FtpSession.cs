@@ -7,7 +7,7 @@ using System.Text;
 namespace FileSharing;
 
 internal sealed class FtpSession(FtpGateway gateway, FtpSettings options, FtpAccounts accounts, FtpFiles files,
-    TcpClient socket, string mode, IPAddress peer)
+    GatewaySessions sessions, TcpClient socket, string mode, IPAddress peer)
 {
     private static readonly UTF8Encoding Utf8 = new(false, true);
     private readonly SemaphoreSlim replies = new(1);
@@ -16,6 +16,7 @@ internal sealed class FtpSession(FtpGateway gateway, FtpSettings options, FtpAcc
     private TcpListener? passive;
     private string? username;
     private FtpIdentity? identity;
+    private GatewaySessions.Session? session;
     private string directory = "/";
     private bool protectedData;
     private bool negotiated;
@@ -43,6 +44,7 @@ internal sealed class FtpSession(FtpGateway gateway, FtpSettings options, FtpAcc
                 var line = await Read(idle.Token);
                 if (line is null)
                     return;
+                session?.Touch();
                 var separator = line.IndexOf(' ');
                 var verb = (separator < 0 ? line : line[..separator]).ToUpperInvariant();
                 var argument = separator < 0 ? "" : line[(separator + 1)..];
@@ -52,6 +54,7 @@ internal sealed class FtpSession(FtpGateway gateway, FtpSettings options, FtpAcc
         }
         finally
         {
+            sessions.End(session);
             if (transferStop is not null)
                 await transferStop.CancelAsync();
             if (transfer is not null)
@@ -133,6 +136,8 @@ internal sealed class FtpSession(FtpGateway gateway, FtpSettings options, FtpAcc
                         await Reply("534 Private data protection required", ct);
                     return true;
                 case "USER":
+                    sessions.End(session);
+                    session = null;
                     identity = null;
                     username = null;
                     directory = "/";
@@ -158,6 +163,8 @@ internal sealed class FtpSession(FtpGateway gateway, FtpSettings options, FtpAcc
                     else
                     {
                         identity = await accounts.Login(username, argument, mode == "plain" ? "ftp" : "ftps", ct);
+                        if (identity is not null)
+                            session = sessions.Start(identity, mode == "plain" ? "ftp" : "ftps", peer);
                         username = null;
                         await Reply(identity is not null ? "230 Logged in" : "530 Login failed", ct);
                     }
@@ -166,6 +173,8 @@ internal sealed class FtpSession(FtpGateway gateway, FtpSettings options, FtpAcc
 
             if (identity is null || !await accounts.Active(identity, ct))
             {
+                sessions.End(session);
+                session = null;
                 identity = null;
                 await Reply("530 Login required", ct);
                 return true;

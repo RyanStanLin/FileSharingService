@@ -9,7 +9,7 @@ using System.Threading.RateLimiting;
 
 namespace FileSharing;
 
-internal sealed class FtpGateway(FtpSettings options, FtpAccounts accounts, FtpFiles files, ILogger<FtpGateway> logger)
+internal sealed class FtpGateway(FtpSettings options, FtpAccounts accounts, FtpFiles files, GatewaySessions sessions, ILogger<FtpGateway> logger)
     : BackgroundService
 {
     private readonly List<(TcpListener Listener, string Mode)> listeners = [];
@@ -119,7 +119,7 @@ internal sealed class FtpGateway(FtpSettings options, FtpAccounts accounts, FtpF
             try
             {
                 socket.NoDelay = true;
-                await new FtpSession(this, options, accounts, files, socket, mode, ip).Run(ct);
+                await new FtpSession(this, options, accounts, files, sessions, socket, mode, ip).Run(ct);
             }
             catch (Exception error) when (error is OperationCanceledException or IOException or AuthenticationException or SocketException)
             {
