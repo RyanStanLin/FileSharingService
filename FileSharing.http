@@ -1,0 +1,426 @@
+@origin = https://filesharing.example.com
+@api = {{origin}}/api/v1
+@cookie = __Host-fs-admin=REPLACE
+@setupSecret = REPLACE
+@challenge = REPLACE
+@device = 144bae60-503d-45e3-8a17-ec7a64886c20
+@root = 84a38c77-f769-4e27-b6d0-331281675ebd
+@targetRoot = 25595568-2f3e-4300-8ca3-a9abf709728f
+@localRoot = 93327b87-7c53-4a91-85c3-78105b3916b8
+@ticket = 2204ec63-266b-45d3-8f67-8a088c744b21
+@profile = default
+@revision = 1
+@listingRevision = REPLACE
+@entryVersion = REPLACE
+@transfer = 31b01929-8a3b-4f28-96b4-ab38762ae93e
+@job = af16d625-a9e5-4371-807d-9b8f140099ef
+@ftpAccount = fcd35110-9677-4fd7-83db-6f59cd838dc8
+@idempotency = local-example-archive-1
+
+### Liveness
+GET {{origin}}/health/live
+
+### Readiness
+GET {{origin}}/health/ready
+
+### OpenAPI
+GET {{origin}}/openapi/v1.json
+Cookie: {{cookie}}
+
+### Lock status
+GET {{api}}/auth/status
+
+### Passkey registration options
+POST {{api}}/auth/passkeys/registration/options
+Origin: {{origin}}
+Content-Type: application/json
+
+{"secret":"{{setupSecret}}"}
+
+### Submit registration
+POST {{api}}/auth/passkeys/registration
+Origin: {{origin}}
+Content-Type: application/json
+
+{"challengeId":"{{challenge}}","credential":{"id":"REPLACE_WITH_BROWSER_CREDENTIAL_JSON"},"secret":"{{setupSecret}}"}
+
+### Passkey authentication options
+POST {{api}}/auth/passkeys/authentication/options
+Origin: {{origin}}
+
+### Submit authentication
+POST {{api}}/auth/passkeys/authentication
+Origin: {{origin}}
+Content-Type: application/json
+
+{"challengeId":"{{challenge}}","credential":{"id":"REPLACE_WITH_BROWSER_CREDENTIAL_JSON"}}
+
+### Passkey recovery options
+POST {{api}}/auth/passkeys/recovery/options
+Origin: {{origin}}
+Content-Type: application/json
+
+{"secret":"{{setupSecret}}"}
+
+### Submit recovery
+POST {{api}}/auth/passkeys/recovery
+Origin: {{origin}}
+Content-Type: application/json
+
+{"challengeId":"{{challenge}}","credential":{"id":"REPLACE_WITH_BROWSER_CREDENTIAL_JSON"},"secret":"{{setupSecret}}"}
+
+### Lock session
+POST {{api}}/auth/lock
+Cookie: {{cookie}}
+Origin: {{origin}}
+
+### List devices
+GET {{api}}/devices?limit=20
+Cookie: {{cookie}}
+
+### Get device
+GET {{api}}/devices/{{device}}
+Cookie: {{cookie}}
+
+### Rename device
+PUT {{api}}/devices/{{device}}
+Cookie: {{cookie}}
+Origin: {{origin}}
+Content-Type: application/json
+
+{"name":"Design Lab Mac","profileId":"{{profile}}","revision":1}
+
+### Revoke fixture device
+DELETE {{api}}/devices/{{device}}
+Cookie: {{cookie}}
+Origin: {{origin}}
+
+### Read effective device policy
+GET {{api}}/devices/{{device}}/policy
+Cookie: {{cookie}}
+
+### Set device policy
+PUT {{api}}/devices/{{device}}/policy
+Cookie: {{cookie}}
+Origin: {{origin}}
+Content-Type: application/json
+
+{"revision":1,"settings":{"cpu":0,"memory":10,"disk":60,"battery":60,"displays":0,"keepAwake":true}}
+
+### Issue an enrollment ticket
+POST {{api}}/enrollments
+Cookie: {{cookie}}
+Origin: {{origin}}
+Content-Type: application/json
+
+{"count":1,"expiresInMinutes":180}
+
+### List tickets
+GET {{api}}/enrollments?limit=20
+Cookie: {{cookie}}
+
+### Read enrollment
+GET {{api}}/enrollments/{{ticket}}
+Cookie: {{cookie}}
+
+### Revoke unused fixture ticket
+DELETE {{api}}/enrollments/{{ticket}}
+Cookie: {{cookie}}
+Origin: {{origin}}
+
+### List profiles
+GET {{api}}/collection-profiles
+Cookie: {{cookie}}
+
+### Create profile
+POST {{api}}/collection-profiles
+Cookie: {{cookie}}
+Origin: {{origin}}
+Content-Type: application/json
+
+{"name":"Manual","settings":{"cpu":0,"memory":10,"disk":60,"battery":60,"displays":0,"keepAwake":true}}
+
+### Read profile
+GET {{api}}/collection-profiles/{{profile}}
+Cookie: {{cookie}}
+
+### Update profile
+PUT {{api}}/collection-profiles/{{profile}}
+Cookie: {{cookie}}
+Origin: {{origin}}
+Content-Type: application/json
+
+{"name":"Current","settings":{"cpu":0,"memory":10,"disk":60,"battery":60,"displays":0,"keepAwake":true},"revision":1}
+
+### Delete unused fixture profile
+DELETE {{api}}/collection-profiles/{{profile}}
+Cookie: {{cookie}}
+Origin: {{origin}}
+
+### List Mac roots
+GET {{api}}/devices/{{device}}/file-roots/local
+Cookie: {{cookie}}
+
+### List grants
+GET {{api}}/devices/{{device}}/file-roots
+Cookie: {{cookie}}
+
+### Grant locally scoped access
+POST {{api}}/devices/{{device}}/file-roots
+Cookie: {{cookie}}
+Origin: {{origin}}
+Content-Type: application/json
+
+{"rootKey":"{{localRoot}}","label":"Design","writable":false,"enabled":true}
+
+### Read grant
+GET {{api}}/devices/{{device}}/file-roots/{{root}}
+Cookie: {{cookie}}
+
+### Change grant
+PUT {{api}}/devices/{{device}}/file-roots/{{root}}
+Cookie: {{cookie}}
+Origin: {{origin}}
+Content-Type: application/json
+
+{"rootKey":"{{localRoot}}","label":"Design","writable":false,"enabled":true,"revision":1}
+
+### Revoke fixture root
+DELETE {{api}}/devices/{{device}}/file-roots/{{root}}
+Cookie: {{cookie}}
+Origin: {{origin}}
+
+### Device telemetry
+GET {{api}}/devices/{{device}}/status
+Cookie: {{cookie}}
+
+### CPU history
+GET {{api}}/devices/{{device}}/history?topic=cpu&from=2026-11-19T00%3A00%3A00Z&limit=30
+Cookie: {{cookie}}
+
+### Force a sample
+POST {{api}}/devices/{{device}}/refresh
+Cookie: {{cookie}}
+Origin: {{origin}}
+Content-Type: application/json
+
+{"topics":["cpu","memory"]}
+
+### Running apps
+GET {{api}}/devices/{{device}}/apps/running
+Cookie: {{cookie}}
+
+### Installed apps
+GET {{api}}/devices/{{device}}/apps/installed
+Cookie: {{cookie}}
+
+### App icon
+GET {{api}}/devices/{{device}}/apps/icon?applicationId=REPLACE
+Cookie: {{cookie}}
+
+### External storage
+GET {{api}}/devices/{{device}}/storage
+Cookie: {{cookie}}
+
+### Permissions
+GET {{api}}/devices/{{device}}/permissions
+Cookie: {{cookie}}
+
+### Check Documents permission
+POST {{api}}/devices/{{device}}/permissions/requests
+Cookie: {{cookie}}
+Origin: {{origin}}
+Content-Type: application/json
+
+{"kind":"documents"}
+
+### Run fixed read-only diagnostic
+POST {{api}}/devices/{{device}}/diagnostics
+Cookie: {{cookie}}
+Origin: {{origin}}
+Content-Type: application/json
+
+{"kind":"osVersion"}
+
+### Read jobs
+GET {{api}}/jobs?deviceId={{device}}&limit=30
+Cookie: {{cookie}}
+
+### Job result
+GET {{api}}/jobs/{{job}}
+Cookie: {{cookie}}
+
+### Replay non-directory event history
+GET {{api}}/events?deviceId={{device}}&topic=connection.changed&after=0
+Cookie: {{cookie}}
+
+### WebSocket subscription
+GET {{api}}/events/ws
+Cookie: {{cookie}}
+Origin: {{origin}}
+Connection: Upgrade
+Upgrade: websocket
+Sec-WebSocket-Version: 13
+Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==
+
+### Audit
+GET {{api}}/audit?deviceId={{device}}
+Cookie: {{cookie}}
+
+### Browse directory
+GET {{api}}/devices/{{device}}/files/entries?rootId={{root}}&path=Demo&hidden=true&sort=modifiedAt&direction=desc&limit=20
+Cookie: {{cookie}}
+
+### Read metadata
+GET {{api}}/devices/{{device}}/files/entry?rootId={{root}}&path=Demo%2Fplan.pdf
+Cookie: {{cookie}}
+
+### Read thumbnail
+GET {{api}}/devices/{{device}}/files/thumbnail?rootId={{root}}&path=Demo%2Fplan.pdf&version={{entryVersion}}
+Cookie: {{cookie}}
+
+### Create folder
+POST {{api}}/devices/{{device}}/files/directories
+Cookie: {{cookie}}
+Origin: {{origin}}
+Content-Type: application/json
+
+{"rootId":"{{root}}","path":"Demo/New"}
+
+### Rename fixture file
+POST {{api}}/devices/{{device}}/files/renames
+Cookie: {{cookie}}
+Origin: {{origin}}
+Content-Type: application/json
+
+{"rootId":"{{root}}","path":"Demo/plan.pdf","version":"{{entryVersion}}","newName":"revised.pdf"}
+
+### Move fixture file
+POST {{api}}/devices/{{device}}/files/moves
+Cookie: {{cookie}}
+Origin: {{origin}}
+Content-Type: application/json
+
+{"rootId":"{{root}}","path":"Demo/plan.pdf","version":"{{entryVersion}}","destination":"Archive/plan.pdf","destinationRootId":"{{targetRoot}}"}
+
+### Trash fixture file
+POST {{api}}/devices/{{device}}/files/trash
+Cookie: {{cookie}}
+Origin: {{origin}}
+Content-Type: application/json
+
+{"rootId":"{{root}}","path":"Demo/plan.pdf","version":"{{entryVersion}}"}
+
+### Permanently delete fixture file
+DELETE {{api}}/devices/{{device}}/files/entry?rootId={{root}}&path=Demo%2Fplan.pdf&version={{entryVersion}}
+Cookie: {{cookie}}
+Origin: {{origin}}
+
+### Archive fixture items
+POST {{api}}/transfers
+Cookie: {{cookie}}
+Origin: {{origin}}
+Idempotency-Key: {{idempotency}}
+Content-Type: application/json
+
+{"deviceId":"{{device}}","rootId":"{{root}}","kind":"archive","entries":["Demo","plan.pdf"]}
+
+### Prepare download
+POST {{api}}/transfers
+Cookie: {{cookie}}
+Origin: {{origin}}
+Idempotency-Key: local-example-download-1
+Content-Type: application/json
+
+{"deviceId":"{{device}}","rootId":"{{root}}","kind":"download","path":"Demo/plan.pdf"}
+
+### Prepare upload
+POST {{api}}/transfers
+Cookie: {{cookie}}
+Origin: {{origin}}
+Idempotency-Key: local-example-upload-1
+Content-Type: application/json
+
+{"deviceId":"{{device}}","rootId":"{{root}}","kind":"upload","path":"Demo/fixture.txt","length":5}
+
+### List transfers
+GET {{api}}/transfers?deviceId={{device}}
+Cookie: {{cookie}}
+
+### Transfer status
+GET {{api}}/transfers/{{transfer}}
+Cookie: {{cookie}}
+
+### Cancel transfer
+DELETE {{api}}/transfers/{{transfer}}
+Cookie: {{cookie}}
+Origin: {{origin}}
+
+### Inspect download headers
+HEAD {{api}}/transfers/{{transfer}}/content
+Cookie: {{cookie}}
+
+### Continue a partial download
+GET {{api}}/transfers/{{transfer}}/content
+Cookie: {{cookie}}
+Range: bytes=4096-
+If-Range: "{{entryVersion}}"
+
+### Relay an upload chunk
+PUT {{api}}/transfers/{{transfer}}/content
+Cookie: {{cookie}}
+Origin: {{origin}}
+Upload-Offset: 0
+Content-Type: application/octet-stream
+
+hello
+
+### Commit upload
+POST {{api}}/transfers/{{transfer}}/commit
+Cookie: {{cookie}}
+Origin: {{origin}}
+
+### Read gateway endpoints
+GET {{api}}/ftp/connection
+Cookie: {{cookie}}
+
+### List gateway accounts
+GET {{api}}/ftp/accounts?limit=20
+Cookie: {{cookie}}
+
+### Create FTPS account
+POST {{api}}/ftp/accounts
+Cookie: {{cookie}}
+Origin: {{origin}}
+Content-Type: application/json
+
+{"mode":"ftps","name":"design-read","rootIds":["{{root}}"]}
+
+### Read FTP account
+GET {{api}}/ftp/accounts/{{ftpAccount}}
+Cookie: {{cookie}}
+
+### Update FTP account
+PUT {{api}}/ftp/accounts/{{ftpAccount}}
+Cookie: {{cookie}}
+Origin: {{origin}}
+Content-Type: application/json
+
+{"name":"design-read-new","disabled":false,"revision":1,"rootIds":["{{root}}"]}
+
+### Rotate FTP password
+PUT {{api}}/ftp/accounts/{{ftpAccount}}/password
+Cookie: {{cookie}}
+Origin: {{origin}}
+Content-Type: application/json
+
+{"revision":1}
+
+### Delete fixture FTP account
+DELETE {{api}}/ftp/accounts/{{ftpAccount}}
+Cookie: {{cookie}}
+Origin: {{origin}}
+
+### Invalid identifier
+GET {{api}}/devices/invalid-device
+Cookie: {{cookie}}

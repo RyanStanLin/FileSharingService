@@ -1,0 +1,13 @@
+**/bin/
+**/obj/
+**/target/
+artifacts/
+.local/
+.env
+.env.*
+!deploy/.env.example
+.DS_Store
+**/__pycache__/
+/deploy/state/
+/deploy/tls/
+/deploy/updates/

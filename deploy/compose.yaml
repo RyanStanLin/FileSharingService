@@ -1,0 +1,68 @@
+services:
+  server:
+    build:
+      context: ..
+      dockerfile: deploy/Server.Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://0.0.0.0:8080
+      FileSharing__Origin: ${FILESHARING_ORIGIN:?}
+      FileSharing__KnownProxies: ${FILESHARING_NETWORK_PREFIX:-172.30.253}.10
+      FileSharing__DataDirectory: /data
+      FileSharing__MaxDevices: ${FILESHARING_MAX_DEVICES:-100}
+      FileSharing__BootstrapSecret: ${FILESHARING_BOOTSTRAP_SECRET:?}
+      FileSharing__Ftp__Bind: 0.0.0.0
+      FileSharing__Ftp__Host: ${FILESHARING_FTP_HOST:?}
+      FileSharing__Ftp__PlainPort: ${FILESHARING_FTP_PLAIN_PORT:-2121}
+      FileSharing__Ftp__ExplicitPort: ${FILESHARING_FTP_EXPLICIT_PORT:-2122}
+      FileSharing__Ftp__ImplicitPort: ${FILESHARING_FTP_IMPLICIT_PORT:-2990}
+      FileSharing__Ftp__PassiveMin: ${FILESHARING_FTP_PASSIVE_MIN:-41000}
+      FileSharing__Ftp__PassiveMax: ${FILESHARING_FTP_PASSIVE_MAX:-41031}
+      FileSharing__Ftp__PassiveAddress: ${FILESHARING_FTP_PASSIVE_ADDRESS:?}
+      FileSharing__Ftp__PlainClients: ${FILESHARING_FTP_PLAIN_CLIENTS:?}
+      FileSharing__Ftp__Certificate: /certs/fullchain.pem
+      FileSharing__Ftp__CertificateKey: /certs/privkey.pem
+    volumes:
+      - data:/data
+      - ${FILESHARING_TLS_DIR:-./tls}:/certs:ro
+    ports:
+      - "${FILESHARING_FTP_IP:?}:${FILESHARING_FTP_PLAIN_PORT:-2121}:${FILESHARING_FTP_PLAIN_PORT:-2121}"
+      - "${FILESHARING_FTP_IP:?}:${FILESHARING_FTP_EXPLICIT_PORT:-2122}:${FILESHARING_FTP_EXPLICIT_PORT:-2122}"
+      - "${FILESHARING_FTP_IP:?}:${FILESHARING_FTP_IMPLICIT_PORT:-2990}:${FILESHARING_FTP_IMPLICIT_PORT:-2990}"
+      - "${FILESHARING_FTP_IP:?}:${FILESHARING_FTP_PASSIVE_MIN:-41000}-${FILESHARING_FTP_PASSIVE_MAX:-41031}:${FILESHARING_FTP_PASSIVE_MIN:-41000}-${FILESHARING_FTP_PASSIVE_MAX:-41031}"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    networks:
+      private:
+        ipv4_address: ${FILESHARING_NETWORK_PREFIX:-172.30.253}.20
+  proxy:
+    image: nginx:stable-alpine
+    depends_on:
+      - server
+    environment:
+      FILESHARING_DOMAIN: ${FILESHARING_DOMAIN:?}
+      NGINX_ENVSUBST_FILTER: ^FILESHARING_DOMAIN$
+    volumes:
+      - ./nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ${FILESHARING_TLS_DIR:-./tls}:/certs:ro
+    ports:
+      - "${FILESHARING_HTTPS_IP:-127.0.0.1}:${FILESHARING_HTTPS_PORT:-443}:443"
+    restart: unless-stopped
+    networks:
+      private:
+        ipv4_address: ${FILESHARING_NETWORK_PREFIX:-172.30.253}.10
+
+volumes:
+  data:
+
+networks:
+  private:
+    ipam:
+      config:
+        - subnet: ${FILESHARING_NETWORK_PREFIX:-172.30.253}.0/24

@@ -1,0 +1,11 @@
+.git
+.local
+artifacts
+**/.env
+**/.env.*
+**/bin
+**/obj
+**/target
+deploy/state
+deploy/tls
+deploy/updates

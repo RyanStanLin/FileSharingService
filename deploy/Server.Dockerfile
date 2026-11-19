@@ -1,0 +1,14 @@
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+WORKDIR /src
+COPY global.json .
+COPY src/Server/FileSharing.Server.csproj src/Server/packages.lock.json src/Server/
+RUN dotnet restore src/Server/FileSharing.Server.csproj --locked-mode
+COPY src/Server/ src/Server/
+RUN dotnet publish src/Server/FileSharing.Server.csproj -c Release --no-restore -o /out
+
+FROM mcr.microsoft.com/dotnet/aspnet:10.0.15
+WORKDIR /app
+COPY --from=build /out/ ./
+RUN mkdir -m 700 /data && chown "$APP_UID" /data
+USER $APP_UID
+ENTRYPOINT ["sh", "-c", "umask 077; exec dotnet FileSharing.Server.dll"]

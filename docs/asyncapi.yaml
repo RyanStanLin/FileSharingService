@@ -1,0 +1,190 @@
+asyncapi: 3.0.0
+info:
+  title: FileSharing browser events
+  version: 1.0.0
+servers:
+  enterprise:
+    host: filesharing.example.com
+    protocol: wss
+channels:
+  browserEvents:
+    address: /api/v1/events/ws
+    description: Requires the same-origin administrator session and an Origin header.
+    messages:
+      subscribe:
+        $ref: '#/components/messages/Subscribe'
+      unsubscribe:
+        $ref: '#/components/messages/Unsubscribe'
+      ready:
+        $ref: '#/components/messages/Ready'
+      subscribed:
+        $ref: '#/components/messages/Subscribed'
+      event:
+        $ref: '#/components/messages/Event'
+      unsubscribed:
+        $ref: '#/components/messages/Unsubscribed'
+      error:
+        $ref: '#/components/messages/Error'
+operations:
+  acceptSubscriptions:
+    action: receive
+    channel:
+      $ref: '#/channels/browserEvents'
+    messages:
+      - $ref: '#/channels/browserEvents/messages/subscribe'
+      - $ref: '#/channels/browserEvents/messages/unsubscribe'
+  publishEvents:
+    action: send
+    channel:
+      $ref: '#/channels/browserEvents'
+    messages:
+      - $ref: '#/channels/browserEvents/messages/ready'
+      - $ref: '#/channels/browserEvents/messages/subscribed'
+      - $ref: '#/channels/browserEvents/messages/event'
+      - $ref: '#/channels/browserEvents/messages/unsubscribed'
+      - $ref: '#/channels/browserEvents/messages/error'
+components:
+  messages:
+    Subscribe:
+      contentType: application/json
+      payload:
+        type: object
+        required: [type, id, deviceId, topic]
+        properties:
+          type:
+            const: subscribe
+          id:
+            type: string
+            minLength: 1
+            maxLength: 64
+          deviceId:
+            type: string
+            format: uuid
+          topic:
+            type: string
+          rootId:
+            type: string
+            format: uuid
+            description: Required for files.changed.
+          path:
+            type: string
+            description: Relative directory path for files.changed. Empty selects the root.
+          after:
+            $ref: '#/components/schemas/Cursor'
+    Unsubscribe:
+      payload:
+        type: object
+        required: [type, id]
+        properties:
+          type:
+            const: unsubscribe
+          id:
+            type: string
+    Ready:
+      payload:
+        type: object
+        required: [type, cursor]
+        properties:
+          type:
+            const: ready
+          cursor:
+            $ref: '#/components/schemas/Cursor'
+    Subscribed:
+      payload:
+        type: object
+        required: [type, id, cursor, snapshotRequired]
+        properties:
+          type:
+            const: subscribed
+          id:
+            type: string
+          cursor:
+            $ref: '#/components/schemas/Cursor'
+          snapshotRequired:
+            type: boolean
+    Unsubscribed:
+      payload:
+        type: object
+        required: [type, id]
+        properties:
+          type:
+            const: unsubscribed
+          id:
+            type: string
+    Event:
+      payload:
+        type: object
+        required: [type, id, item]
+        properties:
+          type:
+            const: event
+          id:
+            type: string
+          item:
+            $ref: '#/components/schemas/EventItem'
+    Error:
+      payload:
+        type: object
+        required: [type, code]
+        properties:
+          type:
+            const: error
+          id:
+            type: [string, 'null']
+          code:
+            type: string
+  schemas:
+    Cursor:
+      type: string
+      pattern: '^[0-9]+$'
+    EventItem:
+      type: object
+      required: [sequence, deviceId, topic, time, payload]
+      properties:
+        sequence:
+          $ref: '#/components/schemas/Cursor'
+        deviceId:
+          type: string
+          format: uuid
+        topic:
+          type: string
+        time:
+          type: string
+          format: date-time
+        payload:
+          description: Theme-specific value. files.changed uses DirectoryEvent.
+    DirectoryEvent:
+      type: object
+      required: [watchId, rootId, path, change]
+      properties:
+        watchId:
+          type: string
+          format: uuid
+        rootId:
+          type: string
+          format: uuid
+        path:
+          type: string
+        change:
+          type: object
+          required: [kind, revision]
+          properties:
+            kind:
+              enum: [delta, resync_required]
+            revision:
+              type: [string, 'null']
+            previousRevision:
+              type: string
+            changes:
+              type: array
+              items:
+                type: object
+                required: [kind, entry]
+                properties:
+                  kind:
+                    enum: [added, removed, updated, renamed]
+                  fromPath:
+                    type: string
+                  entry:
+                    type: object
+                    description: FileEntry metadata from the REST contract.
