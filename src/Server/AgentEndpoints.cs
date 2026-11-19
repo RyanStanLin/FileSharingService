@@ -29,6 +29,11 @@ internal sealed class AgentIngest(Database db, AgentBroker broker, WatchRegistry
         }
         if (frame.Type == "pong")
             return;
+        if (frame.Type == "progress")
+        {
+            await broker.Progress(link, frame, ct);
+            return;
+        }
         if (frame is not { Type: "event", Id: { } id, Topic: { } topic, Payload: { } payload } ||
             !Guid.TryParseExact(id, "D", out _))
             throw Fault.Bad("invalid_event");

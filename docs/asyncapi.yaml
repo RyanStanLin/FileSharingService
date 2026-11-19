@@ -152,7 +152,23 @@ components:
           type: string
           format: date-time
         payload:
-          description: Topic-specific value. files.changed uses DirectoryEvent; clipboard.changed uses ClipboardChange; lid.changed uses LidChange.
+          description: Topic-specific value. files.changed uses DirectoryEvent, clipboard.changed uses ClipboardChange, lid.changed uses LidChange, and jobs.output uses JobOutput.
+    JobOutput:
+      type: object
+      required: [jobId, index, stream, data]
+      properties:
+        jobId:
+          type: string
+          format: uuid
+        index:
+          type: integer
+          minimum: 1
+          maximum: 64
+        stream:
+          enum: [stdout, stderr]
+        data:
+          type: string
+          contentEncoding: base64
     ClipboardChange:
       type: object
       additionalProperties: false

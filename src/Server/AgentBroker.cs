@@ -14,9 +14,10 @@ internal sealed class AgentBroker(Database db, AgentRegistration registration, I
     internal const string ChannelHeader = "X-FileSharing-Channel";
     private const int PresenceWindow = 45;
 
-    internal sealed class Pending(AgentCommand command)
+    internal sealed class Pending(AgentCommand command, Func<JsonElement, CancellationToken, Task>? progress)
     {
         public AgentCommand Command { get; } = command;
+        public Func<JsonElement, CancellationToken, Task>? Progress { get; } = progress;
         public TaskCompletionSource<AgentFrame> Completion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public long LeaseUntil { get; set; }
     }
@@ -203,10 +204,10 @@ internal sealed class AgentBroker(Database db, AgentRegistration registration, I
     }
 
     public async Task<JsonElement> Invoke(string device, string kind, object payload, CancellationToken ct, string? commandId = null,
-        TimeSpan? timeout = null, string? connectionId = null)
+        TimeSpan? timeout = null, string? connectionId = null, Func<JsonElement, CancellationToken, Task>? progress = null)
     {
         var link = Find(device);
-        var pending = new Pending(new AgentCommand("command", commandId ?? Secrets.Id(), kind, Wire.Element(payload)));
+        var pending = new Pending(new AgentCommand("command", commandId ?? Secrets.Id(), kind, Wire.Element(payload)), progress);
         lock (link)
         {
             RequireAccess(link, connectionId);
@@ -277,6 +278,19 @@ internal sealed class AgentBroker(Database db, AgentRegistration registration, I
                 pending.Completion.TrySetResult(frame);
     }
 
+    public Task Progress(Link link, AgentFrame frame, CancellationToken ct)
+    {
+        if (frame is not { Id: { } id, Payload: { ValueKind: JsonValueKind.Object } payload })
+            throw Fault.Bad("invalid_job_output");
+        Func<JsonElement, CancellationToken, Task>? accept;
+        lock (link)
+        {
+            accept = Online(link) && link.AccessGranted && link.Pending.TryGetValue(id, out var pending) &&
+                !pending.Completion.Task.IsCompleted ? pending.Progress : null;
+        }
+        return accept?.Invoke(payload, ct) ?? Task.CompletedTask;
+    }
+
     private Link Find(string device) => links.TryGetValue(device, out var link) ? link : throw Fault.Unavailable();
 
     private async Task<AgentPresence> Publish(Link link, CancellationToken ct)
@@ -337,6 +351,7 @@ internal sealed class AgentBroker(Database db, AgentRegistration registration, I
         "already_exists" or "invalid_offset" or "snapshot_changed" or "directory_not_empty" or "trash_unavailable" or "delete_incomplete" or "cross_volume" => Fault.Conflict(code),
         "too_large" => new Fault(413, code),
         "limit_reached" => new Fault(429, code),
+        "diagnostic_launch_failed" => Fault.Unavailable(code),
         "unsupported" => new Fault(422, code),
         _ => Fault.Unavailable("device_operation_failed")
     };

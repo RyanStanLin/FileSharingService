@@ -441,7 +441,7 @@ class Acceptance(unittest.TestCase):
         self.assertEqual(existing["name"], "Existing Mac")
         self.assertEqual(self.api("GET", self.device_api + "/file-roots").json()["items"][0]["id"], self.root_id)
         with closing(sqlite3.connect(self.work / "db" / "filesharing.db")) as data, data:
-            self.assertEqual(data.execute("PRAGMA user_version").fetchone()[0], 2)
+            self.assertEqual(data.execute("PRAGMA user_version").fetchone()[0], 3)
             self.assertEqual(data.execute("PRAGMA foreign_key_check").fetchall(), [])
             self.assertNotIn("PublicKey", [row[1] for row in data.execute("PRAGMA table_info(Devices)")])
             self.assertEqual(data.execute("SELECT COUNT(*) FROM sqlite_master WHERE name IN ('AgentTokens','Activations')").fetchone()[0], 0)
@@ -705,6 +705,63 @@ class Acceptance(unittest.TestCase):
         self.assertEqual(client.pwd(), "/")
         client.quit()
 
+    def test_diagnostic_outputs_stream_and_resume_on_wss_and_https(self):
+        self.setup_device()
+        for protocol in ("wss", "https"):
+            if protocol == "https":
+                self.stop(self.agent)
+                self.stop(self.server)
+                self.start_server(polling=True)
+                self.agent = self.spawn([str(APP), "run"], "agent.log", self.env)
+                def connected():
+                    result = self.api("GET", self.device_api).json()["connection"]
+                    return result if result["protocol"] == protocol else None
+                self.set_access(self.wait(connected)["connectionId"], True)
+            self.api("POST", self.device_api + "/diagnostics", 400, json={"kind": "sw_vers -productVersion"})
+            with self.channel() as ws:
+                ws.send(json.dumps({"type": "subscribe", "id": "output", "deviceId": self.device, "topic": "jobs.output"}))
+                self.receive(ws, lambda value: value["type"] == "subscribed")
+                job = self.api("POST", self.device_api + "/diagnostics", 202, json={"kind": "osVersion"}).json()
+                item = self.receive(ws, lambda value: value["type"] == "event" and value["id"] == "output")["item"]["payload"]
+                self.assertEqual((item["jobId"], item["index"], item["stream"]), (job["id"], 1, "stdout"))
+                finished = self.finished_job(job)
+                self.assertEqual((finished["state"], finished["result"]["exitCode"]), ("completed", 0))
+                self.assertFalse(finished["result"]["timedOut"])
+                output = f"{API}/jobs/{job['id']}/output"
+                page = self.api("GET", output).json()
+                joined = b"".join(base64.b64decode(part["data"]) for part in page["items"] if part["stream"] == "stdout")
+                self.assertEqual(joined.decode(), finished["result"]["stdout"])
+                self.assertIn(b"ProductVersion:", joined)
+                self.assertEqual(self.api("GET", output, params={"after": page["cursor"]}).json(),
+                                 {"items": [], "cursor": page["cursor"]})
+                self.api("GET", output, 401, session=self.client())
+
+    def test_stderr_progress_precedes_exit_and_duplicate_is_ignored(self):
+        self.register()
+        self.unlock()
+        device = str(uuid.uuid4())
+        established = self.api("POST", "/agent/v1/connect", json={"deviceId": device, "name": "Diagnostic fixture"}).json()
+        header = {"X-FileSharing-Channel": established["channel"]}
+        presence = self.api("GET", f"{API}/devices/{device}").json()["connection"]
+        self.api("PUT", f"{API}/devices/{device}/connection-access",
+                 json={"connectionId": presence["connectionId"], "enabled": True})
+        request = self.api("POST", f"{API}/devices/{device}/diagnostics", 202, json={"kind": "diskSpace"}).json()
+        self.api("POST", f"{API}/devices/{device}/diagnostics", 429, json={"kind": "diskSpace"})
+        command, = self.api("GET", "/agent/v1/commands", headers=header).json()
+        self.assertEqual(command["id"], request["id"])
+        path = f"{API}/jobs/{request['id']}"
+        text = "Diagnostic fixture reported an error\n"
+        stderr = {"index": 1, "stream": "stderr", "data": base64.b64encode(text.encode()).decode()}
+        frame = {"type": "progress", "id": command["id"], "payload": stderr}
+        self.api("POST", "/agent/v1/frames", 204, headers=header, json={"frames": [frame, frame]})
+        self.assertEqual(self.api("GET", path).json()["state"], "queued")
+        self.assertEqual(self.api("GET", path + "/output").json(), {"items": [stderr], "cursor": 1})
+        self.api("POST", "/agent/v1/frames", 204, headers=header, json={"frames": [
+            {"type": "result", "id": command["id"], "ok": True,
+             "payload": {"stdout": "", "stderr": text, "exitCode": 2, "data": None}},
+        ]})
+        self.assertEqual(self.finished_job(request)["result"]["exitCode"], 2)
+
     def test_clipboard_timestamp_lid_and_heartbeat_over_both_transports(self):
         self.env["FILESHARING_TEST_PASTEBOARD_NAME"] = "FileSharing.Test." + uuid.uuid4().hex
         lid = self.work / "lid"
@@ -822,7 +879,8 @@ precondition(board.setString("ISOLATED_CLIPBOARD_CONTENT", forType: .string))
         for expected in ("/api/v1/auth/passkeys/recovery", "/api/v1/auth/status", "/api/v1/auth/lock",
                          "/api/v1/devices/{id}/policy", "/api/v1/devices/{id}/connection-access", "/api/v1/devices/{id}/files/thumbnail",
                          "/api/v1/devices/{id}/files/trash", "/api/v1/devices/{id}/files/renames",
-                         "/api/v1/ftp/accounts/{id}/password", "/api/v1/transfers/{id}/content", "/api/v1/events/ws"):
+                         "/api/v1/ftp/accounts/{id}/password", "/api/v1/transfers/{id}/content", "/api/v1/events/ws",
+                         "/api/v1/jobs/{id}/output"):
             self.assertIn(expected, paths)
         self.assertNotIn("/api/v1/enrollments", paths)
         self.assertIn("101", paths["/api/v1/events/ws"]["get"]["responses"])

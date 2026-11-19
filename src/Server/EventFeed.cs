@@ -125,7 +125,7 @@ internal sealed class EventFeed(Database db)
 {
     public static bool Known(string topic) => AgentIngest.SnapshotTopics.Contains(topic) ||
         topic is "connection.changed" or "applications.changed" or "storage.changed" or "system.changed" or "telemetry.gap" or
-            "files.changed" or "transfers.changed" or "jobs.changed" or "connection.quality" or "clipboard.changed" or "lid.changed";
+            "files.changed" or "transfers.changed" or "jobs.changed" or "jobs.output" or "connection.quality" or "clipboard.changed" or "lid.changed";
 
     public static long Cursor(string? raw) => raw is null ? 0 :
         long.TryParse(raw, NumberStyles.None, CultureInfo.InvariantCulture, out var n) && n >= 0 ? n : throw Fault.Bad("invalid_cursor");

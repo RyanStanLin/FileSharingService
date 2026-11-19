@@ -44,6 +44,8 @@ Agent 使用 `openat`、`fstatat`、`renameatx_np` 和 `unlinkat` 逐级处理�
 
 Agent 返回 `{type:"result",id,ok:true,payload}` 或 `{type:"result",id,ok:false,code}`。遥测帧为 `{type:"event",id,topic,snapshot,payload}`。WSS 的收到确认使用 `{type:"ack",id}`。带网络中断的结果可能未知，修改请求返回设备超时时，前端应重新读取目标状态和版本。
 
+诊断可在最终 `result` 前发送 `{type:"progress",id,payload:{index,stream,data}}`。`id` 与作业及诊断命令相同。服务端只从该作业所属、尚获准执行的连接接收进度，按作业和分片编号去重，再向浏览器发布 `jobs.output`。HTTPS 以同一个帧结构按顺序推送，输出可经 REST 作业接口读回。
+
 ## 目录监听与数据中继
 
 - 前端先订阅 `files.changed`，收到确认后向 REST 拉取目录快照。服务端引用计数复用同一设备、根、相对路径的监听，定期续费 Agent 侧租约。Agent 每台最多四个观察目录。

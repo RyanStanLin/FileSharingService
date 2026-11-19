@@ -35,13 +35,16 @@ internal sealed class Database(Settings settings)
                 connection.Execute(MigrateOpenEnrollment, transaction: transaction);
                 break;
             case 2:
+            case 3:
                 break;
             default:
                 throw new InvalidOperationException($"Unsupported database version {version}");
         }
+        if (version < 3)
+            connection.Execute(MigrateJobOutput, transaction: transaction);
         if (connection.Query("PRAGMA foreign_key_check", transaction: transaction).Any())
             throw new InvalidOperationException("Database foreign key check failed.");
-        connection.Execute("PRAGMA user_version=2", transaction: transaction);
+        connection.Execute("PRAGMA user_version=3", transaction: transaction);
         transaction.Commit();
         connection.Execute("PRAGMA foreign_keys=ON");
     }
@@ -102,6 +105,12 @@ internal sealed class Database(Settings settings)
             SELECT Id,Name,ProfileId,Created,LastSeen,Revoked,Revision,Policy,AddedDefaultRoot FROM Devices;
         DROP TABLE Devices;
         ALTER TABLE DevicesNext RENAME TO Devices;
+        """;
+
+    private const string MigrateJobOutput = """
+        CREATE TABLE IF NOT EXISTS JobOutput(
+            JobId TEXT NOT NULL REFERENCES Jobs(Id) ON DELETE CASCADE, Ordinal INTEGER NOT NULL,
+            Stream TEXT NOT NULL, Data TEXT NOT NULL, PRIMARY KEY(JobId,Ordinal));
         """;
 
     private const string Schema = """

@@ -19,9 +19,10 @@ internal sealed record JobRecord(string Id, string Owner, string DeviceId, strin
 internal sealed record JobView(string Id, string DeviceId, string Kind, string State, DateTimeOffset CreatedAt, DateTimeOffset? FinishedAt,
     JsonElement? Result, string? Error);
 
-internal sealed class JobService(Database db, AgentBroker broker, ReviewService reviews, ILogger<JobService> logger)
+internal sealed class JobService(Database db, AgentBroker broker, ReviewService reviews, JobOutputs outputs, ILogger<JobService> logger)
 {
     private readonly SemaphoreSlim slots = new(9);
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> diagnostics = new();
 
     public async Task<JobView> Start(Review review, string device, string kind, object data, CancellationToken ct)
     {
@@ -29,6 +30,11 @@ internal sealed class JobService(Database db, AgentBroker broker, ReviewService 
         if (!slots.Wait(0))
             throw new Fault(429, "job_limit");
         var job = new JobRecord(Secrets.Id(), review.Initiator, device, kind, "queued", Clock.Now, null, null, null, review.Id);
+        if (kind == "diagnostics.run" && !diagnostics.TryAdd(device, 0))
+        {
+            slots.Release();
+            throw new Fault(429, "diagnostic_already_running");
+        }
         try
         {
             await db.Mutate("""
@@ -37,7 +43,7 @@ internal sealed class JobService(Database db, AgentBroker broker, ReviewService 
         }
         catch
         {
-            slots.Release();
+            Release(job);
             throw;
         }
         _ = Run(job, data, connectionId);
@@ -56,7 +62,11 @@ internal sealed class JobService(Database db, AgentBroker broker, ReviewService 
                 await Finish(job, "cancelled", null, "review_ended");
                 return;
             }
-            var payload = await broker.Invoke(job.DeviceId, job.Kind, data, ct, timeout: commandTimeout, connectionId: connectionId);
+            Func<JsonElement, CancellationToken, Task>? progress = job.Kind == "diagnostics.run"
+                ? (part, token) => outputs.Write(job, part, token)
+                : null;
+            var payload = await broker.Invoke(job.DeviceId, job.Kind, data, ct, commandId: job.Id,
+                timeout: commandTimeout, connectionId: connectionId, progress: progress);
             if (await reviews.ActiveById(job.ReviewId, ct) is null)
                 await Finish(job, "cancelled", null, "review_ended");
             else
@@ -75,8 +85,15 @@ internal sealed class JobService(Database db, AgentBroker broker, ReviewService 
         }
         finally
         {
-            slots.Release();
+            Release(job);
         }
+    }
+
+    private void Release(JobRecord job)
+    {
+        if (job.Kind == "diagnostics.run")
+            diagnostics.TryRemove(job.DeviceId, out _);
+        slots.Release();
     }
 
     private async Task Finish(JobRecord job, string state, string? result, string? error)
@@ -115,6 +132,8 @@ internal static class DataEndpoints
         devices.MapPost("/diagnostics", RunDiagnostic).WithSummary("Run a predefined read-only diagnostic");
         api.MapGet("/jobs", ListJobs).WithTags("Jobs").WithSummary("List asynchronous jobs");
         api.MapGet("/jobs/{id}", GetJob).WithTags("Jobs").WithSummary("Get a job result");
+        api.MapGet("/jobs/{id}/output", GetOutput).WithTags("Jobs")
+            .WithSummary("Poll ordered stdout and stderr segments for a diagnostic");
         api.MapGet("/events", Events).WithTags("Events").WithSummary("Read a page of live-event history over REST");
         api.MapGet("/events/ws", BrowserEvents.Handle).WithTags("Events").WithSummary("Subscribe to events using WebSocket");
         FileEndpoints.Map(devices, api);
@@ -213,6 +232,13 @@ internal static class DataEndpoints
         var row = await db.One<JobRecord>("SELECT * FROM Jobs WHERE Id=@id AND Owner=@Initiator",
             new { id = Secrets.Identifier(id), review.Initiator }, ct) ?? throw Fault.Missing();
         return TypedResults.Ok(row.View);
+    }
+
+    private static async Task<Ok<JobOutputPage>> GetOutput(string id, int? after, HttpContext ctx, ReviewService reviews,
+        JobOutputs outputs, CancellationToken ct)
+    {
+        var review = await reviews.Require(ctx, ct);
+        return TypedResults.Ok(await outputs.Read(Secrets.Identifier(id), review.Initiator, after ?? 0, ct));
     }
 
     private static async Task<Ok<EventsPage>> Events(string? deviceId, string? topic, string? after, int? limit, DateTimeOffset? from, DateTimeOffset? to, HttpContext ctx,

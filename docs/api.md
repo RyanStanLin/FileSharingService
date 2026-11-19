@@ -209,9 +209,10 @@ Root 为 `{id,deviceId,rootKey,label,writable,enabled,revision}`。TCC 管理包
 | `GET /devices/D/apps/installed` | 无 | `200 Snapshot` 安装清单 |
 | `GET /devices/D/apps/icon` | `applicationId` 每个应用的 ID | `200 image/png` |
 | `GET /devices/D/storage` | 无 | `200 Snapshot` 外接存储 |
-| `POST /devices/D/diagnostics` | `{kind}`，`osVersion,uptime,diskSpace,agentHealth` | `202 Job`，成功结果含 `stdout,stderr,exitCode,data` |
+| `POST /devices/D/diagnostics` | `{kind}`，`osVersion,uptime,diskSpace,agentHealth` | `202 Job`，`Location` 指向作业 URL |
 | `GET /jobs` | `cursor,limit,deviceId` | `200 Page<Job>` |
 | `GET /jobs/{id}` | 无 | `200 Job` |
+| `GET /jobs/{id}/output` | `after` 为上次收到的分片编号，初次传 `0` | `200 {items:[{index,stream,data}],cursor}` |
 | `GET /events` | `deviceId,topic,after,limit,from,to` | `200 {items,cursor,hasMore}` |
 | `GET /audit` | `cursor,limit,deviceId,action` | `200 Page<AuditRecord>` |
 | `GET /health/live`、`GET /health/ready` | 无 | `200 {status:"live"}` 或 `200 {ready:true}` |
@@ -221,6 +222,10 @@ Root 为 `{id,deviceId,rootKey,label,writable,enabled,revision}`。TCC 管理包
 ```json
 {"id":"2204ec63-266b-45d3-8f67-8a088c744b21","deviceId":"144bae60-503d-45e3-8a17-ec7a64886c20","kind":"diagnostics.run","state":"completed","createdAt":"2026-11-19T08:22:00Z","finishedAt":"2026-11-19T08:22:01Z","result":{"stdout":"{\"seconds\":20188}","stderr":"","exitCode":0,"data":{"seconds":20188}},"error":null}
 ```
+
+诊断对应固定的 `/usr/bin/sw_vers`、`/usr/bin/uptime`、`/bin/df -k -l` 与 Agent 健康检查。操作员提交诊断 ID，设备以当前用户运行。每台设备同时执行一项。外部进程时限约 10 秒，每个输出流最多 16 KiB。
+
+启动前订阅 `jobs.output` 和 `jobs.changed`。输出事件的 `payload` 形如 `{jobId,index,stream,data}`。编号从 1 递增，`stream` 是 `stdout` 或 `stderr`，`data` 是 Base64 编码的原始字节。分别增量解码两个流的 UTF-8 数据，按 `jobId,index` 去重。丢失 WS 或遇到编号间隙时用 `/jobs/{id}/output?after=...` 读取已保存的分片。收到终态后读取 `/jobs/{id}`，结果有 `stdout,stderr,exitCode,data,truncated,timedOut`。`completed` 表示设备返回了退出码，程序成功与否由 `exitCode` 判断。连接失效导致的 `failed` 保留已收到的分片。
 
 ## WebSocket 订阅
 

@@ -94,7 +94,7 @@ final class AgentTransport {
     private var urgent = [JSON]()
     private var wake: AsyncStream<Void>.Continuation?
     private var seen = [String: Date]()
-    private var operations = Set<String>()
+    private var operations = [String: Task<Void, Never>]()
     private var recent = [(id: String, value: JSON)]()
     private var networkGeneration = 0
     private var heartbeat = Date()
@@ -251,6 +251,7 @@ final class AgentTransport {
         wake = signal.continuation
         current.resume()
         defer {
+            endCommandSession()
             signal.continuation.finish()
             wake = nil
             current.cancel(with: .goingAway, reason: nil)
@@ -321,7 +322,6 @@ final class AgentTransport {
                     try await current.send(.string(String(decoding: value.encoded(), as: UTF8.self)))
                 }
             } catch {
-                urgent.insert(contentsOf: transient.filter { $0["type"].string == "result" }, at: 0)
                 throw error
             }
             if changesObserved {
@@ -351,7 +351,7 @@ final class AgentTransport {
                 try? await Task.sleep(for: .seconds(5))
             }
         }
-        defer { report.cancel(); refresh.cancel() }
+        defer { report.cancel(); refresh.cancel(); endCommandSession() }
         do {
             try await withThrowingTaskGroup(of: Void.self) { group in
                 group.addTask {
@@ -375,7 +375,11 @@ final class AgentTransport {
     private func flush(_ http: AgentHttp, channel: String) async throws {
         while !Task.isCancelled {
             let results = Array(urgent.prefix(3))
-            let signals = outbox.prefix(2).map(\.value)
+            var budget = 1_800_000 - (try results.reduce(32) { $0 + (try $1.encoded().count) + 1 })
+            let signals = outbox.prefix(2).prefix { item in
+                budget -= item.bytes + 1
+                return budget >= 0
+            }.map(\.value)
             if !results.isEmpty || !signals.isEmpty {
                 _ = try await http.call("frames", body: ["frames": .array(results + signals)], channel: channel)
                 urgent.removeFirst(min(urgent.count, results.count))
@@ -393,6 +397,11 @@ final class AgentTransport {
 
     private func emitClipboardChange(_ observedAt: Date) {
         emit(topic: "clipboard.changed", data: ["occurredAt": .date(observedAt)], snapshot: false)
+    }
+
+    private func endCommandSession() {
+        for task in operations.values { task.cancel() }
+        urgent.removeAll()
     }
 
     private func emit(topic: String, data: JSON, snapshot: Bool) {
@@ -431,31 +440,32 @@ final class AgentTransport {
             wake?.yield()
             return
         }
-        if operations.contains(id) { return }
+        if operations[id] != nil { return }
+        guard urgent.count < 120 else { return }
         if operations.count >= 8 {
             urgent.append(["type": "result", "id": .string(id), "ok": false, "code": "limit_reached"])
             wake?.yield()
             return
         }
-        operations.insert(id)
         let input = command["payload"]
-        Task {
+        operations[id] = Task {
             let response: JSON
+            defer { operations.removeValue(forKey: id) }
             do {
-                let result = try await perform(kind, input)
+                let result = try await perform(kind, input, id: id)
                 response = ["type": "result", "id": .string(id), "ok": true, "payload": result]
             } catch {
                 response = ["type": "result", "id": .string(id), "ok": false,
                             "code": .string((error as? AgentError)?.code ?? "device_operation_failed")]
             }
-            operations.remove(id)
-            urgent.append(response)
-            wake?.yield()
-            if ["files.mkdir", "files.move", "files.trash", "files.purge", "files.commit"].contains(kind), response["ok"].bool == true {
+            let fileWrite = ["files.mkdir", "files.move", "files.trash", "files.purge", "files.commit"].contains(kind)
+            if kind == "diagnostics.run" && !Task.isCancelled || fileWrite && response["ok"].bool == true {
                 recent.append((id, response))
                 if recent.count > 24 { recent.removeFirst() }
             }
-            if urgent.count > 30 { urgent.removeFirst(urgent.count - 30) }
+            guard !Task.isCancelled else { return }
+            urgent.append(response)
+            wake?.yield()
         }
     }
 
@@ -469,7 +479,7 @@ final class AgentTransport {
         }
     }
 
-    private func perform(_ kind: String, _ input: JSON) async throws -> JSON {
+    private func perform(_ kind: String, _ input: JSON, id: String) async throws -> JSON {
         switch kind {
         case "status.refresh":
             let topics = input["topics"].array ?? []
@@ -477,7 +487,13 @@ final class AgentTransport {
             try await confirmReports(Set(topics.compactMap(\.string)))
             return result
         case "diagnostics.run":
-            return try telemetry.diagnostic(input.requireString("diagnostic"))
+            let name = try input.requireString("diagnostic")
+            let data = try telemetry.diagnosticData(name)
+            return try await DiagnosticRunner.run(name, data: data) { part in
+                guard urgent.count < 96 else { throw AgentError("limit_reached") }
+                urgent.append(["type": "progress", "id": .string(id), "payload": part])
+                wake?.yield()
+            }
         case "permissions.request":
             return try await telemetry.permission(input.requireString("permission"))
         case "app.icon": return try await telemetry.icon(input.requireString("applicationId"))

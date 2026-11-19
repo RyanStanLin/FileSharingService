@@ -237,6 +237,10 @@ Cookie: {{cookie}}
 GET {{api}}/jobs/{{job}}
 Cookie: {{cookie}}
 
+### Resume diagnostic stdout and stderr after a segment
+GET {{api}}/jobs/{{job}}/output?after=0
+Cookie: {{cookie}}
+
 ### Replay non-directory event history
 GET {{api}}/events?deviceId={{device}}&topic=connection.changed&after=0
 Cookie: {{cookie}}

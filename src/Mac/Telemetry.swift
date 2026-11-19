@@ -170,21 +170,19 @@ final class Telemetry {
         return ["refreshed": .array(topics)]
     }
 
-    func diagnostic(_ name: String) throws -> JSON {
-        let data: JSON
+    func diagnosticData(_ name: String) throws -> JSON {
         switch name {
         case "osVersion":
-            data = ["version": .string(ProcessInfo.processInfo.operatingSystemVersionString), "build": .text(Self.sysctl("kern.osversion"))]
+            return ["version": .string(ProcessInfo.processInfo.operatingSystemVersionString), "build": .text(Self.sysctl("kern.osversion"))]
         case "uptime":
-            data = ["seconds": .integer(Int64(ProcessInfo.processInfo.systemUptime))]
+            return ["seconds": .integer(Int64(ProcessInfo.processInfo.systemUptime))]
         case "diskSpace":
-            data = Self.disks()
+            return Self.disks()
         case "agentHealth":
-            data = agent()
+            return agent()
         default:
             throw AgentError("unsupported")
         }
-        return ["stdout": .string(String(decoding: try data.encoded(), as: UTF8.self)), "stderr": "", "exitCode": 0, "data": data]
     }
 
     func permission(_ id: String) async throws -> JSON {

@@ -38,6 +38,7 @@
 | `telemetry.gap` | 客户端待发送事件超过保留上限。 |
 | `files.changed` | 目录增量或重新同步信号。 |
 | `jobs.changed` | `{id,state,kind}`。 |
+| `jobs.output` | `{jobId,index,stream,data}`，诊断标准输出或错误流分片。 |
 | `transfers.changed` | `{id,state,offset,length}`。 |
 
 剪贴板实现见 [ClipboardObserver.swift](../src/Mac/ClipboardObserver.swift) 与 [AgentTransport.swift](../src/Mac/AgentTransport.swift)。剪贴板载荷仅含 ISO 8601 时间，服务端在写库前校验唯一字段并重新序列化。服务器添加设备 ID 和事件序号。初次观测只建立本机基线。
