@@ -23,6 +23,7 @@ internal sealed class FtpSession(FtpGateway gateway, FtpSettings options, FtpAcc
     private long restart;
     private CancellationTokenSource? transferStop;
     private Task? transfer;
+    private volatile bool transferFinalizing;
 
     public async Task Run(CancellationToken ct)
     {
@@ -65,6 +66,9 @@ internal sealed class FtpSession(FtpGateway gateway, FtpSettings options, FtpAcc
 
     private async Task<bool> Dispatch(string verb, string argument, CancellationToken ct)
     {
+        if (transfer is { IsCompleted: false } finishing && transferFinalizing)
+            await finishing;
+
         if (transfer is { IsCompleted: false })
         {
             switch (verb)
@@ -293,6 +297,7 @@ internal sealed class FtpSession(FtpGateway gateway, FtpSettings options, FtpAcc
         transferStop?.Dispose();
         transferStop = CancellationTokenSource.CreateLinkedTokenSource(ct);
         transferStop.CancelAfter(TimeSpan.FromHours(2));
+        transferFinalizing = false;
         transfer = SendData(user, listener, verb, path, offset, transferStop.Token, ct);
     }
 
@@ -307,7 +312,7 @@ internal sealed class FtpSession(FtpGateway gateway, FtpSettings options, FtpAcc
             {
                 if (!binary)
                 {
-                    await Reply("550 Binary transfer type required", controlToken);
+                    await FinalTransferReply("550 Binary transfer type required", controlToken);
                     return;
                 }
                 file = await files.Prepare(user, path, offset, transferToken);
@@ -341,7 +346,7 @@ internal sealed class FtpSession(FtpGateway gateway, FtpSettings options, FtpAcc
             if (tls is not null)
                 await tls.ShutdownAsync().WaitAsync(transferToken);
             client.Dispose();
-            await Reply("226 Transfer complete", controlToken);
+            await FinalTransferReply("226 Transfer complete", controlToken);
         }
         catch (Exception error) when (error is Fault or IOException or OperationCanceledException or SocketException or System.Security.Authentication.AuthenticationException)
         {
@@ -349,13 +354,19 @@ internal sealed class FtpSession(FtpGateway gateway, FtpSettings options, FtpAcc
                 return;
             var reply = error is Fault { Code: "source_changed" or "invalid_restart_marker" } && !started
                 ? "551 Restart rejected" : started ? "426 Transfer aborted" : "550 Resource unavailable";
-            try { await Reply(reply, controlToken); }
+            try { await FinalTransferReply(reply, controlToken); }
             catch (Exception disconnected) when (disconnected is IOException or OperationCanceledException or SocketException) { }
         }
         finally
         {
             listener.Stop();
         }
+    }
+
+    private Task FinalTransferReply(string reply, CancellationToken ct)
+    {
+        transferFinalizing = true;
+        return Reply(reply, ct);
     }
 
     private async Task<TcpClient> AcceptData(TcpListener listener, CancellationToken ct)
