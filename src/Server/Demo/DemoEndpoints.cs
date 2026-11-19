@@ -23,7 +23,7 @@ internal static class DemoEndpoints
             return TypedResults.NotFound();
 
         context.Response.Headers.ContentSecurityPolicy =
-            $"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self' {websocketOrigin}; base-uri 'none'; frame-ancestors 'none'; form-action 'self'";
+            $"default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self' {websocketOrigin}; base-uri 'none'; frame-ancestors 'none'; form-action 'self'";
         var content = typeof(DemoEndpoints).Assembly.GetManifestResourceStream($"FileSharing.Demo.{file}")
             ?? throw new InvalidOperationException("Missing local demo resource.");
         return TypedResults.Stream(content, contentType);

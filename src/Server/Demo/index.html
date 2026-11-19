@@ -59,12 +59,26 @@
           <button type="button" data-directory="Downloads">下载</button>
           <button type="button" data-directory="Documents">文稿</button>
           <button type="button" data-directory="Desktop">桌面</button>
+          <label class="hidden-toggle"><input type="checkbox" id="show-hidden" disabled> 显示隐藏项目</label>
         </div>
-        <p id="file-status"></p>
-        <table id="files" hidden>
-          <thead><tr><th scope="col">名称</th><th scope="col">大小</th><th scope="col">操作</th></tr></thead>
-          <tbody id="entries"></tbody>
-        </table>
+        <p id="file-status" role="status"></p>
+        <div id="files" class="file-table" role="region" aria-label="文件列表" tabindex="0" hidden>
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">缩略图</th>
+                <th scope="col" aria-sort="ascending"><button type="button" class="sort-button" data-sort="name">名称 <span aria-hidden="true">↑</span></button></th>
+                <th scope="col"><button type="button" class="sort-button" data-sort="type">类型 <span aria-hidden="true"></span></button></th>
+                <th scope="col"><button type="button" class="sort-button" data-sort="size">大小 <span aria-hidden="true"></span></button></th>
+                <th scope="col"><button type="button" class="sort-button" data-sort="createdAt">创建时间 <span aria-hidden="true"></span></button></th>
+                <th scope="col"><button type="button" class="sort-button" data-sort="modifiedAt">修改时间 <span aria-hidden="true"></span></button></th>
+                <th scope="col"><button type="button" class="sort-button" data-sort="lastOpenedAt">上次打开 <span aria-hidden="true"></span></button></th>
+                <th scope="col">操作</th>
+              </tr>
+            </thead>
+            <tbody id="entries"></tbody>
+          </table>
+        </div>
         <button id="next-page" hidden>加载下一页</button>
         <div id="preview" hidden>
           <h3 id="preview-title"></h3>

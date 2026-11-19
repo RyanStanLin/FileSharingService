@@ -19,6 +19,22 @@ const errors = { authentication_required: "请先解锁后台。",
     not_found: "当前目录或文件不存在。",
     snapshot_unavailable: "设备状态正在同步。",
     limit_reached: "刚发出过同项申请，请稍后重试。" }
+const sortButtons = document.querySelectorAll("[data-sort]")
+const fileTimeFormat = new Intl.DateTimeFormat("zh-CN", {
+    year:"numeric", month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit", hourCycle:"h23"
+})
+const byteFormat = new Intl.NumberFormat("zh-CN", {maximumFractionDigits:1})
+const byteUnits = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"]
+const thumbnailQueue = []
+const activeThumbnails = new Set()
+const thumbnailObserver = new IntersectionObserver(items => {
+    for (const {isIntersecting, target} of items) {
+        if (!isIntersecting) continue
+        thumbnailObserver.unobserve(target)
+        thumbnailQueue.push(target)
+    }
+    loadThumbnails()
+}, {rootMargin:"160px 0px"})
 
 let unlocked = false
 let devices = []
@@ -26,7 +42,9 @@ let deviceId
 let snapshot = {}
 let socket
 let pendingJobs = new Map()
-let page
+let directory
+let sortKey = "name"
+let sortDirection = "asc"
 let refreshInProgress = false
 let jobPollInProgress = false
 
@@ -40,7 +58,8 @@ function selected() {
 }
 
 function enabled() {
-    return selected()?.connection.online && selected()?.connection.accessGranted
+    const connection = selected()?.connection
+    return unlocked && connection?.online && connection.accessGranted
 }
 
 function permissionPending(kind) {
@@ -51,9 +70,9 @@ function devicePath(suffix = "") {
     return "/devices/" + encodeURIComponent(deviceId) + suffix
 }
 
-async function call(path, {method = "GET", body, headers = {}, raw = false} = {}) {
+async function call(path, {method = "GET", body, headers = {}, raw = false, signal} = {}) {
     const response = await fetch("/api/v1" + path, {
-        method,
+        method, signal,
         headers: body === undefined ? headers : {"Content-Type": "application/json", ...headers},
         body: body === undefined ? undefined : JSON.stringify(body)
     })
@@ -61,6 +80,7 @@ async function call(path, {method = "GET", body, headers = {}, raw = false} = {}
         const problem = await response.json().catch(() => ({}))
         const error = new Error(errors[problem.code] ?? problem.code ?? "HTTP " + response.status)
         error.status = response.status
+        error.code = problem.code
         throw error
     }
     if (raw) return response
@@ -71,7 +91,7 @@ function perform(work) {
     return async event => {
         event?.preventDefault()
         try { await work(event) }
-        catch (error) { message(error.message, true) }
+        catch (error) { if (error.name !== "AbortError") message(error.message, true) }
     }
 }
 
@@ -129,8 +149,11 @@ async function refreshDevices() {
     if (!unlocked || refreshInProgress) return
     refreshInProgress = true
     try {
-        devices = (await call("/devices?limit=100")).items
+        const response = await call("/devices?limit=100")
+        if (!unlocked) return
         const previous = deviceId
+        const previousConnection = selected()?.connection.connectionId
+        devices = response.items
         if (!selected()?.connection.online) deviceId = devices.find(device => device.connection.online)?.id ?? deviceId
         if (!selected()) deviceId = devices[0]?.id
         const select = element("devices")
@@ -138,6 +161,7 @@ async function refreshDevices() {
             new Option(device.name + (device.connection.online ? " · 在线" : " · 离线"), device.id)))
         select.disabled = !devices.length
         if (deviceId) select.value = deviceId
+        if (previousConnection !== selected()?.connection.connectionId) resetFiles()
         renderDevice()
         if (previous !== deviceId) await selectDevice()
         else if (deviceId && !socket && selected()?.connection.online) connectSocket(deviceId)
@@ -148,11 +172,15 @@ async function refreshDevices() {
 
 function renderDevice() {
     const connection = selected()?.connection
+    const allowed = enabled()
+    if (!allowed && directory) resetFiles()
     element("access").disabled = !connection?.online || connection.accessGranted
     element("access").textContent = connection?.accessGranted ? "当前连接已授权" : "授权当前连接"
     element("refresh").disabled = !deviceId
-    element("browse-button").disabled = !enabled()
-    element("parent").disabled = !enabled() || !element("path").value
+    element("browse-button").disabled = !allowed
+    element("parent").disabled = !allowed || !element("path").value
+    element("show-hidden").disabled = !allowed
+    element("next-page").disabled = !allowed || directory?.pending === true
     element("device-status").textContent = connection?.online
         ? "在线 · " + (connection.protocol ?? "") + " · " + (connection.accessGranted ? "可远程操作" : "等待授权")
         : deviceId ? "设备离线" : "等待 FileSharingService 上线"
@@ -185,13 +213,23 @@ element("refresh").addEventListener("click", perform(async () => {
 function resetDeviceView() {
     snapshot = {}
     pendingJobs = new Map()
-    page = undefined
-    element("files").hidden = true
+    resetFiles()
+    renderPermissions()
+}
+
+function resetFiles(keepHeaders = false) {
+    directory?.controller.abort()
+    directory = undefined
+    thumbnailObserver.disconnect()
+    thumbnailQueue.length = 0
+    for (const image of activeThumbnails) image.removeAttribute("src")
+    element("entries").replaceChildren()
+    element("files").hidden = !keepHeaders
+    element("files").removeAttribute("aria-busy")
     element("next-page").hidden = true
     element("preview").hidden = true
     element("preview-content").textContent = ""
     element("file-status").textContent = ""
-    renderPermissions()
 }
 
 async function selectDevice() {
@@ -333,38 +371,144 @@ async function pollJobs() {
     }
 }
 
-async function browse({append = false} = {}) {
+async function browse(append = false) {
     if (!enabled()) throw new Error("请先授权当前设备连接。")
-    const id = deviceId
-    const path = element("path").value.replace(/^\/+|\/+$/g, "")
-    const scopes = await call(devicePath("/file-roots"))
-    const root = scopes.items.find(scope => scope.enabled)
-    if (!root) throw new Error("设备的 HOME 目录授权正在同步。")
-    const parameters = new URLSearchParams({rootId:root.id, path, limit:"80"})
-    if (append && page?.nextOffset !== null) {
-        parameters.set("offset", page.nextOffset)
-        parameters.set("revision", page.revision)
-    }
-    const result = await call(devicePath("/files/entries?") + parameters)
-    if (id !== deviceId) return
-    page = result
-    const rows = result.items.map(entry => entryRow(root, entry))
     if (!append) {
-        element("entries").replaceChildren()
-        element("preview").hidden = true
-        element("preview-content").textContent = ""
+        resetFiles(!element("files").hidden)
+        const path = element("path").value.replace(/^\/+|\/+$/g, "")
+        directory = {
+            query:new URLSearchParams({
+                path, limit:"80", sort:sortKey, direction:sortDirection, hidden:element("show-hidden").checked
+            }),
+            controller:new AbortController()
+        }
+        element("file-status").textContent = "正在读取目录…"
     }
-    element("entries").append(...rows)
-    element("files").hidden = result.total === 0
-    element("next-page").hidden = result.nextOffset === null
-    element("file-status").textContent = (path || "HOME") + " · " + result.total + " 个项目"
+
+    const view = directory
+    if (!view || view.pending || (append && view.page?.nextOffset == null)) return
+    view.pending = true
+    const {signal} = view.controller
+    element("files").setAttribute("aria-busy", "true")
     renderDevice()
+    try {
+        if (!view.root) {
+            const scopes = await call(devicePath("/file-roots"), {signal})
+            view.root = scopes.items.find(scope => scope.enabled)
+            if (!view.root) throw new Error("设备的 HOME 目录授权正在同步。")
+        }
+        if (signal.aborted) return
+        const parameters = new URLSearchParams(view.query)
+        parameters.set("rootId", view.root.id)
+        if (append) {
+            parameters.set("offset", view.page.nextOffset)
+            parameters.set("revision", view.page.revision)
+        }
+        const result = await call(devicePath("/files/entries?") + parameters, {signal})
+        if (signal.aborted) return
+        view.page = result
+        const rows = result.items.map(entry => entryRow(view.root, entry))
+        const body = element("entries")
+        body.append(...rows)
+        element("files").hidden = result.total === 0
+        element("next-page").hidden = result.nextOffset === null
+        element("file-status").textContent = (parameters.get("path") || "HOME") + " · " + body.rows.length + " / " + result.total + " 项"
+        for (const row of rows) {
+            const tile = row.querySelector("[data-thumbnail-url]")
+            if (tile) thumbnailObserver.observe(tile)
+        }
+    } catch (error) {
+        if (signal.aborted) return
+        if (append && error.code === "snapshot_changed") {
+            await browse()
+            return
+        }
+        if (!append) element("file-status").textContent = ""
+        throw error
+    } finally {
+        if (directory === view) {
+            view.pending = false
+            element("files").removeAttribute("aria-busy")
+            renderDevice()
+        }
+    }
+}
+
+function loadThumbnails() {
+    while (activeThumbnails.size < 3 && thumbnailQueue.length) {
+        const tile = thumbnailQueue.shift()
+        if (!tile.isConnected || !enabled()) continue
+        const image = new Image(44, 44)
+        image.alt = ""
+        image.decoding = "async"
+        activeThumbnails.add(image)
+        image.src = tile.dataset.thumbnailUrl
+        void image.decode().then(() => {
+            if (tile.isConnected) tile.replaceChildren(image)
+        }, () => {
+            tile.title = "缩略图不可用"
+        }).finally(() => {
+            activeThumbnails.delete(image)
+            loadThumbnails()
+        })
+    }
+}
+
+function thumbnailCell(root, entry) {
+    const container = cell("")
+    const tile = document.createElement("span")
+    tile.className = "thumbnail"
+    tile.textContent = "—"
+    if (entry.thumbnail && entry.version) {
+        const query = new URLSearchParams({rootId:root.id, path:entry.path, version:entry.version})
+        tile.dataset.thumbnailUrl = "/api/v1" + devicePath("/files/thumbnail?") + query
+        tile.title = entry.thumbnail === "image" || entry.thumbnail === "pdf" ? "文件缩略图" : "macOS 文件类型图标"
+    } else {
+        tile.title = "设备未提供缩略图"
+    }
+    container.append(tile)
+    return container
+}
+
+function timeCell(value) {
+    const date = new Date(value ?? NaN)
+    const container = cell("")
+    if (!Number.isFinite(date.getTime())) {
+        container.textContent = "—"
+        container.title = "设备未提供此时间"
+        return container
+    }
+    const time = document.createElement("time")
+    time.dateTime = value
+    time.title = value
+    time.textContent = fileTimeFormat.format(date)
+    container.append(time)
+    return container
+}
+
+function fileSize(entry) {
+    if (entry.kind !== "file") return "—"
+    const unit = Math.min(byteUnits.length - 1, Math.floor(Math.log2(Math.max(1, entry.size)) / 10))
+    return byteFormat.format(entry.size / 1024 ** unit) + " " + byteUnits[unit]
 }
 
 function entryRow(root, entry) {
     const row = document.createElement("tr")
-    const name = cell(entry.name)
-    const size = cell(entry.kind === "file" ? entry.size.toLocaleString() + " B" : "—")
+    const name = cell("")
+    const label = document.createElement("span")
+    label.className = "file-name"
+    label.textContent = entry.name
+    label.title = entry.fullPath ?? entry.path
+    name.append(label)
+    if (entry.extension) {
+        const extension = document.createElement("span")
+        extension.className = "file-extension"
+        extension.textContent = "." + entry.extension
+        name.append(extension)
+    }
+    const size = cell(fileSize(entry))
+    size.className = "file-size"
+    if (entry.kind === "file") size.title = entry.size.toLocaleString("zh-CN") + " B"
     const action = cell("")
     if (entry.kind === "directory") {
         fileButton(action, "打开", async () => {
@@ -376,7 +520,9 @@ function entryRow(root, entry) {
         fileButton(action, "预览", () => readFile(root, entry, true))
         fileButton(action, "下载", () => readFile(root, entry, false))
     }
-    row.append(name, size, action)
+    const type = cell(entry.kind === "directory" ? "文件夹" : entry.fileType ?? entry.kind)
+    row.append(thumbnailCell(root, entry), name, type, size, timeCell(entry.createdAt),
+        timeCell(entry.modifiedAt), timeCell(entry.lastOpenedAt), action)
     return row
 }
 
@@ -388,19 +534,21 @@ function fileButton(parent, title, work) {
 }
 
 async function readFile(root, entry, preview) {
-    const id = deviceId
+    if (!enabled() || !directory) return
+    const {signal} = directory.controller
     const transfer = await call("/transfers", {method:"POST", headers:{"Idempotency-Key":crypto.randomUUID()},
-        body:{kind:"download", deviceId:id, rootId:root.id, path:entry.path, version:entry.version}})
+        body:{kind:"download", deviceId, rootId:root.id, path:entry.path, version:entry.version}, signal})
+    if (signal.aborted) return
     if (!transfer.downloadUrl) throw new Error("设备暂时无法下载此文件。")
     if (!preview) {
         location.assign(transfer.downloadUrl)
         return
     }
     const response = await call(transfer.downloadUrl.slice("/api/v1".length), {
-        headers:entry.size ? {Range:"bytes=0-32767"} : {}, raw:true
+        headers:entry.size ? {Range:"bytes=0-32767"} : {}, raw:true, signal
     })
     const data = new Uint8Array(await response.arrayBuffer())
-    if (id !== deviceId) return
+    if (signal.aborted) return
     element("preview-title").textContent = entry.name
     try {
         if (data.includes(0)) throw new Error("binary")
@@ -414,8 +562,23 @@ async function readFile(root, entry, preview) {
 }
 
 element("browse").addEventListener("submit", perform(() => browse()))
-element("path").addEventListener("input", () => { element("next-page").hidden = true; renderDevice() })
-element("next-page").addEventListener("click", perform(() => browse({append:true})))
+element("path").addEventListener("input", () => { resetFiles(); renderDevice() })
+element("next-page").addEventListener("click", perform(() => browse(true)))
+element("show-hidden").addEventListener("change", perform(() => browse()))
+for (const button of sortButtons) {
+    button.addEventListener("click", perform(async () => {
+        const key = button.dataset.sort
+        sortDirection = key === sortKey && sortDirection === "asc" ? "desc" : "asc"
+        sortKey = key
+        for (const header of sortButtons) {
+            const active = header.dataset.sort === sortKey
+            if (active) header.parentElement.setAttribute("aria-sort", sortDirection === "asc" ? "ascending" : "descending")
+            else header.parentElement.removeAttribute("aria-sort")
+            header.lastElementChild.textContent = active ? (sortDirection === "asc" ? "↑" : "↓") : ""
+        }
+        await browse()
+    }))
+}
 element("parent").addEventListener("click", perform(async () => {
     element("path").value = element("path").value.split("/").slice(0, -1).join("/")
     await browse()
