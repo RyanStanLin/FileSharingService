@@ -18,12 +18,11 @@ fi
 
 case "$mode" in check|package) ;; *) printf '%s\n' 'Usage: scripts/build-agent.sh test|check|package' >&2; exit 1;; esac
 
-python3 - "$stage/BuildIdentity.swift" "$mode" <<'PY'
+python3 - "$stage/BuildConfiguration.swift" "$mode" <<'PY'
 import json
 import os
 from pathlib import Path
 import re
-import secrets
 import sys
 from urllib.parse import urlsplit
 
@@ -38,20 +37,16 @@ for origin in origins:
         parsed.username or parsed.password or parsed.path not in ("", "/") or parsed.query or parsed.fragment
     ):
         raise SystemExit("Every endpoint must be an HTTPS origin.")
-user = os.environ.get("FILESHARING_MANAGED_USER", "" if release else "filesharing-test")
-if not re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_-]{0,62}", user):
-    raise SystemExit("Set FILESHARING_MANAGED_USER to the dedicated macOS account name.")
-token = Path(os.environ["FILESHARING_ACTIVATION_FILE"]).read_text().strip() if release else secrets.token_urlsafe(32)
-if not re.fullmatch(r"[A-Za-z0-9_-]{43}", token):
-    raise SystemExit("A per-device activation code file is required.")
+user = os.environ.get("FILESHARING_MANAGED_USER")
+if user and not re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_-]{0,62}", user):
+    raise SystemExit("Use a valid optional managed macOS account name.")
 writable = os.environ.get("FILESHARING_ALLOW_HOME_WRITE", "0")
 if writable not in ("0", "1"):
     raise SystemExit("FILESHARING_ALLOW_HOME_WRITE must be 0 or 1.")
 Path(sys.argv[1]).write_text(
-    "enum BuildIdentity {\n"
+    "enum BuildConfiguration {\n"
     f"    static let originStrings = {json.dumps(origins)}\n"
-    f"    static let activation = {json.dumps(token)}\n"
-    f"    static let user = {json.dumps(user)}\n"
+    f"    static let user: String? = {json.dumps(user) if user else 'nil'}\n"
     f"    static let homeWritable = {str(writable == '1').lower()}\n"
     "}\n"
 )
@@ -68,7 +63,7 @@ install -m 644 "$root/src/Mac/Info.plist" "$app/Contents/Info.plist"
 install -m 644 "$root/src/Mac/in.ryanl.filesharing.agent.plist" "$agent_plists/in.ryanl.filesharing.agent.plist"
 
 for arch in arm64 x86_64; do
-    swiftc -swift-version 5 -O -target "$arch-apple-macosx$target" "$root"/src/Mac/*.swift "$stage/BuildIdentity.swift" \
+    swiftc -swift-version 5 -O -target "$arch-apple-macosx$target" "$root"/src/Mac/*.swift "$stage/BuildConfiguration.swift" \
         -o "$stage/agent.$arch"
     swiftc -swift-version 5 -O -target "$arch-apple-macosx$target" -parse-as-library "$root/src/Power/Main.swift" -o "$stage/power.$arch"
 done
@@ -84,7 +79,7 @@ for arch in arm64 x86_64; do
 done
 plutil -lint "$app/Contents/Info.plist" "$agent_plists/in.ryanl.filesharing.agent.plist" "$root/src/Power/launchd.plist"
 
-user="${FILESHARING_MANAGED_USER:-filesharing-test}"
+user="${FILESHARING_MANAGED_USER:-}"
 daemon="$daemon_plists/in.ryanl.filesharing.power.plist"
 sed "s/MANAGED_USER/$user/g" "$root/src/Power/launchd.plist" > "$daemon"
 chmod 644 "$daemon"
@@ -135,4 +130,4 @@ xcrun notarytool submit "$pkg" --keychain-profile "$FILESHARING_NOTARY_PROFILE" 
 xcrun stapler staple "$pkg"
 xcrun stapler validate "$pkg"
 pkgutil --check-signature "$pkg"
-mv "$pkg" "$root/artifacts/FileSharingAgent-$version-$user.pkg"
+mv "$pkg" "$root/artifacts/FileSharingAgent-$version${user:+-$user}.pkg"

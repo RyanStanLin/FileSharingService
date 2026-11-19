@@ -23,18 +23,27 @@ internal sealed class Database(Settings settings)
         Directory.CreateDirectory(settings.DataDirectory);
         using var connection = Open();
         connection.Execute("PRAGMA journal_mode=WAL");
+        connection.Execute("PRAGMA foreign_keys=OFF");
         using var transaction = connection.BeginTransaction(deferred: false);
         var version = connection.ExecuteScalar<int>("PRAGMA user_version", transaction: transaction);
-        if (version == 0)
+        switch (version)
         {
-            connection.Execute(Schema, transaction: transaction);
-            connection.Execute("PRAGMA user_version=1", transaction: transaction);
+            case 0:
+                connection.Execute(Schema, transaction: transaction);
+                break;
+            case 1:
+                connection.Execute(MigrateOpenEnrollment, transaction: transaction);
+                break;
+            case 2:
+                break;
+            default:
+                throw new InvalidOperationException($"Unsupported database version {version}");
         }
-        else if (version != 1)
-        {
-            throw new InvalidOperationException($"Unsupported database version {version}");
-        }
+        if (connection.Query("PRAGMA foreign_key_check", transaction: transaction).Any())
+            throw new InvalidOperationException("Database foreign key check failed.");
+        connection.Execute("PRAGMA user_version=2", transaction: transaction);
         transaction.Commit();
+        connection.Execute("PRAGMA foreign_keys=ON");
     }
 
     public Task<T?> One<T>(string sql, object? parameters, CancellationToken cancellationToken) =>
@@ -81,6 +90,20 @@ internal sealed class Database(Settings settings)
         Execute("INSERT INTO Events(DeviceId,Topic,At,Payload) VALUES(@device,@topic,@at,@payload)",
             new { device, topic, at = Clock.Now, payload = value.GetRawText() }, cancellationToken);
 
+    private const string MigrateOpenEnrollment = """
+        DROP TABLE AgentTokens;
+        DROP TABLE Activations;
+        DELETE FROM Challenges WHERE Purpose='agent';
+        CREATE TABLE DevicesNext(
+            Id TEXT PRIMARY KEY, Name TEXT NOT NULL, ProfileId TEXT NOT NULL REFERENCES Profiles(Id),
+            Created INTEGER NOT NULL, LastSeen INTEGER, Revoked INTEGER, Revision INTEGER NOT NULL DEFAULT 1,
+            Policy TEXT, AddedDefaultRoot INTEGER NOT NULL DEFAULT 0);
+        INSERT INTO DevicesNext
+            SELECT Id,Name,ProfileId,Created,LastSeen,Revoked,Revision,Policy,AddedDefaultRoot FROM Devices;
+        DROP TABLE Devices;
+        ALTER TABLE DevicesNext RENAME TO Devices;
+        """;
+
     private const string Schema = """
         CREATE TABLE Operators(
             Id TEXT PRIMARY KEY, Name TEXT NOT NULL COLLATE NOCASE UNIQUE, DisplayName TEXT NOT NULL,
@@ -97,17 +120,10 @@ internal sealed class Database(Settings settings)
         CREATE INDEX ReviewsInitiator ON Reviews(Initiator,Expires);
         CREATE TABLE Profiles(Id TEXT PRIMARY KEY, Name TEXT NOT NULL COLLATE NOCASE UNIQUE, Settings TEXT NOT NULL, Revision INTEGER NOT NULL);
         INSERT INTO Profiles VALUES('default','Default','{"cpu":0,"memory":0,"disk":60,"battery":60,"displays":0,"keepAwake":true}',1);
-        CREATE TABLE Activations(
-            Id TEXT PRIMARY KEY, Batch TEXT NOT NULL, SecretHash TEXT NOT NULL UNIQUE, Expires INTEGER NOT NULL,
-            Used INTEGER, UsedBy TEXT, Revoked INTEGER, Created INTEGER NOT NULL);
-        CREATE INDEX ActivationsBatch ON Activations(Batch);
         CREATE TABLE Devices(
-            Id TEXT PRIMARY KEY, PublicKey BLOB NOT NULL UNIQUE, Name TEXT NOT NULL, ProfileId TEXT NOT NULL REFERENCES Profiles(Id),
+            Id TEXT PRIMARY KEY, Name TEXT NOT NULL, ProfileId TEXT NOT NULL REFERENCES Profiles(Id),
             Created INTEGER NOT NULL, LastSeen INTEGER, Revoked INTEGER, Revision INTEGER NOT NULL DEFAULT 1,
             Policy TEXT, AddedDefaultRoot INTEGER NOT NULL DEFAULT 0);
-        CREATE TABLE AgentTokens(
-            Hash TEXT PRIMARY KEY, DeviceId TEXT NOT NULL REFERENCES Devices(Id), Expires INTEGER NOT NULL);
-        CREATE INDEX AgentTokensDevice ON AgentTokens(DeviceId,Expires);
         CREATE TABLE ObservedRoots(
             DeviceId TEXT NOT NULL REFERENCES Devices(Id), RootKey TEXT NOT NULL, Label TEXT NOT NULL, Writable INTEGER NOT NULL,
             [Primary] INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(DeviceId,RootKey));

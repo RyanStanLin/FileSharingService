@@ -1,7 +1,7 @@
 namespace FileSharing;
 
 internal sealed record FtpRoot(string Id, string DeviceId, long Created);
-internal sealed record FtpPath(string Device, string Root, string Relative);
+internal sealed record FtpPath(string Device, string Root, string Relative, string? ConnectionId = null);
 
 internal sealed class FtpFiles(Database db, AgentBroker broker, FtpAccounts accounts, FileService files)
 {
@@ -42,6 +42,7 @@ internal sealed class FtpFiles(Database db, AgentBroker broker, FtpAccounts acco
         while (offset is { } current)
         {
             var root = await Scope(identity, address, ct);
+            address = address with { ConnectionId = root.ConnectionId };
             if (address.Relative.Length > 0 && current == 0)
             {
                 var entry = await files.StatGranted(root, address.Relative, ct);
@@ -87,7 +88,7 @@ internal sealed class FtpFiles(Database db, AgentBroker broker, FtpAccounts acco
             return true;
         });
         await db.Audit("ftp.download", identity.Id, root.DeviceId, new { rootId = root.Id, path = address.Relative, offset }, ct);
-        return (address, info);
+        return (address with { ConnectionId = root.ConnectionId }, info);
     }
 
     internal Task Download(FtpIdentity identity, FtpPath path, FileEntry info, long offset, Stream output, CancellationToken ct) =>
@@ -104,18 +105,20 @@ internal sealed class FtpFiles(Database db, AgentBroker broker, FtpAccounts acco
             WHERE a.Id=@Id AND a.Revision=@Revision AND a.Disabled=0 AND r.Enabled=1 AND d.Revoked IS NULL
             ORDER BY r.DeviceId,r.Id
             """, identity, ct);
-        return rows.Where(row => broker.Presence(row.DeviceId).Online).ToArray();
+        return rows.Where(row => broker.Presence(row.DeviceId).AccessGranted).ToArray();
     }
 
     private async Task<RootInfo> Scope(FtpIdentity identity, FtpPath path, CancellationToken ct)
     {
-        if (path.Device.Length == 0 || path.Root.Length == 0 || !broker.Presence(path.Device).Online)
+        if (path.Device.Length == 0 || path.Root.Length == 0)
             throw Fault.Missing();
-        return await db.One<RootInfo>("""
+        var connection = broker.RequireAccess(path.Device, path.ConnectionId);
+        var root = await db.One<RootInfo>("""
             SELECT r.* FROM FtpGrants g JOIN Roots r ON r.Id=g.RootId JOIN FtpAccounts a ON a.Id=g.AccountId
             JOIN Devices d ON d.Id=r.DeviceId JOIN ObservedRoots o ON o.DeviceId=d.Id AND o.RootKey=r.RootKey
             WHERE a.Id=@Id AND a.Revision=@Revision AND a.Disabled=0 AND r.DeviceId=@Device AND r.Id=@Root AND r.Enabled=1 AND d.Revoked IS NULL
             """, new { identity.Id, identity.Revision, path.Device, path.Root }, ct) ?? throw Fault.Forbidden("root_access_denied");
+        return root with { ConnectionId = connection };
     }
 
     internal static FileEntry Virtual(string name, long created) =>

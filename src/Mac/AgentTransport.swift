@@ -1,4 +1,3 @@
-import CryptoKit
 import Foundation
 import Network
 import Security
@@ -17,11 +16,11 @@ struct AgentHttp {
         return URLSession(configuration: configuration, delegate: RejectRedirects(), delegateQueue: nil)
     }
 
-    func request(_ path: String, method: String = "GET", body: JSON? = nil, token: String? = nil) throws -> URLRequest {
+    func request(_ path: String, method: String = "GET", body: JSON? = nil, channel: String? = nil) throws -> URLRequest {
         let url = base.appendingPathComponent("agent/v1/\(path)")
         var request = URLRequest(url: url)
         request.httpMethod = method
-        if let token { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+        if let channel { request.setValue(channel, forHTTPHeaderField: "X-FileSharing-Channel") }
         if let body {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = try body.encoded()
@@ -29,8 +28,8 @@ struct AgentHttp {
         return request
     }
 
-    func call(_ path: String, body: JSON? = nil, token: String? = nil) async throws -> JSON {
-        let request = try request(path, method: body == nil ? "GET" : "POST", body: body, token: token)
+    func call(_ path: String, body: JSON? = nil, channel: String? = nil) async throws -> JSON {
+        let request = try request(path, method: body == nil ? "GET" : "POST", body: body, channel: channel)
         let (data, response) = try await session.data(for: request)
         guard let result = response as? HTTPURLResponse, (200..<300).contains(result.statusCode),
               data.count < 2_000_000 else {
@@ -40,13 +39,7 @@ struct AgentHttp {
         return data.isEmpty ? .null : try JSON.decode(data)
     }
 
-    func authenticate(_ id: String, key: P256.Signing.PrivateKey) async throws -> (String, Date) {
-        let challenge = try await call("challenge", body: ["deviceId": .string(id)]).requireString("challenge")
-        let message = Data("FileSharing agent session v1\n\(id)\n\(challenge)".utf8)
-        let proof = try key.signature(for: message).rawRepresentation.base64URL
-        let response = try await call("session", body: ["deviceId": .string(id), "challenge": .string(challenge), "signature": .string(proof)])
-        return (try response.requireString("token"), Date().addingTimeInterval(3300))
-    }
+
 }
 
 final class RejectRedirects: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
@@ -88,7 +81,7 @@ final class AgentTransport {
     }
 
     private let id: String
-    private let key: P256.Signing.PrivateKey
+    private let hello: JSON
     private let state: LocalState
     private let files: ScopedFiles
     private let roots: [LocalRoot]
@@ -119,9 +112,10 @@ final class AgentTransport {
         self?.emit(topic: "files.changed", data: value, snapshot: false)
     }
 
-    init(enrollment: Enrollment, key: P256.Signing.PrivateKey, state: LocalState) {
+    init(enrollment: Enrollment, state: LocalState) {
         self.id = enrollment.deviceId
-        self.key = key
+        let name = Host.current().localizedName ?? ProcessInfo.processInfo.hostName
+        self.hello = ["type": "hello", "deviceId": .string(enrollment.deviceId), "name": .string(name)]
         self.state = state
         self.roots = enrollment.roots
         self.files = ScopedFiles(roots: enrollment.roots)
@@ -175,13 +169,13 @@ final class AgentTransport {
                 if Task.isCancelled || networkGeneration != generation { break }
                 let http = AgentHttp(session: connection, base: base)
                 do {
-                    let (token, deadline) = try await http.authenticate(id, key: key)
                     do {
-                        try await openSocket(http, token: token, deadline: deadline)
+                        try await openSocket(http)
+                    } catch let error as AgentError where ["device_already_connected", "device_revoked", "device_capacity"].contains(error.code) {
+                        throw error
                     } catch {
-                        if networkGeneration == generation, !Task.isCancelled,
-                           Date() < deadline, Date().timeIntervalSince(started) < 540 {
-                            try await poll(http, token: token, deadline: min(deadline, Date().addingTimeInterval(180)))
+                        if networkGeneration == generation, !Task.isCancelled, Date().timeIntervalSince(started) < 540 {
+                            try await poll(http)
                         }
                     }
                 } catch {
@@ -213,35 +207,25 @@ final class AgentTransport {
         socket?.cancel(with: .goingAway, reason: nil)
     }
 
-    private func connected(_ http: AgentHttp, token: String, fallback: Bool = false) -> Task<Void, Never> {
-        Task {
-            await updatePolicy(http, token: token, fallback: fallback)
-            guard !Task.isCancelled else { return }
-            await telemetry.start()
-            if let routeState {
-                emit(topic: "system.changed", data: ["kind": "networkPath", "reachability": .string(routeState)], snapshot: false)
-            }
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(10))
-                if !Task.isCancelled { await updatePolicy(http, token: token, fallback: fallback) }
-            }
+    private func reportConnection() async {
+        await telemetry.start()
+        if let routeState {
+            emit(topic: "system.changed", data: ["kind": "networkPath", "reachability": .string(routeState)], snapshot: false)
         }
     }
 
-    private func updatePolicy(_ http: AgentHttp, token: String, fallback: Bool) async {
+    private func updatePollingPolicy(_ http: AgentHttp, channel: String) async {
         let started = ContinuousClock.now
-        if let response = try? await http.call("policy", token: token), !Task.isCancelled {
+        if let response = try? await http.call("policy", channel: channel), !Task.isCancelled {
             telemetry.setPolicy(Sampling(response["settings"]))
-            if fallback {
-                let elapsed = started.duration(to: .now).components
-                let milliseconds = Double(elapsed.seconds) * 1_000 + Double(elapsed.attoseconds) / 1e15
-                _ = try? await http.call("pulse", body: ["latencyMs": .decimal(milliseconds)], token: token)
-            }
+            let elapsed = started.duration(to: .now).components
+            let milliseconds = Double(elapsed.seconds) * 1_000 + Double(elapsed.attoseconds) / 1e15
+            _ = try? await http.call("pulse", body: ["latencyMs": .decimal(milliseconds)], channel: channel)
         }
     }
 
-    private func openSocket(_ http: AgentHttp, token: String, deadline: Date) async throws {
-        var request = try http.request("ws", token: token)
+    private func openSocket(_ http: AgentHttp) async throws {
+        var request = try http.request("ws")
         var components = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)!
         components.scheme = components.scheme == "http" ? "ws" : "wss"
         request.url = components.url
@@ -253,11 +237,8 @@ final class AgentTransport {
         seen.removeAll()
         let signal = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
         wake = signal.continuation
-        signal.continuation.yield()
         current.resume()
-        let refresh = connected(http, token: token)
         defer {
-            refresh.cancel()
             signal.continuation.finish()
             wake = nil
             current.cancel(with: .goingAway, reason: nil)
@@ -266,23 +247,35 @@ final class AgentTransport {
         try await withThrowingTaskGroup(of: Void.self) { group in
             group.addTask { try await self.receive(current) }
             group.addTask { try await self.send(current, events: signal.stream) }
-            group.addTask { try await self.checkSocket(deadline: deadline, signal: signal.continuation) }
+            group.addTask { try await self.checkSocket(signal: signal.continuation) }
             defer { group.cancelAll(); current.cancel(with: .goingAway, reason: nil) }
             _ = try await group.next()
         }
     }
 
     private func receive(_ current: URLSessionWebSocketTask) async throws {
+        try await current.send(.string(String(decoding: hello.encoded(), as: UTF8.self)))
+        var report: Task<Void, Never>?
+        defer { report?.cancel() }
         while !Task.isCancelled {
             let message = try await current.receive()
-            heartbeat = Date()
-            changesObserved = true
             guard case .string(let text) = message else { throw AgentError("invalid_message") }
             let value = try JSON.decode(Data(text.utf8))
+            heartbeat = Date()
+            if !changesObserved {
+                if value["type"].string == "error" { throw AgentError(value["code"].string ?? "connection_unavailable") }
+                guard value["type"].string == "ready", value["deviceId"].string == id else { throw AgentError("invalid_message") }
+                changesObserved = true
+                report = Task { await reportConnection() }
+                wake?.yield()
+                continue
+            }
             switch value["type"].string {
             case "ping":
                 urgent.append(["type": "pong", "id": value["id"]])
                 wake?.yield()
+            case "policy":
+                telemetry.setPolicy(Sampling(value["payload"]["settings"]))
             case "ack":
                 if let id = value["id"].string { acknowledge([id]) }
             case "command":
@@ -293,12 +286,12 @@ final class AgentTransport {
         }
     }
 
-    private func checkSocket(deadline: Date, signal: AsyncStream<Void>.Continuation) async throws {
-        while !Task.isCancelled, Date() < deadline {
+    private func checkSocket(signal: AsyncStream<Void>.Continuation) async throws {
+        while !Task.isCancelled {
             if Date().timeIntervalSince(heartbeat) > (changesObserved ? 32 : 9) {
                 throw AgentError("connection_timeout")
             }
-            signal.yield()
+            if changesObserved { signal.yield() }
             try await Task.sleep(for: .seconds(1))
         }
     }
@@ -306,6 +299,7 @@ final class AgentTransport {
     private func send(_ current: URLSessionWebSocketTask, events: AsyncStream<Void>) async throws {
         for await _ in events {
             if Task.isCancelled { return }
+            if !changesObserved { continue }
             let now = Date()
             let transient = urgent
             urgent.removeAll(keepingCapacity: true)
@@ -331,29 +325,46 @@ final class AgentTransport {
         }
     }
 
-    private func poll(_ http: AgentHttp, token: String, deadline: Date) async throws {
+    private func poll(_ http: AgentHttp) async throws {
         urgent.removeAll { $0["type"].string == "pong" }
-        let refresh = connected(http, token: token, fallback: true)
-        defer { refresh.cancel() }
-        try await withThrowingTaskGroup(of: Void.self) { group in
-            group.addTask {
-                while !Task.isCancelled, Date() < deadline {
-                    let commands = try await http.call("commands", token: token).array ?? []
-                    for value in commands { await self.accept(value) }
-                }
+        let response = try await http.call("connect", body: hello)
+        guard response["deviceId"].string == id else { throw AgentError("invalid_message") }
+        let channel = try response.requireString("channel")
+        let refresh = Task {
+            await updatePollingPolicy(http, channel: channel)
+            await reportConnection()
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(5))
+                if !Task.isCancelled { await updatePollingPolicy(http, channel: channel) }
             }
-            group.addTask { try await self.flush(http, token: token, deadline: deadline) }
-            defer { group.cancelAll() }
-            _ = try await group.next()
+        }
+        defer { refresh.cancel() }
+        do {
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                group.addTask {
+                    while !Task.isCancelled {
+                        let commands = try await http.call("commands", channel: channel).array ?? []
+                        for value in commands { await self.accept(value) }
+                    }
+                }
+                group.addTask { try await self.flush(http, channel: channel) }
+                defer { group.cancelAll() }
+                _ = try await group.next()
+            }
+        } catch {
+            if let request = try? http.request("connection", method: "DELETE", channel: channel) {
+                _ = try? await http.session.data(for: request)
+            }
+            throw error
         }
     }
 
-    private func flush(_ http: AgentHttp, token: String, deadline: Date) async throws {
-        while !Task.isCancelled, Date() < deadline {
+    private func flush(_ http: AgentHttp, channel: String) async throws {
+        while !Task.isCancelled {
             let results = Array(urgent.prefix(3))
             let signals = outbox.prefix(2).map(\.value)
             if !results.isEmpty || !signals.isEmpty {
-                _ = try await http.call("frames", body: ["frames": .array(results + signals)], token: token)
+                _ = try await http.call("frames", body: ["frames": .array(results + signals)], channel: channel)
                 urgent.removeFirst(min(urgent.count, results.count))
                 acknowledge(signals.compactMap { $0["id"].string })
             }

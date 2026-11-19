@@ -42,19 +42,21 @@ internal sealed class FileService(DeviceService devices, AgentBroker broker, Rev
         PathKey(path) is { Length: > 0 } value ? value : throw Fault.Bad("entry_path_required");
 
     public async Task<DirectoryPage> List(Review review, string device, string rootId, string path, bool hidden,
-        int offset, int limit, string? revision, CancellationToken ct, string sort = "name", bool descending = false)
+        int offset, int limit, string? revision, CancellationToken ct, string sort = "name", bool descending = false,
+        string? connectionId = null)
     {
         if (offset < 0 || offset > 50_000 || offset > 0 && revision is null || limit is < 1 or > 200)
             throw Fault.Bad("invalid_directory_page");
         if (sort is not ("name" or "size" or "createdAt" or "modifiedAt" or "type" or "lastOpenedAt"))
             throw Fault.Bad("invalid_sort");
-        var root = await Allow(review, device, rootId, false, ct);
+        var root = await Allow(review, device, rootId, false, ct, connectionId);
         return await ListGranted(root, path, hidden, offset, limit, revision, ct, sort, descending);
     }
 
-    public async Task<FileEntry> Stat(Review review, string device, string rootId, string path, CancellationToken ct, bool summary = false)
+    public async Task<FileEntry> Stat(Review review, string device, string rootId, string path, CancellationToken ct, bool summary = false,
+        string? connectionId = null)
     {
-        var root = await Allow(review, device, rootId, false, ct);
+        var root = await Allow(review, device, rootId, false, ct, connectionId);
         return await StatGranted(root, path, ct, summary);
     }
 
@@ -62,18 +64,18 @@ internal sealed class FileService(DeviceService devices, AgentBroker broker, Rev
         string? revision, CancellationToken ct, string sort = "name", bool descending = false)
     {
         var result = await broker.Invoke(root.DeviceId, "files.list",
-            new { root = root.RootKey, path = PathKey(path), hidden, offset, limit, revision, sort, descending }, ct);
+            new { root = root.RootKey, path = PathKey(path), hidden, offset, limit, revision, sort, descending }, ct, connectionId: root.ConnectionId);
         return Wire.Model<DirectoryPage>(result);
     }
 
     internal async Task<FileEntry> StatGranted(RootInfo root, string path, CancellationToken ct, bool summary = false) =>
-        Wire.Model<FileEntry>(await broker.Invoke(root.DeviceId, "files.stat", new { root = root.RootKey, path = PathKey(path), summary }, ct));
+        Wire.Model<FileEntry>(await broker.Invoke(root.DeviceId, "files.stat", new { root = root.RootKey, path = PathKey(path), summary }, ct, connectionId: root.ConnectionId));
 
     public async Task<byte[]> Thumbnail(Review review, string device, string rootId, string path, string version, CancellationToken ct)
     {
         RequireVersionIfNeeded(version, "thumbnail");
         var root = await Allow(review, device, rootId, false, ct);
-        var payload = await broker.Invoke(device, "files.thumbnail", new { root = root.RootKey, path = PathKey(path), version }, ct);
+        var payload = await broker.Invoke(device, "files.thumbnail", new { root = root.RootKey, path = PathKey(path), version }, ct, connectionId: root.ConnectionId);
         var data = Convert.FromBase64String(Wire.Model<ReadChunk>(payload).Data);
         if (data.Length > Chunk)
             throw Fault.Unavailable("thumbnail_unavailable");
@@ -87,7 +89,7 @@ internal sealed class FileService(DeviceService devices, AgentBroker broker, Rev
         var path = EntryPath(input.Path);
         var destination = kind == "move" ? EntryPath(input.Destination) : null;
         var destinationGrant = destination is not null && input.DestinationRootId is { } target && target != root.Id
-            ? await Allow(review, device, target, true, ct) : root;
+            ? await Allow(review, device, target, true, ct, root.ConnectionId) : root;
         if (root.Id == destinationGrant.Id && (destination == path || destination?.StartsWith(path + "/", StringComparison.Ordinal) == true))
             throw Fault.Bad("invalid_destination");
         RequireVersionIfNeeded(input.Version, kind);
@@ -95,33 +97,35 @@ internal sealed class FileService(DeviceService devices, AgentBroker broker, Rev
         var audit = new { auditId, input.RootId, path, destination, destinationRootId = destinationGrant.Id, recursive };
         await db.Audit($"files.{kind}.requested", review.Initiator, device, audit, ct);
         var value = await broker.Invoke(device, $"files.{kind}", new { root = root.RootKey, path, destination,
-            destinationRoot = destinationGrant.RootKey, input.Version, recursive, recoveryId = auditId }, ct, auditId);
+            destinationRoot = destinationGrant.RootKey, input.Version, recursive, recoveryId = auditId }, ct, auditId, connectionId: root.ConnectionId);
         await db.Audit($"files.{kind}.completed", review.Initiator, device, audit, CancellationToken.None);
         return value;
     }
 
-    public async Task<RootInfo> Allow(Review review, string id, string root, bool write, CancellationToken ct)
+    public async Task<RootInfo> Allow(Review review, string id, string root, bool write, CancellationToken ct, string? connectionId = null)
     {
         if (await reviews.ActiveById(review.Id, ct) is not { } current)
             throw Fault.Unauthorized();
         await reviews.Touch(current.Id, current.LastAccess, ct);
-        return await devices.Scope(id, root, write, ct);
+        return await devices.Scope(id, root, write, ct, connectionId);
     }
 
     public Task Pump(Review review, string device, string rootId, string path, string version, long start, long size,
-        Stream output, Func<long, CancellationToken, Task>? progress, CancellationToken ct) =>
-        Pump(path, version, start, size, output, token => Allow(review, device, rootId, false, token), progress, ct);
+        Stream output, Func<long, CancellationToken, Task>? progress, CancellationToken ct, string? connectionId = null) =>
+        Pump(path, version, start, size, output, token => Allow(review, device, rootId, false, token, connectionId), progress, ct);
 
     internal async Task Pump(string path, string version, long start, long size, Stream output,
         Func<CancellationToken, Task<RootInfo>> authorize, Func<long, CancellationToken, Task>? progress, CancellationToken ct)
     {
         var offset = start;
         var end = checked(start + size);
+        string? connectionId = null;
         while (offset < end)
         {
             var root = await authorize(ct);
+            connectionId ??= root.ConnectionId;
             var count = (int)Math.Min(Chunk, end - offset);
-            var result = await broker.Invoke(root.DeviceId, "files.read", new { root = root.RootKey, path, version, offset, count }, ct);
+            var result = await broker.Invoke(root.DeviceId, "files.read", new { root = root.RootKey, path, version, offset, count }, ct, connectionId: connectionId);
             var data = Convert.FromBase64String(Wire.Model<ReadChunk>(result).Data);
             if (data.Length != count)
                 throw Fault.Conflict("source_changed");
@@ -138,7 +142,7 @@ internal sealed class FileService(DeviceService devices, AgentBroker broker, Rev
         var result = await broker.Invoke(transfer.DeviceId, "files.write", new
         {
             root = root.RootKey, transfer.Path, transferId = transfer.Id, offset, data = Convert.ToBase64String(bytes.Span)
-        }, ct);
+        }, ct, connectionId: root.ConnectionId);
         if (Wire.Model<WriteOffset>(result).Offset < offset + bytes.Length)
             throw Fault.Conflict("invalid_offset");
     }
@@ -149,7 +153,7 @@ internal sealed class FileService(DeviceService devices, AgentBroker broker, Rev
         var value = await broker.Invoke(transfer.DeviceId, "files.commit", new
         {
             root = root.RootKey, transfer.Path, transferId = transfer.Id, length = transfer.Length, transfer.Version
-        }, ct, transfer.Id);
+        }, ct, transfer.Id, connectionId: root.ConnectionId);
         return Wire.Model<FileEntry>(value);
     }
 
@@ -160,7 +164,7 @@ internal sealed class FileService(DeviceService devices, AgentBroker broker, Rev
         try
         {
             var root = await Allow(review, transfer.DeviceId, transfer.RootId, true, shortWait.Token);
-            await broker.Invoke(transfer.DeviceId, "files.abandon", new { root = root.RootKey, transferId = transfer.Id }, shortWait.Token);
+            await broker.Invoke(transfer.DeviceId, "files.abandon", new { root = root.RootKey, transferId = transfer.Id }, shortWait.Token, connectionId: root.ConnectionId);
         }
         catch (Exception error) when (error is Fault or OperationCanceledException)
         {
@@ -199,7 +203,7 @@ internal sealed class TransferService(Database db, FileService files, Settings s
     public async Task<(TransferRecord Transfer, bool IsNew)> Start(Review review, TransferInput body, string idempotency, CancellationToken ct)
     {
         var requestKey = Secrets.Text(idempotency, 128);
-        await files.Allow(review, body.DeviceId, body.RootId, body.Kind == "upload", ct);
+        var access = await files.Allow(review, body.DeviceId, body.RootId, body.Kind == "upload", ct);
         if (body.Kind is not ("download" or "upload" or "archive"))
             throw Fault.Bad("invalid_transfer_kind");
         FileService.RequireVersionIfNeeded(body.Version, body.Kind);
@@ -221,7 +225,7 @@ internal sealed class TransferService(Database db, FileService files, Settings s
         var length = body.Length ?? 0;
         if (body.Kind == "download")
         {
-            var entry = await files.Stat(review, body.DeviceId, body.RootId, path, ct);
+            var entry = await files.Stat(review, body.DeviceId, body.RootId, path, ct, connectionId: access.ConnectionId);
             if (entry.Kind != "file" || entry.Size < 0 || entry.Size > FileService.MaximumBytes)
                 throw Fault.Bad("not_downloadable");
             if (version is not null && version != entry.Version)
@@ -257,7 +261,7 @@ internal sealed class TransferService(Database db, FileService files, Settings s
             throw;
         }
         if (body.Kind == "archive")
-            _ = Pack(review, row, entries);
+            _ = Pack(review, row, entries, access.ConnectionId!);
         return (row, true);
     }
 
@@ -351,10 +355,10 @@ internal sealed class TransferService(Database db, FileService files, Settings s
         var transfer = await Get(review, id, ct);
         if (transfer.Kind is not ("archive" or "download") || transfer.State is not ("ready" or "completed") || transfer.Version is null)
             throw Fault.Conflict("download_not_ready");
-        await files.Allow(review, transfer.DeviceId, transfer.RootId, false, ct);
+        var access = await files.Allow(review, transfer.DeviceId, transfer.RootId, false, ct);
         if (transfer.Kind == "download")
         {
-            var source = await files.Stat(review, transfer.DeviceId, transfer.RootId, transfer.Path, ct);
+            var source = await files.Stat(review, transfer.DeviceId, transfer.RootId, transfer.Path, ct, connectionId: access.ConnectionId);
             if (source.Version != transfer.Version || source.Size != transfer.Length)
                 throw new Fault(412, "version_mismatch");
         }
@@ -409,7 +413,7 @@ internal sealed class TransferService(Database db, FileService files, Settings s
                 var buffer = new byte[FileService.Chunk];
                 for (var remaining = length; remaining > 0;)
                 {
-                    await Check(transfer, review, ct);
+                    await Check(transfer, review, ct, access.ConnectionId!);
                     var got = await archive.ReadAsync(buffer.AsMemory(0, (int)Math.Min(buffer.Length, remaining)), ct);
                     if (got == 0)
                         throw Fault.Conflict("archive_changed");
@@ -419,7 +423,7 @@ internal sealed class TransferService(Database db, FileService files, Settings s
                 }
             }
             else
-                await files.Pump(review, transfer.DeviceId, transfer.RootId, transfer.Path, transfer.Version, offset, length, response.Body, Progress, ct);
+                await files.Pump(review, transfer.DeviceId, transfer.RootId, transfer.Path, transfer.Version, offset, length, response.Body, Progress, ct, access.ConnectionId);
             await Report(transfer, offset + length, offset + length == transfer.Length ? "completed" : "ready", ct, offset);
         }
         catch
@@ -437,7 +441,7 @@ internal sealed class TransferService(Database db, FileService files, Settings s
 
         async Task Progress(long current, CancellationToken token)
         {
-            await Check(transfer, review, token);
+            await Check(transfer, review, token, access.ConnectionId!);
             if (current - lastProgress >= FileService.Chunk * 8L || current == offset + length)
             {
                 lastProgress = current;
@@ -446,7 +450,7 @@ internal sealed class TransferService(Database db, FileService files, Settings s
         }
     }
 
-    private async Task Pack(Review review, TransferRecord transfer, string[] entries)
+    private async Task Pack(Review review, TransferRecord transfer, string[] entries, string connectionId)
     {
         var path = ArchivePath(transfer.Id);
         var temporary = path + ".part";
@@ -470,7 +474,7 @@ internal sealed class TransferService(Database db, FileService files, Settings s
                     await Add(entry, name, zip, ct);
                 }
             }
-            await Check(transfer, review, ct);
+            await Check(transfer, review, ct, connectionId);
             File.Move(temporary, path);
             var length = new FileInfo(path).Length;
             var saved = await db.Execute("""
@@ -483,10 +487,10 @@ internal sealed class TransferService(Database db, FileService files, Settings s
 
             async Task Add(string relative, string archiveName, ZipArchive zip, CancellationToken token)
             {
-                await Check(transfer, review, token);
+                await Check(transfer, review, token, connectionId);
                 if (++count > 100_000)
                     throw new Fault(413, "archive_entry_limit");
-                var entry = await files.Stat(review, transfer.DeviceId, transfer.RootId, relative, token);
+                var entry = await files.Stat(review, transfer.DeviceId, transfer.RootId, relative, token, connectionId: connectionId);
                 if (entry.Kind == "file")
                 {
                     if (!names.Add(archiveName))
@@ -500,7 +504,7 @@ internal sealed class TransferService(Database db, FileService files, Settings s
                         async (offset, progressToken) =>
                         {
                             packedBytes = initial + offset;
-                            await Check(transfer, review, progressToken);
+                            await Check(transfer, review, progressToken, connectionId);
                             if (packedBytes - lastProgress >= FileService.Chunk * 8L || offset == entry.Size && lastProgress == 0)
                             {
                                 lastProgress = packedBytes;
@@ -510,7 +514,7 @@ internal sealed class TransferService(Database db, FileService files, Settings s
                                 if (updated == 1)
                                     await Event(transfer, "preparing", packedBytes);
                             }
-                        }, token);
+                        }, token, connectionId);
                 }
                 else if (entry.Kind == "directory")
                 {
@@ -524,7 +528,7 @@ internal sealed class TransferService(Database db, FileService files, Settings s
                     string? revision = null;
                     while (offset is { } start)
                     {
-                        var page = await files.List(review, transfer.DeviceId, transfer.RootId, relative, true, start, 100, revision, token);
+                        var page = await files.List(review, transfer.DeviceId, transfer.RootId, relative, true, start, 100, revision, token, connectionId: connectionId);
                         foreach (var child in page.Items)
                             await Add(FileService.EntryPath(child.Path),
                                 archiveName.Length == 0 ? child.Name : $"{archiveName}/{child.Name}", zip, token);
@@ -555,9 +559,9 @@ internal sealed class TransferService(Database db, FileService files, Settings s
         }
     }
 
-    private async Task Check(TransferRecord transfer, Review review, CancellationToken ct)
+    private async Task Check(TransferRecord transfer, Review review, CancellationToken ct, string connectionId)
     {
-        await files.Allow(review, transfer.DeviceId, transfer.RootId, false, ct);
+        await files.Allow(review, transfer.DeviceId, transfer.RootId, false, ct, connectionId);
         var state = await db.One<string>("SELECT State FROM Transfers WHERE Id=@Id", new { transfer.Id }, ct);
         if (state is "cancelled" or "failed" or null)
             throw Fault.Conflict("transfer_cancelled");

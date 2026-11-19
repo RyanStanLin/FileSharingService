@@ -122,7 +122,6 @@ class DeploymentSmoke(unittest.TestCase):
             contract = api("GET", "/openapi/v1.json").json()
             self.assertIn("/api/v1/ftp/accounts", contract["paths"])
 
-            ticket = api("POST", API + "/enrollments", 201, json={"count": 1}).json()["items"][0]
             home = directory / "test-home"
             home.mkdir()
             agent_state = directory / "agent-state"
@@ -134,7 +133,6 @@ class DeploymentSmoke(unittest.TestCase):
                 "FILESHARING_TEST_HOME": str(home),
                 "FILESHARING_TEST_ORIGIN": origin,
                 "FILESHARING_TEST_CA_DER": str(der),
-                "FILESHARING_TEST_ACTIVATION": ticket["code"],
                 "TMPDIR": str(directory),
             }
             with (directory / "agent.log").open("w") as log:
@@ -147,6 +145,10 @@ class DeploymentSmoke(unittest.TestCase):
             self.assertTrue(devices and devices[0]["connection"]["online"], (directory / "agent.log").read_text())
             device = devices[0]["id"]
             self.assertEqual(devices[0]["connection"]["protocol"], "wss")
+            self.assertFalse(devices[0]["connection"]["accessGranted"])
+            access = api("PUT", f"{API}/devices/{device}/connection-access",
+                         json={"connectionId": devices[0]["connection"]["connectionId"], "enabled": True}).json()
+            self.assertTrue(access["accessGranted"])
             for _ in range(75):
                 scopes = api("GET", f"{API}/devices/{device}/file-roots").json()["items"]
                 if scopes:

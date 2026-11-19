@@ -76,10 +76,10 @@ async function unlock() {
 | --- | --- |
 | 400 | `invalid_request`、`invalid_path`、`invalid_sort`、`invalid_directory_page`、`invalid_cursor`、`invalid_time_range`、`unsupported_permission` |
 | 401 | `authentication_required`，含会话锁定、WebAuthn 失败、challenge 已消费或密钥错误 |
-| 403 | `invalid_origin`、`invalid_host`、`root_access_denied`、`permission_denied` |
+| 403 | `invalid_origin`、`invalid_host`、`root_access_denied`、`agent_connection_access_required`、`permission_denied` |
 | 404 | `not_found`、`device_not_found`、`ftp_account_not_found`、`snapshot_unavailable`、`transfer_not_found` |
-| 409 | `revision_conflict`、`passkey_already_configured`、`passkey_configuration_changed`、`snapshot_changed`、`already_exists`、`directory_not_empty`、`cross_volume`、`delete_incomplete` |
-| 410 | `resync_required`、`archive_expired` |
+| 409 | `revision_conflict`、`device_already_connected`、`agent_connection_changed`、`device_capacity`、`passkey_already_configured`、`passkey_configuration_changed`、`snapshot_changed`、`already_exists`、`directory_not_empty`、`cross_volume`、`delete_incomplete` |
+| 410 | `resync_required`、`archive_expired`、`agent_connection_ended` |
 | 412 | `version_mismatch`，重新获取条目版本 |
 | 413 | `too_large`、`invalid_chunk_length`、`archive_size_limit`、`archive_entry_limit` |
 | 416 | `range_not_satisfiable`，响应含 `Content-Range: bytes */<length>` |
@@ -88,20 +88,17 @@ async function unlock() {
 | 429 | `device_busy`、`limit_reached`、`archive_limit`、`stream_limit`、`watch_limit`、`job_limit` 或请求频率限制 |
 | 503 | `device_unavailable`、`device_timeout` 或设备操作失败 |
 
-## 设备、接入与策略
+## 公网自动接入、设备与策略
 
 | 方法与路径 | 参数 / 请求体 | 响应 |
 | --- | --- | --- |
 | `GET /devices` | `cursor,limit,search,includeRevoked` | `200 Page<Device>` |
 | `GET /devices/D` | 无 | `200 Device` |
 | `PUT /devices/D` | `{name,profileId,revision}` | `200 Device` |
-| `DELETE /devices/D` | 无 | `204` 撤销设备身份并释放名额 |
+| `DELETE /devices/D` | 无 | `204` 注销 UUID 并释放名额 |
+| `PUT /devices/D/connection-access` | `{connectionId,enabled}` | `200 Device.connection`，控制当前连接的远程操作 |
 | `GET /devices/D/policy` | 无 | `200 {deviceId,revision,inherited,settings}` |
 | `PUT /devices/D/policy` | `{revision,settings}`，`settings:null` 恢复继承 | `200 DevicePolicy` |
-| `GET /enrollments` | `cursor,limit` | `200 Page<Enrollment>` |
-| `POST /enrollments` | `{count,expiresInMinutes?}`，count 为 1 至 100 且受部署容量约束，过期 10–1440 分钟，默认 60 | `201 {batchId,expiresAt,items:[{id,code}]}` |
-| `GET /enrollments/{id}` | 无 | `200 {id,batch,expires,used,usedBy,revoked,created}`，时间为 Unix 秒 |
-| `DELETE /enrollments/{id}` | 无 | `204` 撤销未用票据 |
 | `GET /collection-profiles` | `cursor,limit` | `200 Page<Profile>` |
 | `POST /collection-profiles` | `{name,settings}` | `201 Profile` |
 | `GET /collection-profiles/{id}` | UUID 或 `default` | `200 Profile` |
@@ -109,8 +106,10 @@ async function unlock() {
 | `DELETE /collection-profiles/{id}` | 无 | `204` 移除未被设备使用的自定义配置 |
 
 ```json
-{"id":"144bae60-503d-45e3-8a17-ec7a64886c20","name":"Design Mac","profileId":"default","createdAt":"2026-11-19T08:21:00Z","revokedAt":null,"revision":1,"connection":{"online":true,"protocol":"wss","connectedAt":"2026-11-19T08:21:05Z","lastCommunicationAt":"2026-11-19T08:22:00Z","latencyMs":8.2,"connectionSeconds":55}}
+{"id":"144bae60-503d-45e3-8a17-ec7a64886c20","name":"Design Mac","profileId":"default","createdAt":"2026-11-19T08:21:00Z","revokedAt":null,"revision":1,"connection":{"online":true,"protocol":"wss","connectedAt":"2026-11-19T08:21:05Z","lastCommunicationAt":"2026-11-19T08:22:00Z","latencyMs":8.2,"connectionSeconds":55,"connectionId":"2191fa7c-cebe-40ad-baea-56b42a4276dc","accessGranted":false,"peerAddress":"203.0.113.15"}}
 ```
+
+设备可以在公网自动登记和上线。管理端可以用 `connectionId` 识别当前连接，用 `accessGranted` 控制文件浏览及远程操作按钮。管理员确认当前连接后提交 `{connectionId,enabled:true}`，提交 `enabled:false` 则结束当前连接的远程操作授权。重连使用同一设备 UUID，并自动产生新的 `connectionId`。过期的连接 ID 返回 `agent_connection_changed`。Agent 握手及 HTTPS 长轮询见 [架构协议](architecture.md#通信协议)。
 
 Profile 为 `{id,name,settings,revision}`。采样周期以秒为单位，`0` 表示由手动刷新或系统事件触发。KeepAwake 是配置状态，生效状态位于设备的 `power` 样本。
 
@@ -191,7 +190,7 @@ Root 为 `{id,deviceId,rootKey,label,writable,enabled,revision}`。TCC 管理包
 | `PUT /ftp/accounts/{id}/password` | `{revision,password?}` | `200 {account,password,endpoints}` |
 | `DELETE /ftp/accounts/{id}` | 无 | `204` |
 
-账号 `mode` 取 `ftp` 或 `ftps`，创建和换密码时可省略 `password` 生成随机值。明文密码只在这两个操作的响应中出现，复制按钮从响应复制用户名、密码和选定端点。后续查询支持复制地址与账号，丢失的密码通过轮换处理。连接模式分别为 `plain`、`explicitTls`（URI 仍为 ftp，客户端选 Require explicit FTP over TLS）及 `implicitTls`（ftps）。管理员锁定时账号仍可以访问已授权的在线设备。修改账号授权、用户名、启用状态或密码会使旧 FTP 会话失效。
+账号 `mode` 取 `ftp` 或 `ftps`，创建和换密码时可省略 `password` 生成随机值。明文密码只在这两个操作的响应中出现，复制按钮从响应复制用户名、密码和选定端点。后续查询支持复制地址与账号，丢失的密码通过轮换处理。连接模式分别为 `plain`、`explicitTls`（URI 仍为 ftp，客户端选 Require explicit FTP over TLS）及 `implicitTls`（ftps）。管理员锁定时账号仍可以访问已授权目录且本次连接已开放远程操作的在线设备。修改账号授权、用户名、启用状态或密码会使旧 FTP 会话失效。
 
 ```json
 {"account":{"id":"fcd35110-9677-4fd7-83db-6f59cd838dc8","name":"download-ops","mode":"ftps","disabled":false,"revision":1,"rootIds":["84a38c77-f769-4e27-b6d0-331281675ebd"]},"password":"example-issued-secret","endpoints":[{"mode":"explicitTls","host":"filesharing.example.com","port":2122,"scheme":"ftp","address":"ftp://filesharing.example.com:2122/"}]}

@@ -2,7 +2,7 @@
 
 `GET /api/v1/devices/{id}/status` 返回 `connection` 与多个 `samples`。每条样本为 `{topic,observedAt,stale,value}`。`observedAt` 是服务端接收时间。应用、存储及系统事件的 `occurredAt` 来自设备时钟。未知字段保留 `null` 或 `unknown`。
 
-连接有 `online,protocol,connectedAt,lastCommunicationAt,latencyMs,connectionSeconds`。在线由最近 45 秒通信判断。协议为 `wss` 或 `https`。断线后保留最后通信时间和最近样本。
+连接有 `online,protocol,connectedAt,lastCommunicationAt,latencyMs,connectionSeconds,connectionId,accessGranted,peerAddress`。在线由最近 45 秒通信判断。协议为 `wss` 或 `https`。断线后保留最后通信时间和最近样本。
 
 | topic | value |
 | --- | --- |

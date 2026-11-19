@@ -10,21 +10,14 @@ private struct PowerStatus: Encodable, Equatable {
 }
 
 private final class PowerController {
-    private let user: uid_t
-    private let request: URL
+    private let managedUser: String
     private let state = URL(fileURLWithPath: "/var/db/in.ryanl.filesharing.power", isDirectory: true)
     private var ownsSetting = false
     private var lastDisabled: Bool?
     private var marker: URL { state.appendingPathComponent("restore") }
 
     init(user: String) throws {
-        guard let entry = getpwnam(user), entry.pointee.pw_uid >= 501,
-              let home = entry.pointee.pw_dir.map({ String(cString: $0) }), home.hasPrefix("/Users/") else {
-            throw PowerError.invalidUser
-        }
-        self.user = entry.pointee.pw_uid
-        request = URL(fileURLWithPath: home, isDirectory: true)
-            .appendingPathComponent("Library/Application Support/FileSharingAgent/lid-lease")
+        managedUser = user
         try FileManager.default.createDirectory(at: state, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o755])
         var info = stat()
         guard lstat(state.path, &info) == 0, info.st_mode & S_IFMT == S_IFDIR, info.st_uid == 0, info.st_mode & 0o022 == 0
@@ -85,12 +78,28 @@ private final class PowerController {
         }
     }
 
+    private func account() -> (uid: uid_t, directory: URL)? {
+        let entry: UnsafeMutablePointer<passwd>?
+        if managedUser.isEmpty {
+            var console = stat()
+            guard stat("/dev/console", &console) == 0, console.st_uid >= 501 else { return nil }
+            entry = getpwuid(console.st_uid)
+        } else {
+            entry = getpwnam(managedUser)
+        }
+        guard let info = entry?.pointee, info.pw_uid >= 501,
+              let home = info.pw_dir.map({ String(cString: $0) }), home.hasPrefix("/Users/") else { return nil }
+        return (info.pw_uid, URL(fileURLWithPath: home, isDirectory: true))
+    }
+
     private func freshLease() -> Bool {
+        guard let user = account() else { return false }
+        let request = user.directory.appendingPathComponent("Library/Application Support/FileSharingAgent/lid-lease")
         let fd = open(request.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
         guard fd >= 0 else { return false }
         defer { close(fd) }
         var info = stat()
-        guard fstat(fd, &info) == 0, info.st_uid == user, info.st_mode & S_IFMT == S_IFREG, info.st_nlink == 1,
+        guard fstat(fd, &info) == 0, info.st_uid == user.uid, info.st_mode & S_IFMT == S_IFREG, info.st_nlink == 1,
               info.st_mode & 0o077 == 0, info.st_size > 0, info.st_size <= 20 else { return false }
         var bytes = [UInt8](repeating: 0, count: 24)
         let count = bytes.withUnsafeMutableBytes { read(fd, $0.baseAddress, $0.count) }
@@ -150,7 +159,7 @@ private final class PowerController {
     }
 }
 
-private enum PowerError: Error { case invalidUser, invalidState }
+private enum PowerError: Error { case invalidState }
 
 @main
 struct FileSharingPowerWorker {

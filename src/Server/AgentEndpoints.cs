@@ -17,11 +17,13 @@ internal sealed class AgentIngest(Database db, AgentBroker broker, WatchRegistry
         ["identity", "cpu", "memory", "disk", "battery", "power", "system", "displays", "locale", "network", "agent",
          "apps-running", "apps-installed", "storage", "permissions", "roots"];
 
-    public async Task Receive(string device, AgentFrame frame, CancellationToken ct)
+    public async Task Receive(AgentBroker.Link link, AgentFrame frame, CancellationToken ct)
     {
+        ct.ThrowIfCancellationRequested();
+        var device = link.Device;
         if (frame.Type == "result")
         {
-            broker.Complete(device, frame);
+            broker.Complete(link, frame);
             return;
         }
         if (frame.Type == "pong")
@@ -32,7 +34,8 @@ internal sealed class AgentIngest(Database db, AgentBroker broker, WatchRegistry
 
         if (topic == "files.changed")
         {
-            await watches.Ingest(device, payload, ct);
+            if (broker.HasAccess(link))
+                await watches.Ingest(device, link.Id, payload, ct);
             return;
         }
 
@@ -103,74 +106,117 @@ internal static class AgentEndpoints
     public static void Map(WebApplication app)
     {
         var group = app.MapGroup("/agent/v1").ExcludeFromDescription();
-        group.MapPost("/activate", async (ActivationRequest body, AgentIdentity identity, CancellationToken ct) =>
-            TypedResults.Ok(await identity.Activate(body, ct))).RequireRateLimiting("agent-auth");
-        group.MapPost("/challenge", async (DeviceChallengeRequest body, AgentIdentity identity, CancellationToken ct) =>
-            TypedResults.Ok(await identity.Challenge(body, ct))).RequireRateLimiting("agent-auth");
-        group.MapPost("/session", async (AgentSessionRequest body, AgentIdentity identity, CancellationToken ct) =>
-            TypedResults.Ok(await identity.Authorize(body, ct))).RequireRateLimiting("agent-auth");
-        group.MapGet("/commands", async (HttpContext ctx, AgentIdentity identity, AgentBroker broker, CancellationToken ct) =>
+        group.MapPost("/connect", async (AgentHello body, HttpContext context, AgentBroker broker, CancellationToken ct) =>
         {
-            var device = await identity.Require(ctx, ct);
-            await broker.Seen(device, "https", ct);
-            return TypedResults.Ok(await broker.Commands(device, TimeSpan.FromSeconds(20), ct));
+            var link = await broker.Open(body, "https", context, ct);
+            return TypedResults.Ok(new { deviceId = link.Device, channel = link.Channel });
+        }).RequireRateLimiting("agent-connect");
+        group.MapDelete("/connection", async (HttpContext context, AgentBroker broker, CancellationToken ct) =>
+        {
+            await broker.Close(broker.OpenChannel(context), ct);
+            return TypedResults.NoContent();
         });
-        group.MapPost("/frames", async (AgentFrames body, HttpContext ctx, AgentIdentity identity, AgentIngest ingest, AgentBroker broker, CancellationToken ct) =>
+        group.MapGet("/commands", async (HttpContext ctx, AgentBroker broker, CancellationToken ct) =>
         {
-            var device = await identity.Require(ctx, ct);
+            var link = broker.OpenChannel(ctx);
+            await broker.Seen(link, ct);
+            return TypedResults.Ok(await broker.Commands(link, TimeSpan.FromSeconds(20), ct));
+        });
+        group.MapPost("/frames", async (AgentFrames body, HttpContext ctx, AgentIngest ingest, AgentBroker broker, CancellationToken ct) =>
+        {
+            var link = broker.OpenChannel(ctx);
             if (body.Frames is not { Count: <= 8 })
                 throw Fault.Bad("frame_limit");
-            await broker.Seen(device, "https", ct);
+            using var request = CancellationTokenSource.CreateLinkedTokenSource(ct, link.Lifetime);
+            await broker.Seen(link, request.Token);
             foreach (var frame in body.Frames)
-                await ingest.Receive(device, frame, ct);
+                await ingest.Receive(link, frame, request.Token);
             return TypedResults.NoContent();
         });
-        group.MapPost("/pulse", async (AgentPulse body, HttpContext ctx, AgentIdentity identity, AgentBroker broker, CancellationToken ct) =>
+        group.MapPost("/pulse", async (AgentPulse body, HttpContext ctx, AgentBroker broker, CancellationToken ct) =>
         {
-            var device = await identity.Require(ctx, ct);
+            var link = broker.OpenChannel(ctx);
             if (!double.IsFinite(body.LatencyMs) || body.LatencyMs < 0 || body.LatencyMs > 60_000)
                 throw Fault.Bad("invalid_latency");
-            await broker.Seen(device, "https", ct, body.LatencyMs);
+            await broker.Seen(link, ct, body.LatencyMs);
             return TypedResults.NoContent();
         });
-        group.MapGet("/policy", async (HttpContext ctx, AgentIdentity identity, DeviceService devices, CancellationToken ct) =>
-            TypedResults.Ok(await devices.Policy(await identity.Require(ctx, ct), ct)));
-        group.MapGet("/ws", Socket);
+        group.MapGet("/policy", async (HttpContext ctx, AgentBroker broker, DeviceService devices, CancellationToken ct) =>
+            TypedResults.Ok(await Policy(broker.OpenChannel(ctx), broker, devices, ct)));
+        group.MapGet("/ws", Socket).RequireRateLimiting("agent-connect");
     }
 
-    private static async Task Socket(HttpContext context, AgentIdentity identity, AgentBroker broker, AgentIngest ingest, CancellationToken ct)
+    private static async Task<DevicePolicy> Policy(AgentBroker.Link link, AgentBroker broker, DeviceService devices, CancellationToken ct)
     {
-        var device = await identity.Require(context, ct);
+        var policy = await devices.Policy(link.Device, ct);
+        return broker.HasAccess(link) ? policy : policy with { Settings = policy.Settings with { KeepAwake = false } };
+    }
+
+    private static async Task Socket(HttpContext context, AgentBroker broker, AgentIngest ingest, DeviceService devices, CancellationToken ct)
+    {
         if (!context.WebSockets.IsWebSocketRequest)
             throw Fault.Bad("websocket_required");
+
         using var socket = await context.WebSockets.AcceptWebSocketAsync();
-        using var stop = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        var pings = new System.Collections.Concurrent.ConcurrentDictionary<string, long>();
-        var life = stop.Token;
-        var acknowledgements = System.Threading.Channels.Channel.CreateBounded<string>(128);
-        var input = Receive();
-        var output = Send();
-        await Task.WhenAny(input, output);
-        await stop.CancelAsync();
+        using var handshake = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        handshake.CancelAfter(TimeSpan.FromSeconds(8));
+        AgentBroker.Link link;
         try
         {
-            await Task.WhenAll(input, output);
+            var hello = await SocketWire.Read<AgentHello>(socket, 4096, handshake.Token);
+            if (hello?.Type != "hello")
+                throw Fault.Bad("agent_hello_required");
+            link = await broker.Open(hello, "wss", context, handshake.Token);
         }
-        catch (Exception e) when (e is OperationCanceledException or WebSocketException or Fault or System.Text.Json.JsonException)
+        catch (Fault fault)
+        {
+            try
+            {
+                await SocketWire.Send(socket, new { type = "error", code = fault.Code }, handshake.Token);
+                await socket.CloseOutputAsync(WebSocketCloseStatus.PolicyViolation, "", handshake.Token);
+            }
+            catch (Exception error) when (error is OperationCanceledException or WebSocketException)
+            {
+                socket.Abort();
+            }
+            return;
+        }
+        catch (Exception error) when (error is OperationCanceledException or WebSocketException or System.Text.Json.JsonException)
         {
             socket.Abort();
+            return;
+        }
+
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(ct, link.Lifetime);
+        var life = stop.Token;
+        var pings = new System.Collections.Concurrent.ConcurrentDictionary<string, long>();
+        var acknowledgements = System.Threading.Channels.Channel.CreateBounded<string>(128);
+        try
+        {
+            await SocketWire.Send(socket, new { type = "ready", deviceId = link.Device }, life);
+            var input = Receive();
+            var output = Send();
+            await Task.WhenAny(input, output);
+            await stop.CancelAsync();
+            await Task.WhenAll(input, output);
+        }
+        catch (Exception error) when (error is OperationCanceledException or WebSocketException or Fault or System.Text.Json.JsonException)
+        {
+            socket.Abort();
+        }
+        finally
+        {
+            await broker.Close(link, CancellationToken.None);
         }
 
         async Task Receive()
         {
             while (await SocketWire.Read<AgentFrame>(socket, 1_500_000, life) is { } frame)
             {
-                if (await identity.Verify(context, life) != device)
-                    return;
-                double? latency = frame.Type == "pong" && frame.Id is { } id && pings.TryRemove(id, out var ticks) ?
-                    Stopwatch.GetElapsedTime(ticks).TotalMilliseconds : null;
-                await broker.Seen(device, "wss", life, latency);
-                await ingest.Receive(device, frame, life);
+                double? latency = frame.Type == "pong" && frame.Id is { } id && pings.TryRemove(id, out var ticks)
+                    ? Stopwatch.GetElapsedTime(ticks).TotalMilliseconds : null;
+                await broker.Seen(link, life, latency);
+                await ingest.Receive(link, frame, life);
                 if (frame is { Type: "event", Id: { } eventId })
                     await acknowledgements.Writer.WriteAsync(eventId, life);
             }
@@ -178,21 +224,28 @@ internal static class AgentEndpoints
 
         async Task Send()
         {
-            await broker.Seen(device, "wss", life);
+            var lastPolicy = 0L;
+            var lastPing = 0L;
             while (!life.IsCancellationRequested)
             {
-                if (await identity.Verify(context, life) != device)
-                    return;
-                if (!pings.Values.Any(t => Stopwatch.GetElapsedTime(t) < TimeSpan.FromSeconds(10)))
+                var now = Clock.Now;
+                if (now - lastPing >= 5)
                 {
+                    lastPing = now;
                     pings.Clear();
                     var ping = Secrets.Id();
                     pings[ping] = Stopwatch.GetTimestamp();
                     await SocketWire.Send(socket, new { type = "ping", id = ping }, life);
                 }
+                if (now - lastPolicy >= 5)
+                {
+                    lastPolicy = now;
+                    var policy = await Policy(link, broker, devices, life);
+                    await SocketWire.Send(socket, new { type = "policy", payload = policy }, life);
+                }
                 while (acknowledgements.Reader.TryRead(out var acknowledged))
                     await SocketWire.Send(socket, new { type = "ack", id = acknowledged }, life);
-                foreach (var command in await broker.Commands(device, TimeSpan.FromMilliseconds(250), life))
+                foreach (var command in await broker.Commands(link, TimeSpan.FromMilliseconds(250), life))
                     await SocketWire.Send(socket, command, life);
             }
         }

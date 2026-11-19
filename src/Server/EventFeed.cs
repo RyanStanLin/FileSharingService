@@ -12,18 +12,19 @@ internal sealed record EventView(string Sequence, string DeviceId, string Topic,
 internal sealed record EventsPage(IReadOnlyList<EventView> Items, string Cursor, bool HasMore);
 internal sealed record SubscriptionInput(string Type, string? Id, string? DeviceId, string? Topic, string? RootId, string? Path, string? After);
 internal sealed record Subscription(string Id, string DeviceId, string Topic, long Cursor, Watch? Watch);
-internal sealed record Watch(string Id, string DeviceId, string RootId, string RootKey, string Path);
+internal sealed record Watch(string Id, string DeviceId, string RootId, string RootKey, string Path, string ConnectionId);
 
 internal sealed class WatchRegistry(DeviceService devices, AgentBroker broker, Database db)
 {
-    private readonly Dictionary<(string Device, string Root, string Path), (Watch Watch, int Count)> watches = [];
+    private readonly Dictionary<(string Device, string Root, string Path, string Connection), (Watch Watch, int Count)> watches = [];
     private readonly object gate = new();
 
     public async Task<Watch> Add(string device, string rootId, string path, CancellationToken ct)
     {
         var pathKey = FileService.PathKey(path);
         var root = await devices.Scope(device, rootId, false, ct);
-        var key = (device, rootId, pathKey);
+        var connection = root.ConnectionId!;
+        var key = (device, rootId, pathKey, connection);
         Watch watch;
         lock (gate)
         {
@@ -32,9 +33,9 @@ internal sealed class WatchRegistry(DeviceService devices, AgentBroker broker, D
                 watches[key] = (existing.Watch, existing.Count + 1);
                 return existing.Watch;
             }
-            if (watches.Keys.Count(x => x.Device == device) >= 4)
+            if (watches.Keys.Count(x => x.Device == device && x.Connection == connection) >= 4)
                 throw new Fault(429, "watch_limit");
-            watch = new Watch(Secrets.Id(), device, rootId, root.RootKey, pathKey);
+            watch = new Watch(Secrets.Id(), device, rootId, root.RootKey, pathKey, connection);
             watches[key] = (watch, 1);
         }
         try
@@ -50,11 +51,11 @@ internal sealed class WatchRegistry(DeviceService devices, AgentBroker broker, D
     }
 
     private Task<JsonElement> Start(Watch watch, CancellationToken ct) =>
-        broker.Invoke(watch.DeviceId, "files.watch", new { watchId = watch.Id, root = watch.RootKey, watch.Path, seconds = 40 }, ct);
+        broker.Invoke(watch.DeviceId, "files.watch", new { watchId = watch.Id, root = watch.RootKey, watch.Path, seconds = 40 }, ct, connectionId: watch.ConnectionId);
 
     public async Task Remove(Watch watch, CancellationToken ct)
     {
-        var key = (watch.DeviceId, watch.RootId, watch.Path);
+        var key = (watch.DeviceId, watch.RootId, watch.Path, watch.ConnectionId);
         lock (gate)
         {
             if (!watches.TryGetValue(key, out var existing) || existing.Watch.Id != watch.Id)
@@ -70,7 +71,7 @@ internal sealed class WatchRegistry(DeviceService devices, AgentBroker broker, D
         timeout.CancelAfter(TimeSpan.FromSeconds(2));
         try
         {
-            await broker.Invoke(watch.DeviceId, "files.unwatch", new { watchId = watch.Id }, timeout.Token);
+            await broker.Invoke(watch.DeviceId, "files.unwatch", new { watchId = watch.Id }, timeout.Token, connectionId: watch.ConnectionId);
         }
         catch (Exception error) when (error is Fault or OperationCanceledException)
         {
@@ -88,7 +89,7 @@ internal sealed class WatchRegistry(DeviceService devices, AgentBroker broker, D
         {
             try
             {
-                await devices.Scope(watch.DeviceId, watch.RootId, false, ct);
+                await devices.Scope(watch.DeviceId, watch.RootId, false, ct, watch.ConnectionId);
                 using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 timeout.CancelAfter(TimeSpan.FromSeconds(5));
                 await Start(watch, timeout.Token);
@@ -99,18 +100,18 @@ internal sealed class WatchRegistry(DeviceService devices, AgentBroker broker, D
         }
     }
 
-    public async Task Ingest(string device, JsonElement value, CancellationToken ct)
+    public async Task Ingest(string device, string connection, JsonElement value, CancellationToken ct)
     {
         if (value.ValueKind != JsonValueKind.Object || !value.TryGetProperty("watchId", out var id) || id.ValueKind != JsonValueKind.String)
             throw Fault.Bad("invalid_file_event");
         Watch? watch;
         lock (gate)
-            watch = watches.Values.Select(x => x.Watch).FirstOrDefault(x => x.DeviceId == device && x.Id == id.GetString());
+            watch = watches.Values.Select(x => x.Watch).FirstOrDefault(x => x.DeviceId == device && x.ConnectionId == connection && x.Id == id.GetString());
         if (watch is null)
             return;
         try
         {
-            await devices.Scope(device, watch.RootId, false, ct);
+            await devices.Scope(device, watch.RootId, false, ct, connection);
         }
         catch (Fault)
         {
@@ -255,13 +256,13 @@ internal static class BrowserEvents
             {
                 try
                 {
-                    await devices.Scope(watch.DeviceId, watch.RootId, false, life);
+                    await devices.Scope(watch.DeviceId, watch.RootId, false, life, watch.ConnectionId);
                 }
-                catch (Fault)
+                catch (Fault error)
                 {
                     subscriptions.Remove(sub.Id);
                     await watches.Remove(watch, life);
-                    await SocketWire.Send(socket, new { type = "error", sub.Id, code = "root_access_denied" }, life);
+                    await SocketWire.Send(socket, new { type = "error", sub.Id, code = error.Code }, life);
                     return;
                 }
             }

@@ -7,7 +7,7 @@
 @root = 84a38c77-f769-4e27-b6d0-331281675ebd
 @targetRoot = 25595568-2f3e-4300-8ca3-a9abf709728f
 @localRoot = 93327b87-7c53-4a91-85c3-78105b3916b8
-@ticket = 2204ec63-266b-45d3-8f67-8a088c744b21
+@connection = 2191fa7c-cebe-40ad-baea-56b42a4276dc
 @profile = default
 @revision = 1
 @listingRevision = REPLACE
@@ -107,26 +107,13 @@ Content-Type: application/json
 
 {"revision":1,"settings":{"cpu":0,"memory":10,"disk":60,"battery":60,"displays":0,"keepAwake":true}}
 
-### Issue an enrollment ticket
-POST {{api}}/enrollments
+### Enable remote operations for a selected live connection
+PUT {{api}}/devices/{{device}}/connection-access
 Cookie: {{cookie}}
 Origin: {{origin}}
 Content-Type: application/json
 
-{"count":1,"expiresInMinutes":180}
-
-### List tickets
-GET {{api}}/enrollments?limit=20
-Cookie: {{cookie}}
-
-### Read enrollment
-GET {{api}}/enrollments/{{ticket}}
-Cookie: {{cookie}}
-
-### Revoke unused fixture ticket
-DELETE {{api}}/enrollments/{{ticket}}
-Cookie: {{cookie}}
-Origin: {{origin}}
+{"connectionId":"{{connection}}","enabled":true}
 
 ### List profiles
 GET {{api}}/collection-profiles

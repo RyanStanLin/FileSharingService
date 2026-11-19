@@ -1,7 +1,4 @@
-import CryptoKit
 import Foundation
-import LocalAuthentication
-import Security
 
 struct LocalRoot: Codable, Sendable {
     let rootKey: String
@@ -54,7 +51,6 @@ struct Enrollment: Codable, Sendable {
 }
 
 struct LocalState {
-    static let bundleIdentifier = "in.ryanl.filesharing.agent"
     static let home: URL = {
         #if FILESHARING_TEST
         guard let path = ProcessInfo.processInfo.environment["FILESHARING_TEST_HOME"], path.hasPrefix("/") else {
@@ -88,6 +84,22 @@ struct LocalState {
         try JSONDecoder().decode(Enrollment.self, from: Data(contentsOf: directory.appendingPathComponent("enrollment.json")))
     }
 
+    func loadOrCreate(homeWritable: Bool) throws -> Enrollment {
+        let lock = directory.appendingPathComponent("enrollment.lock").path
+        let fd = open(lock, O_CREAT | O_RDWR | O_NOFOLLOW | O_CLOEXEC, 0o600)
+        guard fd >= 0 else { throw ScopedFiles.failure() }
+        defer { close(fd) }
+        guard flock(fd, LOCK_EX) == 0 else { throw ScopedFiles.failure() }
+        do {
+            return try enrollment()
+        } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
+            let home = try LocalRoot.authorize(path: Self.home.path(percentEncoded: false), write: homeWritable)
+            let local = Enrollment(deviceId: JSON.id(), roots: [home])
+            try save(local)
+            return local
+        }
+    }
+
     func save(_ enrollment: Enrollment) throws {
         let target = directory.appendingPathComponent("enrollment.json")
         try JSONEncoder().encode(enrollment).write(to: target, options: .atomic)
@@ -105,41 +117,6 @@ struct LocalState {
         let file = directory.appendingPathComponent("pending.json")
         try? bytes.write(to: file, options: .atomic)
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
-    }
-
-    func privateKey() throws -> P256.Signing.PrivateKey {
-        #if FILESHARING_TEST
-        let file = directory.appendingPathComponent("test-key")
-        if let bytes = try? Data(contentsOf: file) { return try .init(rawRepresentation: bytes) }
-        let key = P256.Signing.PrivateKey()
-        try key.rawRepresentation.write(to: file, options: .atomic)
-        return key
-        #else
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: Self.bundleIdentifier,
-            kSecAttrAccount as String: "device-p256",
-            kSecUseDataProtectionKeychain as String: true
-        ]
-        let authentication = LAContext()
-        authentication.interactionNotAllowed = true
-        let lookup = query.merging([kSecReturnData as String: true, kSecUseAuthenticationContext as String: authentication]) { _, value in value }
-        var credential: CFTypeRef?
-        let status = SecItemCopyMatching(lookup as CFDictionary, &credential)
-        if status == errSecSuccess, let value = credential as? Data {
-            return try P256.Signing.PrivateKey(rawRepresentation: value)
-        }
-        guard status == errSecItemNotFound else { throw AgentError("identity_unavailable") }
-        let generated = P256.Signing.PrivateKey()
-        let properties = query.merging([
-            kSecValueData as String: generated.rawRepresentation,
-            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        ]) { _, value in value }
-        let added = SecItemAdd(properties as CFDictionary, nil)
-        if added == errSecDuplicateItem { return try privateKey() }
-        guard added == errSecSuccess else { throw AgentError("identity_unavailable") }
-        return generated
-        #endif
     }
 }
 

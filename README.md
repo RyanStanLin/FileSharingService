@@ -2,6 +2,8 @@
 
 FileSharing 是面向企业 macOS 设备的内部文件访问与管理服务。ASP.NET Core 10 LTS 承载管理 API、事件订阅和 FTP 网关。Swift Agent 在受管用户会话内后台运行。
 
+Agent 的网络配置只需服务端 HTTPS 地址。公网客户端首次连上即可自动登记，重连沿用本机 UUID。设备上线后，管理员可以为当前连接开启远程文件和管理操作。
+
 | 交付物 | 入口 |
 | --- | --- |
 | 架构与协议 | [docs/architecture.md](docs/architecture.md) |

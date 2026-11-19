@@ -19,7 +19,7 @@ public static class Program
         builder.Services.AddHostedService<FtpGateway>();
         builder.Services.AddSingleton<Database>();
         builder.Services.AddSingleton<ReviewService>();
-        builder.Services.AddSingleton<AgentIdentity>();
+        builder.Services.AddSingleton<AgentRegistration>();
         builder.Services.AddSingleton<AgentBroker>();
         builder.Services.AddSingleton<AgentIngest>();
         builder.Services.AddSingleton<DeviceService>();
@@ -78,7 +78,7 @@ public static class Program
                     Window = TimeSpan.FromMinutes(1),
                     QueueLimit = 0
                 }));
-            options.AddPolicy("agent-auth", context => RateLimitPartition.GetFixedWindowLimiter(
+            options.AddPolicy("agent-connect", context => RateLimitPartition.GetFixedWindowLimiter(
                 context.Connection.RemoteIpAddress?.ToString() ?? "unknown", _ => new FixedWindowRateLimiterOptions
                 {
                     PermitLimit = 100,

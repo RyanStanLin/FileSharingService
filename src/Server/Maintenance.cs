@@ -36,8 +36,6 @@ internal sealed class Maintenance(Database db, AgentBroker broker, WatchRegistry
         var now = Clock.Now;
         await db.Execute("""
             DELETE FROM Challenges WHERE Expires<@now;
-            DELETE FROM Activations WHERE Expires<@history;
-            DELETE FROM AgentTokens WHERE Expires<@now;
             DELETE FROM AgentReceipts WHERE At<@yesterday;
             DELETE FROM Events WHERE At<@history OR (Topic='files.changed' AND At<@watchHistory);
             DELETE FROM Events WHERE Sequence < COALESCE((SELECT seq-250000 FROM sqlite_sequence WHERE name='Events'),0);

@@ -25,6 +25,7 @@ internal sealed class JobService(Database db, AgentBroker broker, ReviewService 
 
     public async Task<JobView> Start(Review review, string device, string kind, object data, CancellationToken ct)
     {
+        var connectionId = broker.RequireAccess(device);
         if (!slots.Wait(0))
             throw new Fault(429, "job_limit");
         var job = new JobRecord(Secrets.Id(), review.Initiator, device, kind, "queued", Clock.Now, null, null, null, review.Id);
@@ -39,11 +40,11 @@ internal sealed class JobService(Database db, AgentBroker broker, ReviewService 
             slots.Release();
             throw;
         }
-        _ = Run(job, data);
+        _ = Run(job, data, connectionId);
         return job.View;
     }
 
-    private async Task Run(JobRecord job, object data)
+    private async Task Run(JobRecord job, object data, string connectionId)
     {
         try
         {
@@ -55,7 +56,7 @@ internal sealed class JobService(Database db, AgentBroker broker, ReviewService 
                 await Finish(job, "cancelled", null, "review_ended");
                 return;
             }
-            var payload = await broker.Invoke(job.DeviceId, job.Kind, data, ct, timeout: commandTimeout);
+            var payload = await broker.Invoke(job.DeviceId, job.Kind, data, ct, timeout: commandTimeout, connectionId: connectionId);
             if (await reviews.ActiveById(job.ReviewId, ct) is null)
                 await Finish(job, "cancelled", null, "review_ended");
             else

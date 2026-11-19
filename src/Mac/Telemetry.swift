@@ -59,7 +59,7 @@ private final class DiskObserver {
 
 @MainActor
 final class Telemetry {
-    static let version = "0.1.0"
+    static let version = "0.2.0"
     private let boot = Date()
     private let roots: [LocalRoot]
     private let emit: (String, JSON, Bool) -> Void

@@ -7,106 +7,200 @@ namespace FileSharing;
 internal sealed record AgentCommand(string Type, string Id, string Kind, JsonElement Payload);
 internal sealed record AgentFrame(string Type, string? Id, string? Topic, string? Code, JsonElement? Payload, bool? Ok, bool? Snapshot);
 internal sealed record AgentPresence(bool Online, string? Protocol, DateTimeOffset? ConnectedAt, DateTimeOffset? LastCommunicationAt,
-    double? LatencyMs, long? ConnectionSeconds);
+    double? LatencyMs, long? ConnectionSeconds, string? ConnectionId, bool AccessGranted, string? PeerAddress);
 
-internal sealed class AgentBroker(Database db)
+internal sealed class AgentBroker(Database db, AgentRegistration registration, ILogger<AgentBroker> logger)
 {
-    private sealed class Pending(AgentCommand command)
+    internal const string ChannelHeader = "X-FileSharing-Channel";
+    private const int PresenceWindow = 45;
+
+    internal sealed class Pending(AgentCommand command)
     {
         public AgentCommand Command { get; } = command;
         public TaskCompletionSource<AgentFrame> Completion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public long LeaseUntil { get; set; }
     }
 
-    private sealed class Link
+    internal sealed class Link(string device, string protocol, string? peerAddress)
     {
+        private readonly CancellationTokenSource stop = new();
+
+        public string Device { get; } = device;
+        public string Id { get; } = Secrets.Id();
+        public string Protocol { get; } = protocol;
+        public string? PeerAddress { get; } = peerAddress;
+        public string? Channel { get; } = protocol == "https" ? Secrets.New() : null;
+        public CancellationToken Lifetime => stop.Token;
         public Dictionary<string, Pending> Pending { get; } = [];
         public SemaphoreSlim Signal { get; } = new(0, 1);
-        public long? Seen { get; set; }
-        public long? Connected { get; set; }
-        public string? Protocol { get; set; }
+        public long Seen { get; set; } = Clock.Now;
+        public long Connected { get; } = Clock.Now;
         public double? Latency { get; set; }
+        public bool Closed { get; set; }
+        public bool AccessGranted { get; set; }
+
+        public Task Cancel() => stop.CancelAsync();
     }
 
     private readonly ConcurrentDictionary<string, Link> links = new();
+    private readonly ConcurrentDictionary<string, Link> channels = new();
+    private readonly SemaphoreSlim admissions = new(1);
+
+    public async Task<Link> Open(AgentHello hello, string protocol, HttpContext context, CancellationToken ct)
+    {
+        var device = Secrets.Identifier(hello.DeviceId);
+        var name = Secrets.Text(hello.Name);
+        await admissions.WaitAsync(ct);
+        try
+        {
+            if (links.TryGetValue(device, out var existing))
+            {
+                await Close(existing, ct, expiredOnly: true);
+                if (links.ContainsKey(device))
+                    throw Fault.Conflict("device_already_connected");
+            }
+            await registration.Register(device, name, ct);
+            var link = new Link(device, protocol, context.Connection.RemoteIpAddress?.ToString());
+            links[device] = link;
+            if (link.Channel is { } channel)
+                channels[channel] = link;
+            try { await Publish(link, CancellationToken.None); }
+            catch
+            {
+                await Close(link, CancellationToken.None);
+                throw;
+            }
+            return link;
+        }
+        finally
+        {
+            admissions.Release();
+        }
+    }
+
+    public Link OpenChannel(HttpContext context)
+    {
+        var value = context.Request.Headers[ChannelHeader];
+        if (value.Count != 1 || value[0] is not { Length: 43 } channel || !channels.TryGetValue(channel, out var link))
+            throw new Fault(410, "agent_connection_ended");
+        lock (link)
+        {
+            if (!Online(link))
+                throw new Fault(410, "agent_connection_ended");
+            return link;
+        }
+    }
 
     public AgentPresence Presence(string device, long? lastSeen = null)
     {
         if (!links.TryGetValue(device, out var link))
-            return new(false, null, null, lastSeen is { } last ? Clock.At(last) : null, null, null);
+            return new(false, null, null, lastSeen is { } last ? Clock.At(last) : null, null, null, null, false, null);
         lock (link)
             return Read(link);
     }
 
-    public async Task Seen(string device, string protocol, CancellationToken ct, double? latency = null)
+    public string RequireAccess(string device, string? connectionId = null)
     {
-        var link = links.GetOrAdd(device, _ => new());
-        var now = Clock.Now;
-        bool changed;
-        bool persist;
-        AgentPresence presence;
+        var link = Find(device);
         lock (link)
         {
-            changed = link.Seen is null || now - link.Seen > 45 || link.Protocol != protocol;
-            persist = changed || link.Seen != now;
-            if (changed)
-            {
-                link.Connected = now;
-                link.Latency = null;
-            }
+            RequireAccess(link, connectionId);
+            return link.Id;
+        }
+    }
+
+    public bool HasAccess(Link link)
+    {
+        lock (link)
+            return Online(link) && link.AccessGranted;
+    }
+
+    public async Task<AgentPresence> SetAccess(string device, string connectionId, bool enabled, string actor, CancellationToken ct)
+    {
+        var link = Find(device);
+        lock (link)
+        {
+            RequireOnline(link);
+            RequireConnection(link, connectionId);
+            link.AccessGranted = enabled;
+            if (!enabled)
+                FailPending(link, Fault.Forbidden("agent_connection_access_required"));
+        }
+        await db.Audit("device.connection_access_changed", actor, device, new { connectionId, enabled }, CancellationToken.None);
+        return await Publish(link, ct);
+    }
+
+    public async Task Seen(Link link, CancellationToken ct, double? latency = null)
+    {
+        var now = Clock.Now;
+        bool persist;
+        lock (link)
+        {
+            RequireOnline(link);
+            persist = link.Seen != now;
             link.Seen = now;
-            link.Protocol = protocol;
             link.Latency = latency ?? link.Latency;
-            presence = Read(link);
         }
         if (persist)
-            await db.Execute("UPDATE Devices SET LastSeen=@now WHERE Id=@device", new { now, device }, ct);
-        if (changed)
-            await db.AppendEvent(device, "connection.changed", Wire.Element(presence), ct);
+            await db.Execute("UPDATE Devices SET LastSeen=@now WHERE Id=@device AND LastSeen<@now AND Revoked IS NULL",
+                new { now, device = link.Device }, ct);
     }
 
     public async Task Expire(CancellationToken ct)
     {
-        foreach (var entry in links)
+        foreach (var link in links.Values)
+            await Close(link, ct, expiredOnly: true);
+    }
+
+    public async Task Revoke(string device, CancellationToken ct)
+    {
+        await admissions.WaitAsync(ct);
+        try
         {
-            AgentPresence? state = null;
-            var link = entry.Value;
-            lock (link)
-            {
-                if (link.Protocol is not null && Clock.Now - link.Seen > 45)
-                {
-                    link.Protocol = null;
-                    link.Connected = null;
-                    link.Latency = null;
-                    state = Read(link);
-                }
-            }
-            if (state is not null)
-                await db.AppendEvent(entry.Key, "connection.changed", Wire.Element(state), ct);
+            if (links.TryGetValue(device, out var link))
+                await Close(link, ct);
+        }
+        finally
+        {
+            admissions.Release();
         }
     }
 
-    public void Revoke(string device)
+    public async Task Close(Link link, CancellationToken ct, bool expiredOnly = false)
     {
-        if (!links.TryRemove(device, out var link))
-            return;
         lock (link)
         {
-            foreach (var item in link.Pending.Values)
-                item.Completion.TrySetException(Fault.Unavailable());
-            link.Pending.Clear();
-            Wake(link);
+            if (link.Closed || expiredOnly && Online(link))
+                return;
+            link.Closed = true;
+            link.AccessGranted = false;
+            FailPending(link, Fault.Unavailable());
+        }
+        if (link.Channel is { } channel)
+            channels.TryRemove(channel, out _);
+        try
+        {
+            await link.Cancel();
+            await Publish(link, ct);
+        }
+        catch (Exception error) when (error is not OperationCanceledException)
+        {
+            logger.LogWarning(error, "Could not persist disconnect for agent {DeviceId}", link.Device);
+        }
+        finally
+        {
+            links.TryRemove(new KeyValuePair<string, Link>(link.Device, link));
         }
     }
 
-    public async Task<JsonElement> Invoke(string device, string kind, object payload, CancellationToken ct, string? commandId = null, TimeSpan? timeout = null)
+    public async Task<JsonElement> Invoke(string device, string kind, object payload, CancellationToken ct, string? commandId = null,
+        TimeSpan? timeout = null, string? connectionId = null)
     {
-        var link = links.GetOrAdd(device, _ => new());
+        var link = Find(device);
         var pending = new Pending(new AgentCommand("command", commandId ?? Secrets.Id(), kind, Wire.Element(payload)));
         lock (link)
         {
-            if (!Read(link).Online)
-                throw Fault.Unavailable();
+            RequireAccess(link, connectionId);
             if (link.Pending.Count >= 24 || !link.Pending.TryAdd(pending.Command.Id, pending))
                 throw new Fault(429, "device_busy");
             Wake(link);
@@ -125,27 +219,32 @@ internal sealed class AgentBroker(Database db)
         finally
         {
             lock (link)
-                link.Pending.Remove(pending.Command.Id);
+                if (link.Pending.GetValueOrDefault(pending.Command.Id) == pending)
+                    link.Pending.Remove(pending.Command.Id);
         }
     }
 
-    public async Task<IReadOnlyList<AgentCommand>> Commands(string device, TimeSpan wait, CancellationToken ct)
+    public async Task<IReadOnlyList<AgentCommand>> Commands(Link link, TimeSpan wait, CancellationToken ct)
     {
-        var link = links.GetOrAdd(device, _ => new());
-        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct, link.Lifetime);
         deadline.CancelAfter(wait);
         while (!deadline.IsCancellationRequested)
         {
             lock (link)
             {
-                var now = Clock.Now;
-                var ready = link.Pending.Values.Where(x => x.LeaseUntil <= now && !x.Completion.Task.IsCompleted)
-                    .Take(3).ToArray();
-                if (ready.Length > 0)
+                if (!Online(link))
+                    return [];
+                if (link.AccessGranted)
                 {
-                    foreach (var item in ready)
-                        item.LeaseUntil = now + 8;
-                    return ready.Select(x => x.Command).ToArray();
+                    var now = Clock.Now;
+                    var ready = link.Pending.Values.Where(x => x.LeaseUntil <= now && !x.Completion.Task.IsCompleted)
+                        .Take(3).ToArray();
+                    if (ready.Length > 0)
+                    {
+                        foreach (var item in ready)
+                            item.LeaseUntil = now + 8;
+                        return ready.Select(x => x.Command).ToArray();
+                    }
                 }
             }
             try
@@ -160,13 +259,54 @@ internal sealed class AgentBroker(Database db)
         return [];
     }
 
-    public void Complete(string device, AgentFrame frame)
+    public void Complete(Link link, AgentFrame frame)
     {
-        if (frame.Id is null || !links.TryGetValue(device, out var link))
+        if (frame.Id is null)
             return;
         lock (link)
-            if (link.Pending.TryGetValue(frame.Id, out var pending))
+            if (Online(link) && link.AccessGranted && link.Pending.TryGetValue(frame.Id, out var pending))
                 pending.Completion.TrySetResult(frame);
+    }
+
+    private Link Find(string device) => links.TryGetValue(device, out var link) ? link : throw Fault.Unavailable();
+
+    private async Task<AgentPresence> Publish(Link link, CancellationToken ct)
+    {
+        AgentPresence presence;
+        lock (link)
+            presence = Read(link);
+        await db.AppendEvent(link.Device, "connection.changed", Wire.Element(presence), ct);
+        return presence;
+    }
+
+    private static void RequireOnline(Link link)
+    {
+        if (!Online(link))
+            throw Fault.Unavailable("agent_connection_ended");
+    }
+
+    private static void RequireConnection(Link link, string? id)
+    {
+        if (id is not null && id != link.Id)
+            throw Fault.Conflict("agent_connection_changed");
+    }
+
+    private static void RequireAccess(Link link, string? id)
+    {
+        RequireOnline(link);
+        RequireConnection(link, id);
+        if (!link.AccessGranted)
+            throw Fault.Forbidden("agent_connection_access_required");
+    }
+
+    private static bool Online(Link link) => !link.Closed && Clock.Now - link.Seen <= PresenceWindow;
+
+    private static void FailPending(Link link, Fault error)
+    {
+        foreach (var item in link.Pending.Values)
+            item.Completion.TrySetException(error);
+        link.Pending.Clear();
+        Wake(link);
     }
 
     private static void Wake(Link link)
@@ -175,14 +315,10 @@ internal sealed class AgentBroker(Database db)
             link.Signal.Release();
     }
 
-    private static AgentPresence Read(Link link)
-    {
-        var now = Clock.Now;
-        var online = link.Protocol is not null && link.Seen is { } seen && now - seen <= 45;
-        return new(online, online ? link.Protocol : null, online && link.Connected is { } start ? Clock.At(start) : null,
-            link.Seen is { } last ? Clock.At(last) : null, online ? link.Latency : null,
-            online ? now - link.Connected : null);
-    }
+    private static AgentPresence Read(Link link) => Online(link)
+        ? new(true, link.Protocol, Clock.At(link.Connected), Clock.At(link.Seen), link.Latency,
+            Clock.Now - link.Connected, link.Id, link.AccessGranted, link.PeerAddress)
+        : new(false, null, null, Clock.At(link.Seen), null, null, null, false, null);
 
     private static Fault RemoteFault(string? code) => code switch
     {

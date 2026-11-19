@@ -40,13 +40,13 @@ internal sealed record ProfileRecord(string Id, string Name, string Settings, lo
     public ProfileView View => new(Id, Name, Wire.Model<Sampling>(Wire.Parse(Settings)), Revision);
 }
 internal sealed record ProfileView(string Id, string Name, Sampling Settings, long Revision);
-internal sealed record ActivationBatchInput(int Count, int? ExpiresInMinutes = null);
-internal sealed record ActivationCode(string Id, string Code);
-internal sealed record ActivationBatch(string BatchId, DateTimeOffset ExpiresAt, IReadOnlyList<ActivationCode> Items);
-internal sealed record ActivationView(string Id, string Batch, long Expires, long? Used, string? UsedBy, long? Revoked, long Created);
+internal sealed record ConnectionAccessInput(string ConnectionId, bool Enabled);
 internal sealed record RootInfo(string Id, string DeviceId, string RootKey, string Label, bool Writable, bool Enabled, long Revision)
 {
     public RootInfo() : this("", "", "", "", false, false, 0) { }
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string? ConnectionId { get; init; }
 }
 internal sealed record RootInput(string RootKey, string Label, bool Writable, bool Enabled, long? Revision);
 internal sealed record AuditRecord(long Sequence, long At, string? Actor, string? DeviceId, string Action, string Detail)
@@ -55,7 +55,7 @@ internal sealed record AuditRecord(long Sequence, long At, string? Actor, string
 }
 internal sealed record AuditView(string Sequence, DateTimeOffset Time, string? Actor, string? DeviceId, string Action, JsonElement Detail);
 
-internal sealed class DeviceService(Database db)
+internal sealed class DeviceService(Database db, AgentBroker broker)
 {
     public Task<DeviceRecord?> Find(string id, CancellationToken ct) =>
         db.One<DeviceRecord>("SELECT Id,Name,ProfileId,Created,LastSeen,Revoked,Revision FROM Devices WHERE Id=@id", new { id }, ct);
@@ -63,16 +63,21 @@ internal sealed class DeviceService(Database db)
     public async Task<DeviceRecord> Require(string id, CancellationToken ct) =>
         await Find(Secrets.Identifier(id), ct) is { Revoked: null } device ? device : throw Fault.Missing("device_not_found");
 
-    public async Task<RootInfo> Scope(string device, string root, bool write, CancellationToken ct)
+    public async Task<RootInfo> Scope(string device, string root, bool write, CancellationToken ct, string? connectionId = null)
     {
         Secrets.Identifier(device);
         Secrets.Identifier(root);
+        var activeConnection = connectionId ?? broker.Presence(device).ConnectionId;
         var record = await db.One<RootInfo>("""
             SELECT r.* FROM Roots r JOIN Devices d ON d.Id=r.DeviceId JOIN ObservedRoots o ON o.DeviceId=r.DeviceId AND o.RootKey=r.RootKey
             WHERE r.DeviceId=@device AND r.Id=@root AND r.Enabled=1 AND d.Revoked IS NULL
               AND (@write=0 OR (o.Writable=1 AND r.Writable=1))
             """, new { device, root, write }, ct);
-        return record ?? throw Fault.Forbidden("root_access_denied");
+        if (record is null)
+            throw Fault.Forbidden("root_access_denied");
+        if (activeConnection is null)
+            throw Fault.Unavailable();
+        return record with { ConnectionId = broker.RequireAccess(device, activeConnection) };
     }
 
     public async Task<DevicePolicy> Policy(string device, CancellationToken ct)
@@ -97,13 +102,9 @@ internal static class ManagementEndpoints
         devices.MapPut("/{id}", UpdateDevice).WithSummary("Update a device with a revision check");
         devices.MapGet("/{id}/policy", GetPolicy).WithSummary("Get effective per-device collection and lid policy");
         devices.MapPut("/{id}/policy", UpdatePolicy).WithSummary("Override collection and lid settings for one device");
+        devices.MapPut("/{id}/connection-access", UpdateConnectionAccess)
+            .WithSummary("Grant or revoke remote access on the current live device connection");
         devices.MapDelete("/{id}", RevokeDevice).WithSummary("Revoke a device and release its slot");
-
-        var activations = api.MapGroup("/enrollments").WithTags("Enrollment");
-        activations.MapGet("/", ListActivations).WithSummary("List activation tickets without secrets");
-        activations.MapPost("/", CreateActivations).WithSummary("Generate single-use activation codes");
-        activations.MapGet("/{id}", GetActivation).WithSummary("Get an activation ticket");
-        activations.MapDelete("/{id}", RevokeActivation).WithSummary("Revoke an unused activation ticket");
 
         var profiles = api.MapGroup("/collection-profiles").WithTags("Collection profiles");
         profiles.MapGet("/", ListProfiles).WithSummary("List collection profiles");
@@ -180,6 +181,15 @@ internal static class ManagementEndpoints
         return TypedResults.Ok(await devices.Policy(id, ct));
     }
 
+    private static async Task<Ok<AgentPresence>> UpdateConnectionAccess(string id, ConnectionAccessInput body,
+        HttpContext context, ReviewService sessions, DeviceService devices, AgentBroker broker, CancellationToken ct)
+    {
+        var session = await sessions.Require(context, ct);
+        await devices.Require(id, ct);
+        var connectionId = Secrets.Identifier(body.ConnectionId);
+        return TypedResults.Ok(await broker.SetAccess(id, connectionId, body.Enabled, session.Initiator, ct));
+    }
+
     private static async Task<NoContent> RevokeDevice(string id, HttpContext ctx, Database db, ReviewService reviews,
         AgentBroker broker, CancellationToken ct)
     {
@@ -188,64 +198,7 @@ internal static class ManagementEndpoints
         if (!await db.Mutate("UPDATE Devices SET Revoked=@now,Revision=Revision+1 WHERE Id=@id AND Revoked IS NULL",
             new { id, now = Clock.Now }, review.Initiator, id, "device.revoked", new { id }, ct))
             throw Fault.Missing();
-        broker.Revoke(id);
-        return TypedResults.NoContent();
-    }
-
-    private static async Task<Created<ActivationBatch>> CreateActivations(ActivationBatchInput body,
-        HttpContext ctx, Database db, ReviewService reviews, Settings settings, CancellationToken ct)
-    {
-        var review = await reviews.Require(ctx, ct);
-        if (body.Count < 1 || body.Count > Math.Min(100, settings.MaxDevices))
-            throw Fault.Bad("activation_count");
-        if (body.ExpiresInMinutes is < 10 or > 1440)
-            throw Fault.Bad("invalid_enrollment_expiry");
-        var batch = Secrets.Id();
-        var expires = Clock.Now + (body.ExpiresInMinutes ?? 60) * 60;
-        var items = await db.Write(async (connection, tx) =>
-        {
-            var list = new List<ActivationCode>();
-            for (var index = 0; index < body.Count; index++)
-            {
-                var ticket = new ActivationCode(Secrets.Id(), Secrets.New());
-                await connection.ExecuteAsync(new CommandDefinition("""
-                    INSERT INTO Activations(Id,Batch,SecretHash,Expires,Created) VALUES(@Id,@batch,@Hash,@expires,@Now)
-                    """, new { ticket.Id, batch, Hash = Secrets.Hash(ticket.Code), expires, Now = Clock.Now }, tx, cancellationToken: ct));
-                list.Add(ticket);
-            }
-            await connection.ExecuteAsync(new CommandDefinition("""
-                INSERT INTO Audit(At,Actor,Action,Detail) VALUES(@Now,@Initiator,'enrollment.issued',@Detail)
-                """, new { Now = Clock.Now, review.Initiator, Detail = Wire.Encode(new { batch, body.Count }) }, tx, cancellationToken: ct));
-            return list;
-        });
-        return TypedResults.Created($"/api/v1/enrollments/{items[0].Id}", new ActivationBatch(batch, Clock.At(expires), items));
-    }
-
-    private static async Task<Ok<Page<ActivationView>>> ListActivations(string? cursor, int? limit, HttpContext ctx,
-        Database db, ReviewService reviews, CancellationToken ct)
-    {
-        await reviews.Require(ctx, ct);
-        var take = Page<ActivationView>.Size(limit);
-        var rows = await db.List<ActivationView>("""
-            SELECT Id,Batch,Expires,Used,UsedBy,Revoked,Created FROM Activations WHERE Id>@after ORDER BY Id LIMIT @size
-            """, new { after = Page<ActivationView>.After(cursor), size = take + 1 }, ct);
-        return TypedResults.Ok(Page<ActivationView>.From(rows, take, x => x.Id));
-    }
-
-    private static async Task<Ok<ActivationView>> GetActivation(string id, HttpContext ctx, Database db, ReviewService reviews, CancellationToken ct)
-    {
-        await reviews.Require(ctx, ct);
-        var row = await db.One<ActivationView>("SELECT Id,Batch,Expires,Used,UsedBy,Revoked,Created FROM Activations WHERE Id=@id",
-            new { id = Secrets.Identifier(id) }, ct) ?? throw Fault.Missing();
-        return TypedResults.Ok(row);
-    }
-
-    private static async Task<NoContent> RevokeActivation(string id, HttpContext ctx, Database db, ReviewService reviews, CancellationToken ct)
-    {
-        var review = await reviews.Require(ctx, ct);
-        if (!await db.Mutate("UPDATE Activations SET Revoked=@now WHERE Id=@id AND Used IS NULL AND Revoked IS NULL",
-            new { id = Secrets.Identifier(id), now = Clock.Now }, review.Initiator, null, "enrollment.revoked", new { id }, ct))
-            throw Fault.Conflict("ticket_unavailable");
+        await broker.Revoke(id, CancellationToken.None);
         return TypedResults.NoContent();
     }
 

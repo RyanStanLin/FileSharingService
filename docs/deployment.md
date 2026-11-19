@@ -2,15 +2,15 @@
 
 ## 服务器与 TLS
 
-1. 选择管理端固定 HTTPS origin 和 FTP/FTPS 的内网或 VPN 地址。签发包含这些 DNS 名的证书，并准备 `fullchain.pem` 和 `privkey.pem`。FTPS 校验链需要完整的中间证书，客户端应验证主机名和 CA。
+1. 选择公网可达的 HTTPS origin 和 FTP/FTPS 的内网或 VPN 地址。签发包含这些 DNS 名的证书，并准备 `fullchain.pem` 和 `privkey.pem`。FTPS 校验链需要完整的中间证书，客户端应验证主机名和 CA。
 2. 在部署目录运行 `./init-env.sh`，随机生成 256 位 `FILESHARING_BOOTSTRAP_SECRET` 并以 `0600` 保存到 `deploy/.env`。通过内部密钥交付渠道把密钥交给管理员。首次注册和重置 Passkey 都需要它。更换恢复密钥时更新 `.env` 并重建服务容器。
 3. 设置以下变量。证书目录挂载在 Nginx 和服务容器中，赋予运行服务的容器用户读取权限。运行 `docker compose run --rm --no-deps --entrypoint id server` 可核对实际 UID。将数据卷放在主机加密存储，备份和恢复时同时处理 SQLite 与归档。
-4. 运行 `docker compose up -d --build`。外部测试 `GET https://管理域名/health/ready`。管理端接入前端时让它与 API 同源，保持浏览器 WebAuthn RP ID 和 origin 固定。
+4. 运行 `docker compose up -d --build`。外部测试 `GET https://管理域名/health/ready`。管理端接入前端时让它与 API 同源，保持浏览器 WebAuthn RP ID 和 origin 固定。公网 HTTPS 同时提供 Agent 自动登记。
 
 | 设置 | 用途 |
 | --- | --- |
 | `FILESHARING_DOMAIN`、`FILESHARING_ORIGIN` | Nginx 主机名及精确浏览器 HTTPS origin。更改 RP ID 后重新登记 Passkey。 |
-| `FILESHARING_HTTPS_IP`、`FILESHARING_HTTPS_PORT` | HTTPS 的发布地址和端口。示例绑定到回环。常规站点使用端口 443。 |
+| `FILESHARING_HTTPS_IP`、`FILESHARING_HTTPS_PORT` | HTTPS 的发布地址和端口。公网部署可以绑定主机公网 IP 或 `0.0.0.0`。常规站点使用端口 443。 |
 | `FILESHARING_NETWORK_PREFIX` | Compose 专用 IPv4 子网前三段。代理固定在 `.10`，服务固定在 `.20`。 |
 | `FILESHARING_MAX_DEVICES` | 活跃登记设备数上限，默认 100。 |
 | `FILESHARING_FTP_IP`、`FILESHARING_FTP_HOST` | TCP 入口内网 IP 和对客户端公布的名字。 |
@@ -25,13 +25,17 @@ DNS/证书续期由部署环境维护。生产反向代理覆盖 `Host`、`X-For
 
 ## macOS 企业打包
 
-1. 为目标设备准备一个企业受管 macOS 15 或以上用户并确认短用户名。解锁管理会话后调用 `POST /api/v1/enrollments` 生成对应的一次性票据，把单个 `code` 写入权限 `0600` 的构建输入文件。已有设备升级时要保留原有本地状态和签名身份。给票据预留公证与分发时间。
-2. 在具备 Developer ID 证书的 Mac 构建。设置 `FILESHARING_ORIGIN`、`FILESHARING_MANAGED_USER`、`FILESHARING_ACTIVATION_FILE`、`FILESHARING_DEVELOPER_ID_APPLICATION`、`FILESHARING_DEVELOPER_ID_INSTALLER`、`FILESHARING_NOTARY_PROFILE`。需要允许写入该用户 HOME 的部署显式设置 `FILESHARING_ALLOW_HOME_WRITE=1`，其他部署默认只读。
-3. 运行 `scripts/build-agent.sh package`。脚本生成 arm64 / x86_64 Universal 2、Hardened Runtime 签名、签名 PKG、Apple 公证及 stapling。一个设备票据对应一个包。后台端点编译进二进制，后续连接使用 Keychain 的设备身份。可选备份端点应转发到同一 FileSharing 实例，保持后端校验的 Host。
+1. 在具备 Developer ID 证书的 Mac 上设置 `FILESHARING_ORIGIN`，并授权构建使用 `FILESHARING_DEVELOPER_ID_APPLICATION`、`FILESHARING_DEVELOPER_ID_INSTALLER` 和 `FILESHARING_NOTARY_PROFILE`。网络配置可以只提供服务端 URL。用可选的 `FILESHARING_MANAGED_USER` 限定登录账户，用可选的 `FILESHARING_ALLOW_HOME_WRITE=1` 为 HOME 允许写操作。默认使用本机登录用户和只读 HOME。
+2. 运行 `scripts/build-agent.sh package`。脚本生成 arm64 / x86_64 Universal 2、Hardened Runtime 签名、签名 PKG、Apple 公证及 stapling。同一服务器的多个设备可用同一份安装包。Agent 首次启动后自动登记，并保存本机 UUID。可选备份端点应转发到同一 FileSharing 实例，保持后端校验的 Host。
+3. 管理台会在客户端首次连上时显示在线设备及当前来源。选定设备连接后使用 `PUT /api/v1/devices/{id}/connection-access` 开启文件和远程操作。连接中断后管理员依据新的连接 ID 再次授权。
 4. 通过企业 MDM 静默分发签名 PKG，并用受管登录项目策略批准 FileSharing 的 LaunchAgent 和 LaunchDaemon。FileSharing 以 `/Applications/FileSharingAgent.app` 的无界面后台可执行文件运行。macOS 在目标用户登录后启动该程序，安装脚本对已经登录的用户启动或重启对应服务。软件包的电源辅助进程采用系统 LaunchDaemon，且仅读取目标用户的有限租约。仅在已授权目标上运行 `sudo installer -pkg <pkg-path> -target /` 作为 MDM 的同等安装入口。
 5. 用 MDM 的 PPPC 或目标用户在系统提示中处理 Desktop、Documents、Downloads 权限。签名主体、bundle ID 和代码要求要与 PPPC 配置一致。按需将额外企业目录交给 Agent 的 `roots add read|write /absolute/path` 命令，重启用户 Agent，再由管理员在 `file-roots` 中授权。空路径从 HOME 授权根开始。
 
 MDM 应独立设置屏保超时与锁屏密码，并在目标机型验证合盖工作。电源服务采用 AC、电池、温度和短租约门槛。开启后通过设备 `power` 样本核对 `closedLid.state` 为 `active`、`sleepDisabled` 为真并在合盖后验证实时文件传输。主动关闭策略或断开电源后应观测到释放。卸载前先关闭对应设备策略并确认恢复再卸载 LaunchDaemon。参考 [Apple 的 LaunchAgent 与 LaunchDaemon 模型](https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPSystemStartup/Chapters/DesigningDaemons.html) 与 [Apple 设备管理 PPPC 服务列表](https://developer.apple.com/documentation/devicemanagement/privacypreferencespolicycontrol/services-data.dictionary)。
+
+## 从早期设备协议升级
+
+先备份 SQLite，再同步升级服务与 Agent。数据库在启动时迁移并保留设备 UUID、别名、目录授权、历史及管理员 Passkey。Agent 使用早期版本的本机 `enrollment.json` 继续识别已登记的设备。新协议使用 WSS hello 或公开的 HTTPS connect 接口。升级后，在新连接上重新开启远程操作。恢复旧版时使用升级前的数据库备份。
 
 ## 服务验收和备份
 

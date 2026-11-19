@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import secrets
+import sqlite3
 import socket
 import ssl
 import struct
@@ -15,12 +16,13 @@ import subprocess
 import tempfile
 import time
 import unittest
+import uuid
 import zipfile
 import zlib
 
 import cbor2
 import requests
-from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec
 from websockets.exceptions import ConnectionClosedError
 from websockets.sync.client import connect
@@ -251,21 +253,27 @@ class Acceptance(unittest.TestCase):
         body = self.assertion(key, session)
         return self.api("POST", AUTH + "/authentication", session=session, json=body)
 
-    def setup_device(self):
+    def setup_device(self, *, allow_access=True):
         self.register()
         self.unlock()
-        ticket = self.api("POST", API + "/enrollments", 201, json={"count": 1}).json()["items"][0]
-        self.agent = self.spawn([str(APP), "run"], "agent.log", self.env | {"FILESHARING_TEST_ACTIVATION": ticket["code"]})
+        self.agent = self.spawn([str(APP), "run"], "agent.log", self.env)
 
         def online():
             rows = self.api("GET", API + "/devices").json()["items"]
             return next((item for item in rows if item["connection"]["online"]), None)
 
-        self.device = self.wait(online)["id"]
+        registration = self.wait(online)
+        self.device = registration["id"]
         self.device_api = f"{API}/devices/{self.device}"
         self.files_api = self.device_api + "/files"
         self.root_id = self.wait(lambda: self.api("GET", self.device_api + "/file-roots").json()["items"])[0]["id"]
-        return ticket
+        if allow_access:
+            self.set_access(registration["connection"]["connectionId"], True)
+        return registration
+
+    def set_access(self, connection_id, enabled, expected=200, session=None):
+        return self.api("PUT", self.device_api + "/connection-access", expected, session,
+                        json={"connectionId": connection_id, "enabled": enabled}).json()
 
     def params(self, path="", **extra):
         return {"path": path, "rootId": self.root_id} | extra
@@ -327,46 +335,116 @@ class Acceptance(unittest.TestCase):
         self.unlock(replacement)
         self.assertTrue(self.api("GET", API + "/auth/status").json()["unlocked"])
 
+    def test_public_admission_before_admin_registration(self):
+        device = str(uuid.uuid4())
+        self.assertFalse(self.api("GET", API + "/auth/status").json()["initialized"])
+        address = self.origin.replace("http:", "ws:") + "/agent/v1/ws"
+        with connect(address, proxy=None, open_timeout=6) as agent:
+            agent.send(json.dumps({"type": "hello", "deviceId": device, "name": "First public device"}))
+            self.assertEqual(json.loads(agent.recv(timeout=5)), {"type": "ready", "deviceId": device})
+            self.api("GET", API + "/devices", 401)
+            self.register()
+            self.unlock()
+            registered = self.api("GET", f"{API}/devices/{device}").json()
+            self.assertEqual(registered["name"], "First public device")
+            self.assertTrue(registered["connection"]["online"])
+            self.assertFalse(registered["connection"]["accessGranted"])
+
     def test_device_zero_config_reconnect_and_long_poll(self):
-        ticket = self.setup_device()
+        initial = self.setup_device(allow_access=False)
         record = json.loads((self.agent_state / "enrollment.json").read_text())
         self.assertEqual(record["deviceId"], self.device)
         self.assertEqual(Path(record["roots"][0]["path"]), self.home.resolve())
-        root = self.api("GET", self.device_api + "/file-roots").json()["items"][0]
-        self.assertTrue(root["enabled"] and root["writable"])
-        self.assertEqual(self.api("GET", self.device_api).json()["connection"]["protocol"], "wss")
-        rogue_key = ec.generate_private_key(ec.SECP256R1()).public_key().public_bytes(
-            serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
-        self.api("POST", "/agent/v1/activate", 401,
-                 json={"code": ticket["code"], "name": "Separate device", "publicKey": encoded(rogue_key)})
-        tickets = self.api("POST", API + "/enrollments", 201, json={"count": 3}).json()["items"]
-        self.api("POST", API + "/enrollments", 400, json={"count": 4})
+        self.assertFalse((self.agent_state / "test-key").exists())
+        self.assertEqual(initial["connection"]["protocol"], "wss")
+        self.assertFalse(initial["connection"]["accessGranted"])
+        old_connection = initial["connection"]["connectionId"]
+        anonymous = self.client()
+        self.set_access(old_connection, True, 401, anonymous)
+        self.assertEqual(self.entry("", 403)["code"], "agent_connection_access_required")
+        approved = self.set_access(old_connection, True)
+        self.assertTrue(approved["accessGranted"])
+        self.entry("")
+        self.set_access(old_connection, False)
+        self.entry("", 403)
+        self.set_access(old_connection, True)
 
-        def claim(item):
-            client_key = ec.generate_private_key(ec.SECP256R1()).public_key().public_bytes(
-                serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
+        body = {"deviceId": self.device, "name": "Duplicate connection"}
+        self.assertEqual(self.api("POST", "/agent/v1/connect", 409, anonymous, json=body).json()["code"],
+                         "device_already_connected")
+        self.assertEqual(self.api("GET", self.device_api).json()["connection"]["connectionId"], old_connection)
+
+        def connect_anonymously(device):
             with requests.Session() as client:
                 client.trust_env = False
-                return client.post(self.origin + "/agent/v1/activate", timeout=12,
-                                   json={"code": item["code"], "name": "Test device", "publicKey": encoded(client_key)})
+                return client.post(self.origin + "/agent/v1/connect", timeout=12,
+                                   json={"deviceId": str(device), "name": "Public test device"})
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-            claimed = list(executor.map(claim, tickets))
+            claimed = list(executor.map(connect_anonymously, [uuid.uuid4() for _ in range(3)]))
         self.assertEqual(sorted(result.status_code for result in claimed), [200, 200, 409])
         for result in claimed:
             if result.ok:
                 self.api("DELETE", API + "/devices/" + result.json()["deviceId"], 204)
+
+        self.stop(self.agent)
+        self.wait(lambda: not self.api("GET", self.device_api).json()["connection"]["online"])
+        replacement = self.api("POST", "/agent/v1/connect", session=anonymous, json=body).json()
+        replacement_presence = self.api("GET", self.device_api).json()["connection"]
+        self.assertNotEqual(replacement_presence["connectionId"], old_connection)
+        self.assertFalse(replacement_presence["accessGranted"])
+        self.assertEqual(self.set_access(old_connection, True, 409)["code"], "agent_connection_changed")
+        self.api("GET", "/agent/v1/policy", 410, anonymous)
+        channel = {"X-FileSharing-Channel": replacement["channel"]}
+        policy = self.api("GET", "/agent/v1/policy", session=anonymous, headers=channel).json()
+        self.assertFalse(policy["settings"]["keepAwake"])
+        self.api("DELETE", "/agent/v1/connection", 204, anonymous, headers=channel)
+        self.api("GET", "/agent/v1/policy", 410, anonymous, headers=channel)
+
         self.stop(self.server)
         self.start_server(polling=True)
+        self.agent = self.spawn([str(APP), "run"], "agent.log", self.env)
         self.wait(lambda: self.api("GET", self.device_api).json()["connection"]["protocol"] == "https", seconds=36)
+        self.wait(lambda: self.api("GET", self.device_api + "/file-roots/local").json())
+        again = self.api("GET", self.device_api).json()
+        self.assertEqual(again["id"], self.device)
+        self.assertEqual(again["name"], initial["name"])
+        self.assertFalse(again["connection"]["accessGranted"])
+        self.assertEqual(self.api("GET", self.device_api + "/file-roots").json()["items"][0]["id"], self.root_id)
+        self.entry("", 403)
+        self.set_access(again["connection"]["connectionId"], True)
         (self.home / "polling.txt").write_text("Long-poll fixture")
         self.assertEqual(self.entry("polling.txt")["size"], 17)
-        self.stop(self.agent)
-        self.agent = self.spawn([str(APP), "run"], "agent.log", self.env)
-        self.wait(lambda: self.api("GET", self.device_api).json()["connection"]["protocol"] == "https")
         self.assertEqual(json.loads((self.agent_state / "enrollment.json").read_text())["deviceId"], self.device)
         self.api("DELETE", self.device_api, 204)
-        self.api("GET", self.files_api + "/entry", 403, params=self.params("polling.txt"))
+        self.entry("polling.txt", 403)
+        self.assertEqual(self.api("POST", "/agent/v1/connect", 403, anonymous, json=body).json()["code"], "device_revoked")
+
+    def test_sqlite_upgrade_preserves_preexisting_device_and_grant(self):
+        registration = self.setup_device()
+        self.api("PUT", self.device_api, json={"name": "Existing Mac", "profileId": "default",
+                                               "revision": registration["revision"]})
+        self.stop(self.agent)
+        self.stop(self.server)
+        with closing(sqlite3.connect(self.work / "db" / "filesharing.db")) as data, data:
+            data.executescript("""
+                ALTER TABLE Devices ADD COLUMN PublicKey BLOB;
+                CREATE UNIQUE INDEX LegacyDeviceKey ON Devices(PublicKey);
+                CREATE TABLE AgentTokens(Hash TEXT PRIMARY KEY, DeviceId TEXT REFERENCES Devices(Id), Expires INTEGER);
+                CREATE TABLE Activations(Id TEXT PRIMARY KEY, SecretHash TEXT);
+                INSERT INTO Activations VALUES('old-ticket', 'fixture');
+                UPDATE Devices SET PublicKey=X'010203';
+                PRAGMA user_version=1;
+            """)
+        self.start_server()
+        existing = self.api("GET", self.device_api).json()
+        self.assertEqual(existing["name"], "Existing Mac")
+        self.assertEqual(self.api("GET", self.device_api + "/file-roots").json()["items"][0]["id"], self.root_id)
+        with closing(sqlite3.connect(self.work / "db" / "filesharing.db")) as data, data:
+            self.assertEqual(data.execute("PRAGMA user_version").fetchone()[0], 2)
+            self.assertEqual(data.execute("PRAGMA foreign_key_check").fetchall(), [])
+            self.assertNotIn("PublicKey", [row[1] for row in data.execute("PRAGMA table_info(Devices)")])
+            self.assertEqual(data.execute("SELECT COUNT(*) FROM sqlite_master WHERE name IN ('AgentTokens','Activations')").fetchone()[0], 0)
 
     def test_directory_metadata_sort_and_thumbnail(self):
         self.setup_device()
@@ -583,6 +661,14 @@ class Acceptance(unittest.TestCase):
         secure = self.api("POST", route + "/accounts", 201, json={"mode": "ftps", "name": "secure-ftps",
                           "rootIds": [self.root_id]}).json()
         self.assertNotIn("password", self.api("GET", route + "/accounts/" + secure["account"]["id"]).json())
+        connection_id = self.api("GET", self.device_api).json()["connection"]["connectionId"]
+        self.set_access(connection_id, False)
+        denied = self.open_ftp("plain", self.plain_port, plain)
+        self.assertEqual(denied.nlst(), [])
+        with self.assertRaisesRegex(ftplib.error_perm, "^550 "):
+            denied.cwd(f"/{self.device}/{self.root_id}")
+        denied.quit()
+        self.set_access(connection_id, True)
         self.api("POST", API + "/auth/lock", 204)
         self.api("GET", route + "/connection", 401)
         with ftplib.FTP() as downgraded:
@@ -675,10 +761,11 @@ class Acceptance(unittest.TestCase):
         contract = self.api("GET", "/openapi/v1.json").json()
         paths = contract["paths"]
         for expected in ("/api/v1/auth/passkeys/recovery", "/api/v1/auth/status", "/api/v1/auth/lock",
-                         "/api/v1/devices/{id}/policy", "/api/v1/devices/{id}/files/thumbnail",
+                         "/api/v1/devices/{id}/policy", "/api/v1/devices/{id}/connection-access", "/api/v1/devices/{id}/files/thumbnail",
                          "/api/v1/devices/{id}/files/trash", "/api/v1/devices/{id}/files/renames",
                          "/api/v1/ftp/accounts/{id}/password", "/api/v1/transfers/{id}/content", "/api/v1/events/ws"):
             self.assertIn(expected, paths)
+        self.assertNotIn("/api/v1/enrollments", paths)
         self.assertIn("101", paths["/api/v1/events/ws"]["get"]["responses"])
         self.assertIn("FileEntry", contract["components"]["schemas"])
 
