@@ -17,7 +17,7 @@ struct FileSharingAgent {
         guard getuid() >= 501 else { return }
         if let user = EndpointProfile.managedUser, user != NSUserName() { return }
         #endif
-        #if FILESHARING_APP
+        #if FILESHARING_APP || FILESHARING_TEST
         if arguments.isEmpty || arguments == ["run"] {
             let app = NSApplication.shared
             app.setActivationPolicy(.accessory)

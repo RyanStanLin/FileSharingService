@@ -7,6 +7,7 @@ import io
 import json
 import os
 from pathlib import Path
+import plistlib
 import secrets
 import sqlite3
 import socket
@@ -865,6 +866,71 @@ class Acceptance(unittest.TestCase):
             with self.assertRaises(ftplib.error_perm):
                 client.nlst("/")
 
+    def test_application_inventory_icon_hash_and_native_lifecycle(self):
+        apps = self.home / "Applications"
+        apps.mkdir()
+        staged = self.work / "FileSharingFixture.app"
+        contents = staged / "Contents"
+        executable = contents / "MacOS" / "FileSharingFixture"
+        executable.parent.mkdir(parents=True)
+        identifier = "in.ryanl.filesharing.test." + uuid.uuid4().hex
+        info = {"CFBundleName": "FileSharing Fixture", "CFBundleIdentifier": identifier,
+                "CFBundleExecutable": "FileSharingFixture", "CFBundlePackageType": "APPL",
+                "CFBundleShortVersionString": "1.0", "CFBundleVersion": "1", "LSUIElement": True}
+        (contents / "Info.plist").write_bytes(plistlib.dumps(info))
+        source = self.work / "ApplicationFixture.swift"
+        source.write_text("""
+import AppKit
+let stop = CommandLine.arguments.dropFirst().first { $0.hasPrefix("/") }!
+let deadline = Date().addingTimeInterval(90)
+let app = NSApplication.shared
+app.setActivationPolicy(.accessory)
+Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { _ in
+    if FileManager.default.fileExists(atPath: stop) || Date() >= deadline { app.terminate(nil) }
+}
+app.run()
+""")
+        subprocess.run(["swiftc", str(source), "-o", str(executable)], check=True, capture_output=True, timeout=40)
+        self.setup_device()
+        self.wait(lambda: self.browser.get(self.origin + self.device_api + "/apps/installed", timeout=5).ok)
+        with self.channel() as events:
+            events.send(json.dumps({"type": "subscribe", "id": "apps", "deviceId": self.device, "topic": "applications.changed"}))
+            self.receive(events, lambda value: value["type"] == "subscribed")
+
+            def event(kind):
+                return self.receive(events, lambda value: value["type"] == "event" and
+                                    value["item"]["payload"]["kind"] == kind and
+                                    value["item"]["payload"]["application"]["bundleId"] == identifier,
+                                    seconds=20)["item"]["payload"]["application"]
+
+            live = apps / staged.name
+            staged.rename(live)
+            installed = event("installed")
+            self.assertEqual((installed["version"], installed["installPath"]), ("1.0", str(live)))
+            (live / "Contents" / "Info.plist").write_bytes(plistlib.dumps(info | {"CFBundleShortVersionString": "2.0"}))
+            self.assertEqual(event("updated")["version"], "2.0")
+            stop = self.work / "stop-fixture-app"
+            self.addCleanup(stop.touch)
+            subprocess.run(["codesign", "--force", "--sign", "-", str(live)], check=True, capture_output=True, timeout=20)
+            subprocess.run(["open", "-gj", str(live), "--args", str(stop)], check=True, capture_output=True, timeout=20)
+            launched = event("launched")
+            self.assertGreater(launched["pid"], 0)
+            pid = launched["pid"]
+
+            def running():
+                return next((item for item in self.api("GET", self.device_api + "/apps/running").json()["value"]
+                             if item["pid"] == pid), None)
+
+            current = self.wait(running)
+            icon = self.api("GET", self.device_api + "/apps/icon", params={"applicationId": current["applicationId"]})
+            self.assertEqual(current["iconHash"], hashlib.sha256(icon.content).hexdigest().upper())
+            self.assertEqual(icon.headers["ETag"].strip('"'), current["iconHash"])
+            stop.touch()
+            self.assertEqual(event("terminated")["pid"], pid)
+            self.wait(lambda: running() is None)
+            live.rename(staged)
+            self.assertEqual(event("removed")["applicationId"], installed["applicationId"])
+
     def test_dialog_response_notification_and_session_cancellation(self):
         self.register()
         self.unlock()
@@ -951,9 +1017,13 @@ class Acceptance(unittest.TestCase):
             with self.channel() as ws:
                 ws.send(json.dumps({"type": "subscribe", "id": "output", "deviceId": self.device, "topic": "jobs.output"}))
                 self.receive(ws, lambda value: value["type"] == "subscribed")
+                ws.send(json.dumps({"type": "subscribe", "id": "finished", "deviceId": self.device, "topic": "jobs.changed"}))
+                self.receive(ws, lambda value: value["type"] == "subscribed" and value["id"] == "finished")
                 job = self.api("POST", self.device_api + "/diagnostics", 202, json={"kind": "osVersion"}).json()
                 item = self.receive(ws, lambda value: value["type"] == "event" and value["id"] == "output")["item"]["payload"]
                 self.assertEqual((item["jobId"], item["index"], item["stream"]), (job["id"], 1, "stdout"))
+                terminal = self.receive(ws, lambda value: value["type"] == "event" and value["id"] == "finished")["item"]["payload"]
+                self.assertEqual((terminal["id"], terminal["state"], terminal["exitCode"]), (job["id"], "completed", 0))
                 finished = self.finished_job(job)
                 self.assertEqual((finished["state"], finished["result"]["exitCode"]), ("completed", 0))
                 self.assertFalse(finished["result"]["timedOut"])
@@ -1111,7 +1181,8 @@ precondition(board.setString("ISOLATED_CLIPBOARD_CONTENT", forType: .string))
                          "/api/v1/devices/{id}/files/trash", "/api/v1/devices/{id}/files/renames",
                          "/api/v1/ftp/accounts/{id}/password", "/api/v1/transfers/{id}/content", "/api/v1/events/ws",
                          "/api/v1/jobs/{id}/output", "/api/v1/devices/{id}/interactions/dialogs",
-                         "/api/v1/devices/{id}/interactions/notifications"):
+                         "/api/v1/devices/{id}/interactions/notifications", "/api/v1/ftp/connections",
+                         "/api/v1/ftp/accounts/{id}/password/reveal"):
             self.assertIn(expected, paths)
         self.assertNotIn("/api/v1/enrollments", paths)
         self.assertIn("101", paths["/api/v1/events/ws"]["get"]["responses"])

@@ -71,7 +71,27 @@ private final class DiskObserver {
 
 @MainActor
 final class Telemetry {
-    static let version = "0.3.2"
+    private struct RunningProcess: Sendable {
+        let application: NSRunningApplication
+        let pid: pid_t
+        let name: String?
+        let bundleId: String?
+        let bundle: URL?
+        let executable: URL?
+        let launched: Date?
+
+        init(_ application: NSRunningApplication) {
+            self.application = application
+            pid = application.processIdentifier
+            name = application.localizedName
+            bundleId = application.bundleIdentifier
+            bundle = application.bundleURL
+            executable = application.executableURL
+            launched = application.launchDate
+        }
+    }
+
+    static let version = "0.4.0"
     private static let applicationQueue = DispatchQueue(label: "FileSharing.applications", qos: .utility)
     private let boot = Date()
     private let roots: [LocalRoot]
@@ -94,11 +114,14 @@ final class Telemetry {
     private var inventoryRefresh: Task<Void, Never>?
     private var runningRefresh: Task<Void, Never>?
     private var runningInvalidated = false
+    private var runningObserver: NSKeyValueObservation?
+    private var runningApps: [pid_t: RunningProcess] = [:]
     private var externalPower: JSON = .null
     private var asleep = false
     private var displaySleeping = false
     private var lockState = "unknown"
     private var lidClosed: JSON = .null
+    private var lastKnownLid: Bool?
     private var reachability: String?
     private var started = false
 
@@ -140,6 +163,7 @@ final class Telemetry {
     func tick() async {
         guard started else { return }
         updatePower()
+        await reconcileRunningApplications(at: Date())
         for (topic, interval) in [("agent", sampling.agent), ("system", sampling.system), ("network", sampling.network), ("power", sampling.power),
                                   ("cpu", sampling.cpu), ("memory", sampling.memory), ("disk", sampling.disk),
                                   ("battery", sampling.battery), ("displays", sampling.displays), ("storage", sampling.storage),
@@ -156,10 +180,12 @@ final class Telemetry {
         guard started else { return }
         let value = lid.lidClosed()
         guard value != lidClosed else { return }
-        let wasKnown = lidClosed.bool != nil
         lidClosed = value
-        if wasKnown, value.bool != nil {
-            emit("lid.changed", ["lidClosed": value, "occurredAt": .date(Date())], false)
+        if let current = value.bool {
+            if let lastKnownLid, lastKnownLid != current {
+                emit("lid.changed", ["lidClosed": value, "occurredAt": .date(Date())], false)
+            }
+            lastKnownLid = current
         }
         publish("lid", ["lidClosed": value], force: true)
         publish("power", power(), force: true)
@@ -203,10 +229,14 @@ final class Telemetry {
 
     private func observe() {
         _ = NSApplication.shared
-        let workspace = NSWorkspace.shared.notificationCenter
-        for (notification, change) in [(NSWorkspace.didLaunchApplicationNotification, "launched"),
-                                       (NSWorkspace.didTerminateApplicationNotification, "terminated"),
-                                       (NSWorkspace.didActivateApplicationNotification, "activated"),
+        let sharedWorkspace = NSWorkspace.shared
+        let workspace = sharedWorkspace.notificationCenter
+        runningApps = Self.runningMap(sharedWorkspace.runningApplications)
+        runningObserver = sharedWorkspace.observe(\.runningApplications) { [weak self] _, _ in
+            let occurredAt = Date()
+            Task { @MainActor in await self?.reconcileRunningApplications(at: occurredAt) }
+        }
+        for (notification, change) in [(NSWorkspace.didActivateApplicationNotification, "activated"),
                                        (NSWorkspace.didDeactivateApplicationNotification, "deactivated"),
                                        (NSWorkspace.didHideApplicationNotification, "hidden"),
                                        (NSWorkspace.didUnhideApplicationNotification, "unhidden")] {
@@ -258,6 +288,10 @@ final class Telemetry {
                                                                 object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in await self?.sample("displays", force: true) }
         })
+        observers.append(NotificationCenter.default.addObserver(forName: .NSProcessInfoPowerStateDidChange,
+                                                                object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in await self?.sample("power", force: false) }
+        })
         diskObserver = DiskObserver { [weak self] in
             Task { @MainActor in
                 guard let self else { return }
@@ -269,6 +303,34 @@ final class Telemetry {
                     } catch {}
                 }
             }
+        }
+    }
+
+    nonisolated private static func runningMap(_ applications: [NSRunningApplication]) -> [pid_t: RunningProcess] {
+        var result = [pid_t: RunningProcess]()
+        for application in applications where application.processIdentifier > 0 && !application.isTerminated {
+            let process = RunningProcess(application)
+            result[process.pid] = process
+        }
+        return result
+    }
+
+    private func reconcileRunningApplications(at occurredAt: Date) async {
+        let previous = runningApps
+        let current = Self.runningMap(NSWorkspace.shared.runningApplications)
+        let changes = previous.values.filter { current[$0.pid] == nil }.map { ("terminated", $0) } +
+            current.values.filter { previous[$0.pid] == nil }.map { ("launched", $0) }
+        guard !changes.isEmpty else { return }
+        runningApps = current
+        scheduleRunningRefresh()
+        let reports = await Self.readApplications { [icons] in
+            let foreground = NSWorkspace.shared.frontmostApplication?.processIdentifier
+            return changes.map { (kind, process) in
+                (kind, Self.running(process.application, foreground: foreground, icons: icons, observed: process))
+            }
+        }
+        for (kind, application) in reports {
+            emit("applications.changed", ["kind": .string(kind), "application": application, "occurredAt": .date(occurredAt)], false)
         }
     }
 
@@ -378,10 +440,10 @@ final class Telemetry {
                     let after = new?["mountPath"].string
                     if old == nil, let new { storageEvent("inserted", new) }
                     if before != after, let old, before != nil {
-                        storageEvent("unmounted", new ?? disconnectedStorage(old, status: "unmounted"))
+                        storageEvent("unmounted", detachedStorage(old, status: "unmounted"))
                     }
                     if before != after, let new, after != nil { storageEvent("mounted", new) }
-                    if new == nil, let old { storageEvent("removed", disconnectedStorage(old, status: "removed")) }
+                    if new == nil, let old { storageEvent("removed", detachedStorage(old, status: "removed")) }
                 }
             }
             storage = found
@@ -405,11 +467,13 @@ final class Telemetry {
         emit("storage.changed", ["kind": .string(kind), "storage": item, "occurredAt": .date(Date())], false)
     }
 
-    private func disconnectedStorage(_ item: JSON, status: String) -> JSON {
+    private func detachedStorage(_ item: JSON, status: String) -> JSON {
         guard case .object(var attributes) = item else { return item }
+        attributes["lastMountPath"] = attributes["mountPath"] ?? .null
         attributes["mountPath"] = .null
         attributes["remainingBytes"] = .null
         attributes["status"] = .string(status)
+        attributes["connected"] = .boolean(status == "unmounted")
         return .object(attributes)
     }
 
@@ -606,34 +670,59 @@ final class Telemetry {
     }
 
     nonisolated private static func app(_ url: URL) -> JSON {
-        let info = Bundle(url: url)?.infoDictionary ?? [:]
-        let path = url.path(percentEncoded: false)
+        let info = appInfo(url)
+        let path = url.path(percentEncoded: false).trimmingSuffixSlash
         let id = Data(SHA256.hash(data: Data(path.utf8))).base64URL
         let name = (info["CFBundleDisplayName"] ?? info["CFBundleName"]) as? String ?? url.deletingPathExtension().lastPathComponent
         return ["applicationId": .string(id), "name": .string(name), "bundleId": .text(info["CFBundleIdentifier"] as? String),
                 "version": .text(info["CFBundleShortVersionString"] as? String), "build": .text(info["CFBundleVersion"] as? String),
-                "installPath": .string(path), "executablePath": .text(Bundle(url: url)?.executableURL?.path(percentEncoded: false))]
+                "installPath": .string(path), "executablePath": .text(appExecutable(url, info: info))]
     }
 
-    nonisolated private static func running(_ app: NSRunningApplication, foreground: pid_t?, icons: ApplicationIcons) -> JSON {
+    nonisolated private static func appInfo(_ url: URL) -> [String: Any] {
+        let plist = url.appendingPathComponent("Contents/Info.plist")
+        let maximum: Int64 = 512 * 1024
+        let fd = open(plist.path(percentEncoded: false), O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
+        if fd == -1 { return errno == ENOENT ? Bundle(url: url)?.infoDictionary ?? [:] : [:] }
+        let file = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+        var attributes = stat()
+        guard fstat(fd, &attributes) == 0, attributes.st_mode & S_IFMT == S_IFREG, attributes.st_size <= maximum,
+              let data = try? file.read(upToCount: Int(maximum) + 1), data.count <= maximum,
+              let info = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
+        else { return [:] }
+        return info
+    }
+
+    nonisolated private static func appExecutable(_ url: URL, info: [String: Any]) -> String? {
+        if let executable = info["CFBundleExecutable"] as? String,
+           !executable.isEmpty, !executable.contains("/"), executable != ".", executable != ".." {
+            let candidate = url.appendingPathComponent("Contents/MacOS").appendingPathComponent(executable).path(percentEncoded: false)
+            if FileManager.default.isExecutableFile(atPath: candidate) { return candidate }
+        }
+        return Bundle(url: url)?.executableURL?.path(percentEncoded: false)
+    }
+
+    nonisolated private static func running(_ app: NSRunningApplication, foreground: pid_t?, icons: ApplicationIcons,
+                                            observed: RunningProcess? = nil) -> JSON {
+        let process = observed ?? RunningProcess(app)
         var data: [String: JSON] = [:]
-        if let url = app.bundleURL, case .object(let value) = Self.app(url) { data = value }
-        data["name"] = .text(app.localizedName ?? data["name"]?.string)
-        data["bundleId"] = .text(app.bundleIdentifier)
-        data["pid"] = .integer(Int64(app.processIdentifier))
-        data["launchedAt"] = app.launchDate.map(JSON.date) ?? .null
-        data["uptimeSeconds"] = app.launchDate.map { .integer(Int64(max(0, Date().timeIntervalSince($0)))) } ?? .null
-        data["foreground"] = .boolean(foreground == app.processIdentifier)
+        if let url = process.bundle, case .object(let value) = Self.app(url) { data = value }
+        data["name"] = .text(process.name ?? data["name"]?.string)
+        data["bundleId"] = .text(process.bundleId ?? data["bundleId"]?.string)
+        data["pid"] = .integer(Int64(process.pid))
+        data["launchedAt"] = process.launched.map(JSON.date) ?? .null
+        data["uptimeSeconds"] = process.launched.map { .integer(Int64(max(0, Date().timeIntervalSince($0)))) } ?? .null
+        data["foreground"] = .boolean(foreground == process.pid)
         data["active"] = .boolean(app.isActive)
         data["hidden"] = .boolean(app.isHidden)
-        data["executablePath"] = .text(app.executableURL?.path(percentEncoded: false))
+        data["executablePath"] = .text(process.executable?.path(percentEncoded: false) ?? data["executablePath"]?.string)
         data["iconHash"] = .text(icons.rendition(for: .object(data))?.hash)
         return .object(data)
     }
 
     nonisolated private static var inventoryPaths: [String] {
         ["/Applications", "/System/Applications",
-         FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications").path(percentEncoded: false)]
+         LocalState.home.appendingPathComponent("Applications").path(percentEncoded: false)]
     }
 
     nonisolated private static func inventory() -> [String: JSON] {
@@ -678,7 +767,7 @@ final class Telemetry {
                 ?? value[kDADiskDescriptionMediaNameKey as String]) as? String), "capacityBytes": capacity.map(JSON.integer) ?? .null,
                 "remainingBytes": mount.flatMap { mounted[$0]?["availableBytes"] } ?? .null,
                 "fileSystem": .text(value[kDADiskDescriptionVolumeKindKey as String] as? String), "mountPath": .text(mount),
-                "transport": .text(transport),
+                "transport": .text(transport), "connected": true,
                 "wholeDisk": (value[kDADiskDescriptionMediaWholeKey as String] as? Bool).map(JSON.boolean) ?? .null,
                 "status": mount == nil ? "connected" : "mounted"]
         }

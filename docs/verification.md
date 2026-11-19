@@ -1,4 +1,37 @@
-# Milestone 1 验收记录
+# FileSharing 验收记录
+
+## Milestone 2 · Agent 0.4.0
+
+验证环境为 Apple silicon Mac、.NET 10、Go 1.27、Xcode 和 Docker Compose。集成用例启动隔离的真实服务及 Swift Agent，Passkey 使用测试凭证。
+
+`scripts/test-local.sh` 的 20 项集成测试全部通过，.NET 构建有 0 个警告和 0 个错误。2 项浏览器回归、1 项 Compose 部署烟测和原生 AppKit 对话框测试通过。双架构 DMG 通过签名、plist、SHA-256 和镜像校验。Go 模块通过校验与 `go vet`，AsyncAPI 3 文档通过解析检查。
+
+| Requirement | Evidence |
+| --- | --- |
+| 真实诊断输出、WSS 退出码、HTTPS 回退和 REST 游标 | `test_diagnostic_outputs_stream_and_resume_on_wss_and_https` |
+| STDERR 在退出前持久化、重传去重、非零退出码 | `test_stderr_progress_precedes_exit_and_duplicate_is_ignored` |
+| 原生对话框显示、必填原因校验、选项与文本 | `tests/native_dialog_smoke.swift` |
+| 对话框答复、通知作业、锁定时取消及两种传输 | `test_dialog_response_notification_and_session_cancellation` |
+| 剪贴板时间、拒收额外字段、合盖状态模拟、实时 RTT 与 REST 重放 | `test_clipboard_timestamp_lid_and_heartbeat_over_both_transports` |
+| 原生 App 启停事件、安装清单变化与图标哈希 | `test_application_inventory_icon_hash_and_native_lifecycle` |
+| 两台已授权设备的主目录、实时会话、独立加密密码和新鲜 Passkey 核验 | `test_gateway_live_home_scope_connections_and_encrypted_password_reveal` |
+| OpenSSH 目录分页、字节一致性、只读边界、旧会话撤销、主机密钥持久化 | `test_sftp_home_paging_download_password_revocation_and_host_key` |
+| Linux 容器、HTTPS 与两侧 WSS、FTPS 和 SFTP | `test_nginx_https_wss_ftps_and_sftp` |
+| 历史库迁移后保留设备、账号及根授权 | `test_sqlite_upgrade_preserves_preexisting_device_and_grant` |
+
+在登录到 Aqua 的 Mac 上可以用以下命令验收 AppKit 对话框。测试程序打开自己的演示窗口、填写测试说明并自动提交。
+
+```bash
+mkdir -p .local
+swiftc -swift-version 5 -parse-as-library -D FILESHARING_APP \
+  src/Mac/DeviceInteractions.swift src/Mac/JSON.swift tests/native_dialog_smoke.swift \
+  -o .local/native-dialog-smoke
+.local/native-dialog-smoke
+```
+
+发布前的现场验收包括目标 Mac 的通知授权和横幅、实体 USB/SD 事件、真实合盖唤醒及安装后的 LaunchAgent 持续运行。客户端本机调试包连接 `http://localhost:8847`，部署包构建时填写管理服务的 HTTPS 地址。
+
+## Milestone 1
 
 本机 DMG 与浏览器测试的验证日期为 2026-11-20。开发环境为 Apple silicon macOS 27.0、Swift 6.4 工具链和 .NET SDK 10.0.401。生产 Compose 使用 .NET 10.0.15 容器。测试启动真实服务和 Swift 进程，使用工作区 `.local` 内的隔离 HOME、SQLite、证书与废纸篓。端口仅绑定回环。测试构建禁用电源改动，以隔离文件夹验证授权接口。
 
@@ -46,4 +79,4 @@ python3 tests/installed_agent_smoke.py
 
 ## 现场验收
 
-首次打开或升级 App 后，运行 `tests/installed_agent_smoke.py` 检查实际进程版本、安装路径，以及同一连接上的 60 秒心跳。等待上线后执行剪贴板申请，由目标用户确认 macOS 反馈，再在授权的 Downloads、Documents 或 Desktop 打开样本文件预览。最后验证退出网页、锁屏及再次登录后的连接状态。 [本机联调](local-demo.md)
+首次打开或升级 App 后，运行 `tests/installed_agent_smoke.py` 检查实际进程版本、安装路径，以及同一连接上的 60 秒心跳。等待上线后复制一段测试文本，检查事件载荷只有 `occurredAt`，然后在授权的 Downloads、Documents 或 Desktop 打开样本文件预览。最后验证退出网页、锁屏及再次登录后的连接状态。 [本机联调](local-demo.md)

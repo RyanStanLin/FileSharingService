@@ -19,7 +19,7 @@
 | `agent` | `version,startedAt,uptimeSeconds,health`。 |
 | `apps-running` | 应用清单加 `pid,launchedAt,uptimeSeconds,foreground,active,hidden,iconHash`。可用时 `iconHash` 为图标 PNG 的 SHA-256 十六进制值，与图标接口的 ETag 一致。 |
 | `apps-installed` | 应用清单，单项 `applicationId,name,bundleId,version,build,installPath,executablePath`。应用图标端点的 PNG 具有 SHA-256 ETag。 |
-| `storage` | 外接存储清单，单项 `id,name,capacityBytes,remainingBytes,fileSystem,mountPath,status,transport,wholeDisk`。ID 为当前连接可见的 BSD 名称。 |
+| `storage` | 外接存储清单，单项 `id,name,capacityBytes,remainingBytes,fileSystem,mountPath,status,connected,transport,wholeDisk`。ID 为当前连接可见的 BSD 名称。 |
 | `lid` | `{lidClosed}`，布尔值。设备没有提供合盖状态时为 `null`。 |
 | `permissions` | 以 `downloads,documents,desktop,inputMonitoring,pasteboard` 为键，每项为 `{state,phase,checkedAt,systemSettingsPane}`。 |
 | `roots` | 本机目录策略数组，每项 `rootKey,label,writable,primary`。 |
@@ -31,18 +31,18 @@
 | `connection.changed` | 更新后的连接对象。 |
 | `connection.quality` | 同一连接对象，携带心跳 RTT、最近通信时间与连接时长，约每 5 秒推送。以前端当前 `connectionId` 丢弃旧连接的心跳。 |
 | `applications.changed` | `{kind,application,occurredAt}`。kind 为 `launched,terminated,activated,deactivated,hidden,unhidden,installed,removed,updated`。 |
-| `storage.changed` | `{kind,storage,occurredAt}`。kind 为 `inserted,removed,mounted,unmounted`。 |
+| `storage.changed` | `{kind,storage,occurredAt}`。kind 为 `inserted,removed,mounted,unmounted`。移除或卸载时，先前的挂载点保存在 `storage.lastMountPath`。 |
 | `system.changed` | 设备休眠、唤醒和网络可达性变化。 |
 | `lid.changed` | `{lidClosed,occurredAt}`。运行期间以约 500 毫秒的间隔观察 IOKit 盖状态。睡眠期间由 macOS 暂停进程，唤醒后重新采样。 |
 | `clipboard.changed` | `{occurredAt}`。客户端约每 500 毫秒比较一次本地所有权计数，发送发现变化的时间。采样间隔内的多次变化可能合并。 |
 | `telemetry.gap` | 客户端待发送事件超过保留上限。 |
 | `files.changed` | 目录增量或重新同步信号。 |
-| `jobs.changed` | `{id,state,kind}`。 |
+| `jobs.changed` | `{id,state,kind}`，诊断进程返回退出码时附带 `exitCode`。 |
 | `jobs.output` | `{jobId,index,stream,data}`，诊断标准输出或错误流分片。 |
 | `transfers.changed` | `{id,state,offset,length}`。 |
 
-剪贴板实现见 [ClipboardObserver.swift](../src/Mac/ClipboardObserver.swift) 与 [AgentTransport.swift](../src/Mac/AgentTransport.swift)。剪贴板载荷仅含 ISO 8601 时间，服务端在写库前校验唯一字段并重新序列化。服务器添加设备 ID 和事件序号。初次观测只建立本机基线。
+剪贴板实现见 [ClipboardObserver.swift](../src/Mac/ClipboardObserver.swift) 与 [AgentTransport.swift](../src/Mac/AgentTransport.swift)。剪贴板载荷仅含 ISO 8601 时间，服务端在写库前校验唯一字段并重新序列化。服务器添加设备 ID 和事件序号。初次观测只建立本机基线。客户端仅在内存排队，服务端使用通用事件保留期限。
 
-策略采样间隔支持 5–3600 秒或 `0`。设为 `0` 后可以调用刷新 API，系统事件仍会更新相关样本。应用安装事件来自 FSEvents 触发的安装目录对账，另有周期重扫。清单覆盖 `/Applications`、`/System/Applications`、`~/Applications` 内的 App 包。
+策略采样间隔支持 5–3600 秒或 `0`。设为 `0` 后可以调用刷新 API，系统事件仍会更新相关样本。应用启动和退出通过 `NSWorkspace.runningApplications` 的 KVO 发现，包括 AppKit 注册的后台 App。安装事件来自 FSEvents 触发的安装目录对账，另有周期重扫。清单覆盖 `/Applications`、`/System/Applications`、`~/Applications` 内的 App 包。 [Apple AppKit](https://developer.apple.com/documentation/appkit/nsworkspace/runningapplications)
 
 字段与请求方法见 [API](api.md)。事件协议见 [AsyncAPI](asyncapi.yaml)。

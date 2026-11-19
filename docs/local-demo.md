@@ -2,12 +2,13 @@
 
 浏览器访问 `http://localhost:8847/demo`。本机 DMG 的服务端地址为 `http://localhost:8847`，服务端只绑定回环地址。Agent 使用只读 HOME 和独立本机状态。
 
-1. 打开 `artifacts/FileSharingService-0.3.2.dmg`，把 `FileSharingService.app` 拖到 `Applications`。升级时替换同名 App。
+1. 打开 `artifacts/FileSharingService-0.4.0.dmg`，把 `FileSharingService.app` 拖到 `Applications`。升级时替换同名 App。
 2. 打开已拖装的 App，也可以在 DMG 里双击 `Open FileSharingService.command`。若 macOS 暂拦首次启动，从「系统设置 → 隐私与安全性」为此 App 选择「仍要打开」。[Apple 的首次打开说明](https://support.apple.com/en-us/102445)
 3. App 会注册内置后台服务。升级后首次打开会将旧注册更新到当前构建。系统要求批准时，在「登录项与扩展」允许 FileSharingService。状态窗口显示注册结果，在线状态在本机测试页确认。
 4. 首次使用网页时，打开仓库的 `.local/demo/.env`，把 `FILESHARING_BOOTSTRAP_SECRET` 等号后的值粘贴到部署密钥栏，注册 Passkey 并解锁。建议使用系统当前版本的 Safari 或 Chrome。
 5. 选在线设备并点击「授权当前连接」。在「系统权限」点击「下载目录」的「申请」，在 Mac 系统弹窗里选择允许。网页会显示通过 WebSocket 推送回来的检测状态。再点击「下载」或在路径框输入 `Downloads`，列出文件，对合适的文本文件点击「预览」确认内容。
-6. 申请剪贴板后，在这台 Mac 上处理系统提示。网页会显示探测进度和 macOS 回报的状态。「需系统设置」表示 macOS 配置为每次询问，可在「隐私与安全性 → 剪贴板」调整。系统按应用和当前策略决定是否显示提示。 [Apple 剪贴板权限说明](https://developer.apple.com/documentation/appkit/nspasteboard/accessbehavior-swift.enum)
+6. 剪贴板权限栏查询 macOS 的访问策略。验证更新事件时复制一段测试文本，然后订阅 `clipboard.changed` 或用 REST 读取历史，核对载荷中的 `occurredAt`。 [事件接口](api.md#websocket-订阅)
+7. 验证原生通知时，在已安装的 App 中点「启用本地通知」，再用示例请求创建通知作业。用同一份示例验证原生对话框、诊断输出与回退接口。 [API 示例](../FileSharing.http)
 
 读取目录后，表格会显示从 Mac 取回的缩略图、扩展名、类型、大小和时间。点击表头按名称、类型、大小、创建时间、修改时间或上次打开排序，再点同一表头可反转。翻页会沿用当前排序与隐藏项设置。上次打开时间由 macOS 提供，缺失时显示「—」。
 

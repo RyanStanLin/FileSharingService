@@ -125,7 +125,7 @@ final class AgentTransport {
         self.roots = enrollment.roots
         self.files = ScopedFiles(roots: enrollment.roots)
         self.outbox = state.loadPending().compactMap { item in
-            guard let count = try? item.encoded().count else { return nil }
+            guard item["topic"].string != "clipboard.changed", let count = try? item.encoded().count else { return nil }
             return Signal(value: item, bytes: count)
         }
     }
@@ -142,7 +142,10 @@ final class AgentTransport {
                 observer.prune()
                 await telemetry.tick()
                 if Date().timeIntervalSince(lastSave) > 2 {
-                    let pending = outbox.filter { $0.value["snapshot"].bool != true && $0.value["topic"].string != "files.changed" }.map(\.value)
+                    let pending = outbox.filter {
+                        $0.value["snapshot"].bool != true && $0.value["topic"].string != "files.changed" &&
+                            $0.value["topic"].string != "clipboard.changed"
+                    }.map(\.value)
                     if pending != persisted {
                         state.savePending(pending)
                         persisted = pending

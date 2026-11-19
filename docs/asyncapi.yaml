@@ -140,6 +140,39 @@ components:
     EventItem:
       type: object
       required: [sequence, deviceId, topic, time, payload]
+      allOf:
+        - if:
+            properties:
+              topic:
+                const: clipboard.changed
+          then:
+            properties:
+              payload:
+                $ref: '#/components/schemas/ClipboardChange'
+        - if:
+            properties:
+              topic:
+                const: lid.changed
+          then:
+            properties:
+              payload:
+                $ref: '#/components/schemas/LidChange'
+        - if:
+            properties:
+              topic:
+                const: jobs.output
+          then:
+            properties:
+              payload:
+                $ref: '#/components/schemas/JobOutput'
+        - if:
+            properties:
+              topic:
+                const: jobs.changed
+          then:
+            properties:
+              payload:
+                $ref: '#/components/schemas/JobChanged'
       properties:
         sequence:
           $ref: '#/components/schemas/Cursor'
@@ -169,6 +202,22 @@ components:
         data:
           type: string
           contentEncoding: base64
+    JobChanged:
+      type: object
+      required: [id, state, kind]
+      properties:
+        id:
+          type: string
+          format: uuid
+        state:
+          enum: [completed, cancelled, failed]
+        kind:
+          type: string
+        exitCode:
+          type: integer
+          minimum: 0
+          maximum: 255
+          description: Present for diagnostics that returned a process exit code.
     ClipboardChange:
       type: object
       additionalProperties: false

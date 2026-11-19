@@ -1,4 +1,6 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
+using Dapper;
 
 namespace FileSharing;
 
@@ -18,6 +20,8 @@ internal sealed record JobRecord(string Id, string Owner, string DeviceId, strin
 }
 internal sealed record JobView(string Id, string DeviceId, string Kind, string State, DateTimeOffset CreatedAt, DateTimeOffset? FinishedAt,
     JsonElement? Result, string? Error);
+internal sealed record JobChanged(string Id, string State, string Kind,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? ExitCode);
 
 internal sealed class JobService(Database db, AgentBroker broker, ReviewService reviews, JobOutputs outputs, ILogger<JobService> logger)
 {
@@ -76,7 +80,7 @@ internal sealed class JobService(Database db, AgentBroker broker, ReviewService 
                         continue;
                     broker.CancelCommand(job.DeviceId, connectionId, job.Id);
                     try { await pending; }
-                    catch (OperationCanceledException) { }
+                    catch (Exception error) when (error is OperationCanceledException or Fault) { }
                     await Finish(job, "cancelled", null, "review_ended");
                     return;
                 }
@@ -85,7 +89,7 @@ internal sealed class JobService(Database db, AgentBroker broker, ReviewService 
             if (await reviews.ActiveById(job.ReviewId, ct) is null)
                 await Finish(job, "cancelled", null, "review_ended");
             else
-                await Finish(job, "completed", payload.GetRawText(), null);
+                await Finish(job, "completed", payload, null);
         }
         catch (Exception error)
         {
@@ -113,15 +117,27 @@ internal sealed class JobService(Database db, AgentBroker broker, ReviewService 
 
     private static bool Exclusive(string kind) => kind is "diagnostics.run" or InteractionEndpoints.Dialog or InteractionEndpoints.Notification;
 
-    private async Task Finish(JobRecord job, string state, string? result, string? error)
-    {
-        var stop = Clock.Now;
-        var saved = await db.Execute("UPDATE Jobs SET State=@state,Result=@result,Error=@error,Finished=@stop WHERE Id=@Id AND State='queued'",
-            new { state, result, error, stop, job.Id }, CancellationToken.None);
-        if (saved == 1)
-            await db.AppendEvent(job.DeviceId, "jobs.changed",
-                Wire.Element(new { id = job.Id, state, kind = job.Kind }), CancellationToken.None);
-    }
+    private Task Finish(JobRecord job, string state, JsonElement? payload, string? error) =>
+        db.Write(async (connection, tx) =>
+        {
+            var stop = Clock.Now;
+            int? exitCode = null;
+            if (job.Kind == "diagnostics.run" && payload is { } diagnostics)
+            {
+                if (diagnostics.ValueKind != JsonValueKind.Object || !diagnostics.TryGetProperty("exitCode", out var code) ||
+                    code.ValueKind != JsonValueKind.Number || !code.TryGetInt32(out var value) || value is < 0 or > 255)
+                    throw Fault.Bad("invalid_diagnostic_exit");
+                exitCode = value;
+            }
+            var saved = await connection.ExecuteAsync(new CommandDefinition("""
+                UPDATE Jobs SET State=@state,Result=@result,Error=@error,Finished=@stop WHERE Id=@Id AND State='queued'
+                """, new { state, result = payload?.GetRawText(), error, stop, job.Id }, tx));
+            if (saved == 1)
+                await connection.ExecuteAsync(new CommandDefinition("""
+                    INSERT INTO Events(DeviceId,Topic,At,Payload) VALUES(@DeviceId,'jobs.changed',@stop,@value)
+                    """, new { job.DeviceId, stop, value = Wire.Encode(new JobChanged(job.Id, state, job.Kind, exitCode)) }, tx));
+            return saved;
+        });
 }
 
 internal static class DataEndpoints
