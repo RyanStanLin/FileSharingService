@@ -180,11 +180,11 @@ Root 为 `{id,deviceId,rootKey,label,writable,enabled,revision}`。TCC 管理包
 {"id":"2204ec63-266b-45d3-8f67-8a088c744b21","deviceId":"144bae60-503d-45e3-8a17-ec7a64886c20","rootId":"84a38c77-f769-4e27-b6d0-331281675ebd","kind":"archive","state":"ready","path":"","fileName":"files.zip","version":"2204ec63-266b-45d3-8f67-8a088c744b21","length":34181,"offset":0,"createdAt":"2026-11-19T08:22:00Z","updatedAt":"2026-11-19T08:22:02Z","error":null,"downloadUrl":"/api/v1/transfers/2204ec63-266b-45d3-8f67-8a088c744b21/content"}
 ```
 
-## FTP 和 FTPS
+## FTP、FTPS 和 SFTP
 
 | 方法与路径 | 参数 / 请求体 | 响应 |
 | --- | --- | --- |
-| `GET /ftp/connection` | 无 | `200 [{mode,host,port,scheme,address}]` |
+| `GET /ftp/connection` | 无 | `200 [{mode,host,port,scheme,address,hostKeyFingerprint?,available?}]` |
 | `GET /ftp/connections` | 可选 `accountId` | `200 [{id,accountId,protocol,peerAddress,connectedAt,lastActivityAt}]` |
 | `GET /ftp/accounts` | `cursor,limit` | `200 Page<FtpAccount>` |
 | `POST /ftp/accounts` | `{name,mode,scope?,rootIds?,password?}` | `201 {account,password,endpoints}` |
@@ -194,9 +194,11 @@ Root 为 `{id,deviceId,rootKey,label,writable,enabled,revision}`。TCC 管理包
 | `POST /ftp/accounts/{id}/password/reveal` | 无，要求最近五分钟内的 Passkey 登录 | `200 {name,password}` |
 | `DELETE /ftp/accounts/{id}` | 无 | `204` |
 
-账号 `mode` 取 `ftp` 或 `ftps`。创建和换密码时可省略 `password` 生成随机值。列表和详情提供 `passwordChangedAt` 和 `passwordRetrievable`。配置加密密钥后，可用专门的 reveal 接口查看新设密码。过期登录返回 `403 fresh_passkey_required`。第一次设定密钥之前的账号需要轮换一次密码，旧密码仅有哈希。三种密码响应均为 `Cache-Control: no-store`。连接模式为 `plain`、`explicitTls` 和 `implicitTls`。修改账号授权、用户名、启用状态或密码会使旧连接失效。
+账号 `mode` 取 `ftp`、`ftps` 或 `sftp`，各模式的账号独立。创建和换密码时可省略 `password` 生成随机值。列表和详情提供 `passwordChangedAt` 和 `passwordRetrievable`。配置加密密钥后，可用专门的 reveal 接口查看新设密码。过期登录返回 `403 fresh_passkey_required`。第一次设定密钥之前的账号需要轮换一次密码，旧密码仅有哈希。三种密码响应均为 `Cache-Control: no-store`。连接模式为 `plain`、`explicitTls`、`implicitTls` 和 `sftp`。修改账号授权、用户名、启用状态或密码会使旧连接失效。
 
 `scope:"activeHomes"` 将所有在线、当前连接已授权且主目录根已启用的 Mac 映射为 `/mac1/`、`/mac2/` 等顶层目录。根内容是相应账号的 HOME 范围。挂载名根据首次公布的设备名称持久分配，重名附 UUID。此范围使用空的 `rootIds`。需要逐一授权时用 `scope:"grants"` 和指定的 `rootIds`，目录布局为 `/{deviceId}/{rootId}/`。创建时省略 `scope`，有 `rootIds` 则选择 `grants`，否则选择 `activeHomes`。两种范围均使用设备现有目录访问策略，文件网关开放目录浏览及下载。
+
+SFTP 客户端首次连接时校验 `hostKeyFingerprint`，格式为 `SHA256:…`。启用监听且工作进程就绪时 `available:true`。连接运行 SFTP v3 文件子系统。文件下载固定到打开时的版本及 Mac 连接，目录读操作跨页校验版本。登录使用网关账号与密码，管理会话锁定期间已发放的网关账号照常工作。
 
 ```json
 {"account":{"id":"fcd35110-9677-4fd7-83db-6f59cd838dc8","name":"download-ops","mode":"ftps","disabled":false,"revision":1,"rootIds":["84a38c77-f769-4e27-b6d0-331281675ebd"]},"password":"example-issued-secret","endpoints":[{"mode":"explicitTls","host":"filesharing.example.com","port":2122,"scheme":"ftp","address":"ftp://filesharing.example.com:2122/"}]}

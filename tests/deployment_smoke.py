@@ -15,11 +15,11 @@ import unittest
 import requests
 from websockets.sync.client import connect
 
-from integration import API, APP, AUTH, ROOT, Passkey, passive_ports, ports
+from integration import API, APP, AUTH, ROOT, Passkey, passive_ports, port, ports, sftp_client
 
 
 class DeploymentSmoke(unittest.TestCase):
-    def test_nginx_https_wss_and_embedded_ftps(self):
+    def test_nginx_https_wss_ftps_and_sftp(self):
         scratch = ROOT / ".local"
         scratch.mkdir(exist_ok=True)
         with tempfile.TemporaryDirectory(prefix="proxy-smoke-", dir=scratch) as directory:
@@ -61,7 +61,10 @@ class DeploymentSmoke(unittest.TestCase):
         self.assertIn(f"FILESHARING_BOOTSTRAP_SECRET={setup_key}", env_path.read_text())
 
         web, plain, explicit, implicit = ports()
-        passive_low, passive_high = passive_ports((web, plain, explicit, implicit))
+        ssh_port = port()
+        while ssh_port in (web, plain, explicit, implicit):
+            ssh_port = port()
+        passive_low, passive_high = passive_ports((web, plain, explicit, implicit, ssh_port))
         origin = f"https://localhost:{web}"
         project = "filesharing-smoke-" + secrets.token_hex(5)
         compose_env = os.environ | {
@@ -75,12 +78,14 @@ class DeploymentSmoke(unittest.TestCase):
             "FILESHARING_FTP_PLAIN_PORT": str(plain),
             "FILESHARING_FTP_EXPLICIT_PORT": str(explicit),
             "FILESHARING_FTP_IMPLICIT_PORT": str(implicit),
+            "FILESHARING_SFTP_PORT": str(ssh_port),
             "FILESHARING_FTP_PASSIVE_MIN": str(passive_low),
             "FILESHARING_FTP_PASSIVE_MAX": str(passive_high),
             "FILESHARING_FTP_PASSIVE_ADDRESS": "127.0.0.1",
             "FILESHARING_FTP_PLAIN_CLIENTS": "127.0.0.0/8",
             "FILESHARING_TLS_DIR": str(tls),
             "FILESHARING_BOOTSTRAP_SECRET": setup_key,
+            "FILESHARING_GATEWAY_KEY": secrets.token_hex(32),
         }
 
         def compose(*arguments):
@@ -167,6 +172,15 @@ class DeploymentSmoke(unittest.TestCase):
 
             credential = api("POST", API + "/ftp/accounts", 201,
                              json={"name": "gateway-test", "mode": "ftps", "rootIds": [root]}).json()
+            api("PUT", f"{API}/devices/{device}",
+                json={"name": "Smoke Mac", "profileId": "default", "revision": devices[0]["revision"]})
+            secure_file = api("POST", API + "/ftp/accounts", 201,
+                              json={"name": "decoupled-ssh", "mode": "sftp", "scope": "activeHomes"}).json()
+            secure_endpoint, = secure_file["endpoints"]
+            self.assertTrue(secure_endpoint["available"])
+            self.assertEqual(secure_endpoint["port"], ssh_port)
+            download, _, environment = sftp_client(directory, ssh_port, secure_endpoint["hostKeyFingerprint"], secure_file)
+            api("POST", "/_sftp/open", 404, json={})
             api("POST", API + "/auth/lock", 204)
             api("GET", API + "/devices", 401)
             with ftplib.FTP_TLS(context=context) as ftp:
@@ -177,6 +191,10 @@ class DeploymentSmoke(unittest.TestCase):
                 output = io.BytesIO()
                 ftp.retrbinary("RETR fixture.txt", output.write)
                 self.assertEqual(output.getvalue(), payload)
+            copied = subprocess.run(download, input="get /smoke-mac/fixture.txt received.txt\nbye\n", env=environment,
+                                    cwd=directory, capture_output=True, text=True, timeout=20)
+            self.assertEqual(copied.returncode, 0, copied.stdout + copied.stderr)
+            self.assertEqual((directory / "received.txt").read_bytes(), payload)
         except BaseException:
             agent_log = directory / "agent.log"
             if agent_log.exists():

@@ -2,7 +2,11 @@ using System.Net;
 
 namespace FileSharing;
 
-internal sealed record FtpEndpoint(string Mode, string Host, int Port, string Scheme)
+internal sealed record FtpEndpoint(string Mode, string Host, int Port, string Scheme,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    string? HostKeyFingerprint = null,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    bool? Available = null)
 {
     public string Address => new UriBuilder(Scheme, Host, Port, "/").Uri.AbsoluteUri;
 }

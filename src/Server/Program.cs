@@ -13,7 +13,12 @@ public static class Program
         var builder = WebApplication.CreateBuilder(args);
         var settings = Settings.Read(builder.Configuration, builder.Environment);
         builder.Services.AddSingleton(settings);
-        builder.Services.AddSingleton(FtpSettings.Read(builder.Configuration, settings));
+        var ftp = FtpSettings.Read(builder.Configuration, settings);
+        builder.Services.AddSingleton(ftp);
+        builder.Services.AddSingleton(SftpSettings.Read(builder.Configuration, settings, ftp));
+        builder.Services.AddSingleton<SftpRuntime>();
+        builder.Services.AddSingleton<SftpLoginLimit>();
+        builder.Services.AddHostedService<SftpGateway>();
         builder.Services.AddSingleton<FtpAccounts>();
         builder.Services.AddSingleton<GatewayCredentialVault>();
         builder.Services.AddSingleton<GatewaySessions>();
@@ -96,11 +101,19 @@ public static class Program
         app.UseExceptionHandler();
         app.UseStatusCodePages();
         app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(15) });
+        var sftp = app.Services.GetRequiredService<SftpRuntime>();
         app.Use(async (context, next) =>
         {
             context.Response.Headers.CacheControl = "no-store";
             context.Response.Headers["X-Content-Type-Options"] = "nosniff";
             context.Response.Headers["Referrer-Policy"] = "no-referrer";
+            if (context.Request.Path.StartsWithSegments("/_sftp", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!sftp.Allows(context))
+                    throw Fault.Missing();
+                await next(context);
+                return;
+            }
             if (!settings.LoopbackDevelopment && !context.Request.IsHttps && !context.Request.Path.StartsWithSegments("/health"))
                 throw Fault.Forbidden("https_required");
             if (!context.Request.Path.StartsWithSegments("/health") &&
@@ -123,8 +136,10 @@ public static class Program
         if (settings.LoopbackDevelopment && builder.Configuration.GetValue<bool>("FileSharing:EnableDemo"))
             DemoEndpoints.Map(app, settings);
         app.MapGet("/health/live", () => TypedResults.Ok(new { status = "live" })).ExcludeFromDescription();
-        app.MapGet("/health/ready", async (Database db, CancellationToken ct) =>
-            TypedResults.Ok(new { ready = await db.One<int>("SELECT 1", null, ct) == 1 })).ExcludeFromDescription();
+        app.MapGet("/health/ready", async Task<IResult> (Database db, CancellationToken ct) =>
+            sftp.Ready && await db.One<int>("SELECT 1", null, ct) == 1
+                ? TypedResults.Ok(new { ready = true })
+                : TypedResults.Json(new { ready = false }, statusCode: 503)).ExcludeFromDescription();
         app.MapOpenApi().AddEndpointFilter(async (context, next) =>
         {
             if (!app.Environment.IsDevelopment())
@@ -137,6 +152,7 @@ public static class Program
         FtpEndpoints.Map(api);
         DataEndpoints.Map(api);
         AgentEndpoints.Map(app);
+        SftpBridge.Map(app);
         await app.RunAsync();
     }
 }

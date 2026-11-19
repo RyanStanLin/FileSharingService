@@ -30,6 +30,7 @@ from websockets.sync.client import connect
 ROOT = Path(__file__).resolve().parents[1]
 APP = ROOT / "artifacts/FileSharingAgent.loopback"
 SERVER = ROOT / "src/Server/bin/Debug/net10.0/FileSharing.Server.dll"
+SFTP = ROOT / "artifacts/filesharing-sftp"
 API = "/api/v1"
 AUTH = API + "/auth/passkeys"
 
@@ -53,6 +54,27 @@ def ports():
         values = list(dict.fromkeys(port() for _ in range(4)))
         if len(values) == 4:
             return values
+
+
+def sftp_client(directory, gateway_port, fingerprint, credential):
+    scan = subprocess.run(["ssh-keyscan", "-T", "5", "-t", "ed25519", "-p", str(gateway_port), "127.0.0.1"],
+                          check=True, capture_output=True, text=True, timeout=10)
+    key = next(line for line in scan.stdout.splitlines() if " ssh-ed25519 " in line)
+    actual = "SHA256:" + base64.b64encode(digest(base64.b64decode(key.split()[2]))).decode().rstrip("=")
+    if actual != fingerprint:
+        raise AssertionError("The SFTP host key did not match the management API fingerprint.")
+    known = directory / "known_hosts"
+    known.write_text(key + "\n")
+    askpass = directory / "sftp-askpass"
+    askpass.write_text('#!/bin/sh\nprintf "%s\\n" "$FILESHARING_TEST_SFTP_PASSWORD"\n')
+    askpass.chmod(0o700)
+    env = os.environ | {"SSH_ASKPASS": str(askpass), "SSH_ASKPASS_REQUIRE": "force",
+                        "FILESHARING_TEST_SFTP_PASSWORD": credential["password"]}
+    options = ["-F", "/dev/null", "-o", f"UserKnownHostsFile={known}", "-o", "StrictHostKeyChecking=yes",
+               "-o", "BatchMode=no", "-o", "NumberOfPasswordPrompts=1", "-o", "PreferredAuthentications=password",
+               "-o", "ConnectTimeout=6"]
+    remote = f'{credential["account"]["name"]}@127.0.0.1'
+    return ["sftp", *options, "-P", str(gateway_port), "-b", "-", remote], ["ssh", *options, "-p", str(gateway_port), remote], env
 
 
 def passive_ports(excluded):
@@ -719,6 +741,76 @@ class Acceptance(unittest.TestCase):
         client = self.open_ftp("explicitTls", self.ftps_port, rotated)
         self.assertEqual(client.pwd(), "/")
         client.quit()
+
+    def test_sftp_home_paging_download_password_revocation_and_host_key(self):
+        self.stop(self.server)
+        sftp_port = port()
+        self.env.update({"FileSharing__Sftp__Port": str(sftp_port), "FileSharing__Sftp__BridgePort": str(self.http_port),
+                         "FileSharing__Sftp__Binary": str(SFTP)})
+        self.start_server()
+        registration = self.setup_device()
+        self.api("PUT", self.device_api, json={"name": "Mac1", "profileId": "default", "revision": registration["revision"]})
+        data = secrets.token_bytes(1_013_456)
+        (self.home / "source.bin").write_bytes(data)
+        for number in range(206):
+            (self.home / f"entry{number:03d}.txt").touch()
+        outside = self.work / "outside.txt"
+        outside.write_text("Outside the authorized root")
+        (self.home / "outside-link.txt").symlink_to(outside)
+        credential = self.api("POST", API + "/ftp/accounts", 201, json={"name": "sftp-fixture", "mode": "sftp",
+                                                                       "scope": "activeHomes"}).json()
+        endpoint, = credential["endpoints"]
+        self.assertEqual((endpoint["mode"], endpoint["port"], endpoint["available"]), ("sftp", sftp_port, True))
+        fingerprint = endpoint["hostKeyFingerprint"]
+        sftp, ssh, env = sftp_client(self.work, sftp_port, fingerprint, credential)
+        self.api("POST", "/_sftp/open", 404, json={})
+
+        with subprocess.Popen(sftp, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              cwd=self.work, env=env, text=True) as process:
+            def live():
+                return next(iter(self.api("GET", API + "/ftp/connections").json()), None)
+            connection = self.wait(live)
+            self.assertEqual((connection["accountId"], connection["protocol"]), (credential["account"]["id"], "sftp"))
+            stdout, stderr = process.communicate("ls /\nls /mac1\nget /mac1/source.bin downloaded.bin\nbye\n", timeout=45)
+            self.assertEqual(process.returncode, 0, stdout[-1000:] + stderr[-2000:])
+            self.assertIn("mac1", stdout)
+            self.assertIn("entry205.txt", stdout)
+            self.assertIn("outside-link.txt", stdout)
+            self.assertEqual((self.work / "downloaded.bin").read_bytes(), data)
+        self.wait(lambda: not self.api("GET", API + "/ftp/connections").json())
+        self.api("POST", API + "/auth/lock", 204)
+        read_only = subprocess.run(sftp, input="ls /\nput outside.txt /mac1/unwanted.txt\n", cwd=self.work,
+                                   env=env, capture_output=True, text=True, timeout=15)
+        self.assertNotEqual(read_only.returncode, 0)
+        self.assertIn("mac1", read_only.stdout)
+        self.assertFalse((self.home / "unwanted.txt").exists())
+        link = subprocess.run(sftp, input="get /mac1/outside-link.txt denied.txt\n", cwd=self.work, env=env,
+                              capture_output=True, text=True, timeout=15)
+        self.assertNotEqual(link.returncode, 0)
+        shell = subprocess.run(ssh + ["true"], env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=15)
+        self.assertNotEqual(shell.returncode, 0)
+        self.assertIn("exec request failed", shell.stderr.lower())
+        self.unlock()
+
+        account = credential["account"]
+        subsystem = [*ssh[:-1], "-s", ssh[-1], "sftp"]
+        with subprocess.Popen(subsystem, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              cwd=self.work, env=env, text=True) as process:
+            self.wait(live)
+            rotated = self.api("PUT", f"{API}/ftp/accounts/{account['id']}/password", json={"revision": account["revision"]}).json()
+            self.assertNotEqual(rotated["password"], credential["password"])
+            self.assertEqual(self.api("GET", API + "/ftp/connections").json(), [])
+            self.wait(lambda: process.poll() is not None)
+        revoked = subprocess.run(sftp, input="ls /\n", cwd=self.work, env=env, capture_output=True, text=True, timeout=15)
+        self.assertNotEqual(revoked.returncode, 0)
+        new_client, _, new_env = sftp_client(self.work, sftp_port, fingerprint, rotated)
+        verified = subprocess.run(new_client, input="ls /\nbye\n", cwd=self.work, env=new_env, capture_output=True, text=True, timeout=15)
+        self.assertEqual(verified.returncode, 0, verified.stderr)
+        self.assertIn("mac1", verified.stdout)
+        self.stop(self.server)
+        self.start_server()
+        endpoint = next(item for item in self.api("GET", API + "/ftp/connection").json() if item["mode"] == "sftp")
+        self.assertEqual(endpoint["hostKeyFingerprint"], fingerprint)
 
     def test_gateway_live_home_scope_connections_and_encrypted_password_reveal(self):
         registration = self.setup_device()

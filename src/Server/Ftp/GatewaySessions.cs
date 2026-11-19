@@ -37,6 +37,31 @@ internal sealed class GatewaySessions(FtpAccounts accounts)
             sessions.TryRemove(new KeyValuePair<string, Session>(session.Token, session));
     }
 
+    public async Task<FtpIdentity> RequireSftp(string? token, CancellationToken ct)
+    {
+        if (LookupSftp(token) is not { } session)
+            throw Fault.Unauthorized();
+        if (!await accounts.Active(session.Identity, ct))
+        {
+            End(session);
+            throw Fault.Unauthorized();
+        }
+        session.Touch();
+        return session.Identity;
+    }
+
+    public void EndSftp(string? token) => End(LookupSftp(token));
+
+    public void Clear(string protocol)
+    {
+        foreach (var item in sessions.Values)
+            if (item.Protocol == protocol)
+                End(item);
+    }
+
+    private Session? LookupSftp(string? token) => token is { Length: 43 } &&
+        sessions.TryGetValue(token, out var candidate) && candidate.Protocol == "sftp" ? candidate : null;
+
     public async Task<IReadOnlyList<GatewayConnection>> List(string? account, string owner, CancellationToken ct)
     {
         if (account is not null)

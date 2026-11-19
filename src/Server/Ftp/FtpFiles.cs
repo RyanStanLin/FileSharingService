@@ -1,4 +1,5 @@
 using Dapper;
+using System.Security.Cryptography;
 using System.Text;
 
 namespace FileSharing;
@@ -8,6 +9,7 @@ internal sealed record FtpRoot(string Id, string DeviceId, long Created, string 
     public FtpRoot() : this("", "", 0, "", null) { }
 }
 internal sealed record FtpPath(string Device, string Root, string Relative, string? ConnectionId = null);
+internal sealed record GatewayDirectoryPage(IReadOnlyList<FileEntry> Items, int? NextOffset, string Revision, string? ConnectionId);
 
 internal sealed class FtpFiles(Database db, AgentBroker broker, FtpAccounts accounts, FileService files)
 {
@@ -28,18 +30,8 @@ internal sealed class FtpFiles(Database db, AgentBroker broker, FtpAccounts acco
         var address = await Address(identity, path, ct);
         if (address.Root.Length == 0)
         {
-            var roots = await Roots(identity, ct);
-            if (address.Device.Length == 0)
-            {
-                foreach (var root in roots.DistinctBy(root => root.DeviceId))
-                    yield return Virtual(root.Mount ?? root.DeviceId, root.Created);
-                yield break;
-            }
-            var grants = roots.Where(root => root.DeviceId == address.Device).ToArray();
-            if (grants.Length == 0)
-                throw Fault.Missing();
-            foreach (var root in grants)
-                yield return Virtual(root.Id, root.Created);
+            foreach (var entry in await VirtualChildren(identity, address, ct))
+                yield return entry;
             yield break;
         }
 
@@ -64,6 +56,43 @@ internal sealed class FtpFiles(Database db, AgentBroker broker, FtpAccounts acco
             revision = page.Revision;
             offset = page.NextOffset;
         }
+    }
+
+    internal async Task<GatewayDirectoryPage> Page(FtpIdentity identity, string path, int offset, string? revision,
+        string? connectionId, CancellationToken ct)
+    {
+        const int size = 100;
+        if (offset is < 0 or > 50_000 || (offset > 0 && string.IsNullOrEmpty(revision)))
+            throw Fault.Bad("invalid_directory_page");
+        var address = await Address(identity, path, ct);
+        if (address.Root.Length == 0)
+        {
+            var items = await VirtualChildren(identity, address, ct);
+            var current = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('/', items.Select(x => x.Name)))));
+            if (offset > 0 && revision != current)
+                throw Fault.Conflict("snapshot_changed");
+            return new(items.Skip(offset).Take(size).ToArray(), offset + size < items.Length ? offset + size : null, current, null);
+        }
+        var root = await Scope(identity, address with { ConnectionId = connectionId }, ct);
+        var page = await files.ListGranted(root, address.Relative, true, offset, size, offset == 0 ? null : revision, ct);
+        return new(page.Items, page.NextOffset, page.Revision, root.ConnectionId);
+    }
+
+    internal async Task<byte[]> Read(FtpIdentity identity, FtpPath address, string version, long offset, int length, CancellationToken ct)
+    {
+        using var buffer = new MemoryStream(length);
+        await files.Pump(FileService.EntryPath(address.Relative), version, offset, length, buffer,
+            token => Scope(identity, address, token), null, ct);
+        return buffer.ToArray();
+    }
+
+    private async Task<FileEntry[]> VirtualChildren(FtpIdentity identity, FtpPath address, CancellationToken ct)
+    {
+        var roots = await Roots(identity, ct);
+        if (address.Device.Length == 0)
+            return roots.DistinctBy(root => root.DeviceId).Select(root => Virtual(root.Mount ?? root.DeviceId, root.Created)).ToArray();
+        var grants = roots.Where(root => root.DeviceId == address.Device).Select(root => Virtual(root.Id, root.Created)).ToArray();
+        return grants.Length != 0 ? grants : throw Fault.Missing();
     }
 
     internal async Task<(FtpPath Path, FileEntry Entry)> Prepare(FtpIdentity identity, string path, long offset, CancellationToken ct)

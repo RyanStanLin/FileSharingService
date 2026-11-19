@@ -1,4 +1,4 @@
-# FileSharing Milestone 1 架构
+# FileSharing Milestone 2 架构
 
 ## 拓扑
 
@@ -7,6 +7,8 @@ flowchart LR
     Browser["管理前端"] -->|"HTTPS + WSS / Passkey 会话"| Proxy["Nginx"]
     Proxy -->|"可信转发头"| Server["ASP.NET Core 10"]
     FTP["FileZilla / Transmit"] -->|"FTP / FTPS 控制与被动数据 TCP"| Server
+    SFTP["OpenSSH / FileZilla"] -->|"SSH 上的 SFTP"| Gateway["SFTP 工作进程"]
+    Gateway -->|"回环 HTTP + 进程密钥"| Server
     Server -->|"WAL"| DB["SQLite"]
     Server -->|"归档暂存与成品"| Files["受保护持久卷"]
     Agent["macOS Swift LaunchAgent"] -->|"公网 WSS / HTTPS 长轮询自动登记"| Proxy
@@ -15,7 +17,7 @@ flowchart LR
     Power -->|"固定 pmset 操作与电源策略"| OS["macOS"]
 ```
 
-服务端按身份认证、终端连接、设备策略、文件授权与操作、传输、事件、FTP 监听器分层。SQLite 单实例事务保护设备登记容量、Passkey 更新、文件授权、账号版本和任务元数据。FTPS 监听器随 ASP.NET Core 进程启动，与 REST 处理器共享目录授权和数据中继。
+服务端按身份认证、终端连接、设备策略、文件授权与操作、传输、事件、文件协议监听器分层。SQLite 单实例事务保护设备登记容量、Passkey 更新、文件授权、账号版本和任务元数据。FTP/FTPS 监听器由 ASP.NET Core 提供。SFTP 工作进程使用 Go SSH 和 SFTP 库，复用 ASP.NET Core 的登录校验、文件授权和数据中继。三种网关入口使用同一个设备文件域。
 
 ## 身份与授权
 
@@ -23,7 +25,7 @@ flowchart LR
 | --- | --- | --- |
 | 管理员 | 使用部署随机密钥首次注册单一 Passkey。验证用户在场和本机用户验证后签发 HttpOnly 会话。 | 会话空闲 30 分钟、绝对 8 小时。上锁撤销当前会话，恢复 Passkey 原子替换凭证并撤销所有管理会话。 |
 | Mac | 安装包内置 HTTPS 地址。本机首次启动产生并保存 UUID。来自公网的 Agent 可自行连接并即时登记。 | UUID 是设备记录索引。有效连接独占该 UUID，远程操作授权由管理员绑定到当前连接。并发登记容量由部署配置决定。 |
-| FTP 客户端 | 独立账号、加盐 PBKDF2 口令和专用监听模式。 | 每个账号显式选择已授权的根，按账号修订号核验。后台锁定期间继续工作。 |
+| FTP/FTPS/SFTP 客户端 | 独立账号、加盐 PBKDF2 口令和专用监听模式。 | 每个账号按修订号校验，使用当前获准访问的在线 Mac 主目录或显式根授权。后台锁定期间继续工作。 |
 
 默认共享根是当前受管账户的 HOME，由 Agent 在首次接入声明、服务端创建一次。受管包可以在构建时批准 HOME 写入。额外企业目录由 IT 在本机设定、管理端授予访问。设备端强制本地范围与读写上限，服务端在每次文件请求和每个下载块重新验证根授权及当前连接。HOME 系统隐私目录、常见凭据目录和 Agent 工作区从列表中排除，受保护 macOS 文件夹按真实文件系统权限与 TCC 状态访问。
 
@@ -54,7 +56,8 @@ Agent 返回 `{type:"result",id,ok:true,payload}` 或 `{type:"result",id,ok:fals
 - FSEvents 通知触发有界目录对账。采用本地设备号及 inode 匹配同批次的单一重命名，输出 `fromPath` 和新元数据。系统标记丢失事件或变化批过大时请求重读快照。监听器无订阅后释放。
 - 单文件通过 256 KiB 源文件块中继，可按强 ETag 和字节 Range 断点续传。服务端通过背压限制并发，逐块验证文件版本；写入目标通过暂存和提交保护已存在文件。
 - ZIP 作业遍历同一个已授权根中的选中项目，将逐块抵达服务端的文件写入服务端 `.part` 归档。归档完成后同盘改名发布，管理 API 提供需要当前会话的下载 URL。支持多选、隐藏项、空目录和 ZIP64。作业及并发有配额。
-- FTP 的虚拟根列出账号拥有目录授权、当前连接已开放远程访问的在线设备 UUID。进入设备后列出根授权 ID。FTP 数据连接由服务端被动监听，`LIST`、`MLSD`、`MLST`、`SIZE`、`MDTM` 与 `RETR` 映射到相同文件能力。 `REST STREAM` 按源版本校验已知续传记录。第三方客户端可递归下载文件夹。管理 API 提供文件写操作。
+- FTP/FTPS/SFTP 使用同一个虚拟文件系统。`activeHomes` 直接映射 `/mac1/…`，显式根授权将目录映射为 `/{deviceId}/{rootId}/…`。FTP 数据连接由服务端被动监听，`LIST`、`MLSD`、`MLST`、`SIZE`、`MDTM` 和 `RETR` 共用目录及文件能力。 `REST STREAM` 按源版本校验续传。
+- SFTP 工作进程使用加密 SSH 监听并仅开放 `sftp` 子系统。目录按页查询，文件读取每次核验账号修订、设备连接和文件版本。FTP/FTPS 也使用按块核验的读取。支持第三方客户端递归下载；写入通过管理 API。
 
 ## macOS 约束
 

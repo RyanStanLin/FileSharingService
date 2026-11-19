@@ -1,3 +1,10 @@
+FROM golang:1.27.4 AS sftp
+WORKDIR /src
+COPY src/Sftp/go.mod src/Sftp/go.sum ./
+RUN go mod download
+COPY src/Sftp/*.go ./
+RUN CGO_ENABLED=0 go build -mod=readonly -trimpath -o /out/filesharing-sftp .
+
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 COPY global.json .
@@ -9,6 +16,7 @@ RUN dotnet publish src/Server/FileSharing.Server.csproj -c Release --no-restore 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0.15
 WORKDIR /app
 COPY --from=build /out/ ./
+COPY --from=sftp /out/filesharing-sftp ./
 RUN mkdir -m 700 /data && chown "$APP_UID" /data
 USER $APP_UID
 ENTRYPOINT ["sh", "-c", "umask 077; exec dotnet FileSharing.Server.dll"]

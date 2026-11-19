@@ -1,6 +1,6 @@
 # FileSharing
 
-FileSharing 是面向企业 macOS 设备的内部文件访问与管理服务。ASP.NET Core 10 LTS 承载管理 API、事件订阅和 FTP 网关。Swift Agent 在受管用户会话内后台运行。
+FileSharing 是面向企业 macOS 设备的内部文件访问与管理服务。ASP.NET Core 10 LTS 承载 Passkey 管理 API、事件订阅和 FTP/FTPS/SFTP 文件网关。Swift Agent 在受管用户会话内运行，支持设备遥测、只读诊断、原生对话框和本地通知。
 
 Agent 的网络配置只需服务端 HTTPS 地址。公网客户端首次连上即可自动登记，重连沿用本机 UUID。设备上线后，管理员可以为当前连接开启远程文件和管理操作。
 
@@ -14,7 +14,7 @@ Agent 的网络配置只需服务端 HTTPS 地址。公网客户端首次连上�
 | macOS Agent 与电源服务 | [src/Mac/Main.swift](src/Mac/Main.swift) · [src/Power/Main.swift](src/Power/Main.swift) |
 | 部署、签名与验收 | [docs/deployment.md](docs/deployment.md) · [docs/verification.md](docs/verification.md) |
 
-在开发 Mac 上运行隔离验收需要 .NET 10 SDK、Xcode Command Line Tools、OpenSSL 和 Python 3。可在仓库内建立测试虚拟环境。测试启动实际服务端和 Agent，所有测试目录、凭据和废纸篓均位于仓库的 `.local`。构建产物位于 `artifacts`。
+在开发 Mac 上运行隔离验收需要 .NET 10 SDK、Go 1.26+、Xcode Command Line Tools、OpenSSH、OpenSSL 和 Python 3。可在仓库内建立测试虚拟环境。测试启动实际服务端和 Agent，所有测试目录、凭据和废纸篓均位于仓库的 `.local`。构建产物位于 `artifacts`。
 
 ```bash
 python3 -m venv .local/test-env

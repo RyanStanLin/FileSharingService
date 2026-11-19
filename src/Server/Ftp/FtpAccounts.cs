@@ -20,7 +20,8 @@ internal sealed record FtpIdentity(string Id, string Mode, long Revision, string
 internal sealed record FtpAuthRecord(string Id, string SecretHash, long Revision, long LockUntil, string Scope);
 internal sealed record FtpPasswordRecord(string Id, string Name, string? SecretCipher);
 
-internal sealed class FtpAccounts(Database db, FtpSettings settings, GatewayCredentialVault vault, IPasswordHasher<FtpAccounts> hasher)
+internal sealed class FtpAccounts(Database db, FtpSettings settings, SftpRuntime sftp, GatewayCredentialVault vault,
+    IPasswordHasher<FtpAccounts> hasher)
 {
     private readonly string dummy = hasher.HashPassword(null!, Secrets.New());
 
@@ -87,7 +88,7 @@ internal sealed class FtpAccounts(Database db, FtpSettings settings, GatewayCred
     public async Task<FtpCredential> Create(string actor, FtpAccountInput body, CancellationToken ct)
     {
         var name = Name(body.Name);
-        var mode = body.Mode is "ftp" or "ftps" ? body.Mode : throw Fault.Bad("invalid_ftp_mode");
+        var mode = body.Mode is "ftp" or "ftps" or "sftp" ? body.Mode : throw Fault.Bad("invalid_ftp_mode");
         var endpoints = Endpoints(mode);
         if (endpoints.Length == 0)
             throw Fault.Conflict("ftp_mode_disabled");
@@ -176,7 +177,16 @@ internal sealed class FtpAccounts(Database db, FtpSettings settings, GatewayCred
             throw Fault.Missing("ftp_account_not_found");
     }
 
-    private FtpEndpoint[] Endpoints(string mode) => settings.Endpoints().Where(entry => (entry.Mode == "plain") == (mode == "ftp")).ToArray();
+    public FtpEndpoint[] Endpoints(string? mode = null)
+    {
+        var ftp = settings.Endpoints();
+        return mode switch
+        {
+            null => sftp.Endpoint() is { } endpoint ? [.. ftp, endpoint] : ftp,
+            "sftp" => sftp.Endpoint() is { } endpoint ? [endpoint] : [],
+            _ => ftp.Where(entry => (entry.Mode == "plain") == (mode == "ftp")).ToArray()
+        };
+    }
 
     private static string Name(string? input)
     {
@@ -234,29 +244,29 @@ internal static class FtpEndpoints
 {
     public static void Map(RouteGroupBuilder api)
     {
-        var group = api.MapGroup("/ftp").WithTags("FTP and FTPS");
-        group.MapGet("/connection", async (HttpContext ctx, FtpSettings settings, ReviewService sessions, CancellationToken ct) =>
+        var group = api.MapGroup("/ftp").WithTags("FTP, FTPS and SFTP");
+        group.MapGet("/connection", async (HttpContext ctx, FtpAccounts accounts, ReviewService sessions, CancellationToken ct) =>
         {
             await sessions.Require(ctx, ct);
-            return TypedResults.Ok(settings.Endpoints());
-        }).WithSummary("Get configured FTP and FTPS connection addresses");
+            return TypedResults.Ok(accounts.Endpoints());
+        }).WithSummary("Get configured gateway endpoints and the live SFTP host key");
         group.MapGet("/connections", async (string? accountId, HttpContext ctx, GatewaySessions connections, ReviewService sessions, CancellationToken ct) =>
             TypedResults.Ok(await connections.List(accountId, (await sessions.Require(ctx, ct)).Initiator, ct)))
             .WithSummary("List live authenticated gateway connections");
         group.MapGet("/accounts", async (string? cursor, int? limit, HttpContext ctx, FtpAccounts accounts, ReviewService sessions, CancellationToken ct) =>
-            TypedResults.Ok(await accounts.List((await sessions.Require(ctx, ct)).Initiator, cursor, limit, ct))).WithSummary("List FTP and FTPS accounts");
+            TypedResults.Ok(await accounts.List((await sessions.Require(ctx, ct)).Initiator, cursor, limit, ct))).WithSummary("List gateway accounts");
         group.MapPost("/accounts", async (FtpAccountInput body, HttpContext ctx, FtpAccounts accounts, ReviewService sessions, CancellationToken ct) =>
         {
             var result = await accounts.Create((await sessions.Require(ctx, ct)).Initiator, body, ct);
             return TypedResults.Created($"/api/v1/ftp/accounts/{result.Account.Id}", result);
-        }).WithSummary("Create an FTP or FTPS account and issue its password");
+        }).WithSummary("Create a protocol-specific gateway account and issue its password");
         group.MapGet("/accounts/{id}", async (string id, HttpContext ctx, FtpAccounts accounts, ReviewService sessions, CancellationToken ct) =>
             TypedResults.Ok(await accounts.Get(id, (await sessions.Require(ctx, ct)).Initiator, ct))).WithSummary("Get one gateway account");
         group.MapPut("/accounts/{id}", async (string id, FtpAccountUpdate body, HttpContext ctx, FtpAccounts accounts, ReviewService sessions, CancellationToken ct) =>
             TypedResults.Ok(await accounts.Update(id, (await sessions.Require(ctx, ct)).Initiator, body, ct))).WithSummary("Change the username, scope or enabled state");
         group.MapPut("/accounts/{id}/password", async (string id, FtpPasswordInput body,
             HttpContext ctx, FtpAccounts accounts, ReviewService sessions, CancellationToken ct) =>
-            TypedResults.Ok(await accounts.Rotate(id, (await sessions.Require(ctx, ct)).Initiator, body, ct))).WithSummary("Change the password and revoke current FTP connections");
+            TypedResults.Ok(await accounts.Rotate(id, (await sessions.Require(ctx, ct)).Initiator, body, ct))).WithSummary("Change the password and revoke current gateway connections");
         group.MapPost("/accounts/{id}/password/reveal", async (string id, HttpContext ctx, FtpAccounts accounts, ReviewService sessions, CancellationToken ct) =>
             TypedResults.Ok(await accounts.Reveal(id, await sessions.Require(ctx, ct), ct)))
             .WithSummary("Reveal an encrypted gateway password with a recent Passkey assertion");
@@ -264,6 +274,6 @@ internal static class FtpEndpoints
         {
             await accounts.Delete(id, (await sessions.Require(ctx, ct)).Initiator, ct);
             return TypedResults.NoContent();
-        }).WithSummary("Delete an FTP or FTPS account");
+        }).WithSummary("Delete a gateway account");
     }
 }

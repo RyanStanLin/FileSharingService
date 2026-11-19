@@ -407,6 +407,14 @@ Content-Type: application/json
 
 {"mode":"ftps","name":"design-read","rootIds":["{{root}}"]}
 
+### Create SFTP account for currently approved Mac home folders
+POST {{api}}/ftp/accounts
+Cookie: {{cookie}}
+Origin: {{origin}}
+Content-Type: application/json
+
+{"mode":"sftp","name":"design-sftp","scope":"activeHomes"}
+
 ### Read FTP account
 GET {{api}}/ftp/accounts/{{ftpAccount}}
 Cookie: {{cookie}}

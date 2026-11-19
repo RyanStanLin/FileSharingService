@@ -15,6 +15,7 @@
 | `FILESHARING_MAX_DEVICES` | 活跃登记设备数上限，默认 100。 |
 | `FILESHARING_FTP_IP`、`FILESHARING_FTP_HOST` | TCP 入口内网 IP 和对客户端公布的名字。 |
 | `FILESHARING_FTP_PLAIN_PORT`、`FILESHARING_FTP_EXPLICIT_PORT`、`FILESHARING_FTP_IMPLICIT_PORT` | 明文 FTP、显式 FTPS 和隐式 FTPS，示例为 2121、2122、2990。 |
+| `FILESHARING_SFTP_PORT` | SFTP 独立 TCP 端口，Compose 默认 2222，以同一个内网 `FILESHARING_FTP_IP` 发布。 |
 | `FILESHARING_FTP_PASSIVE_MIN/MAX/ADDRESS` | PASV/EPSV 共享端口范围及 PASV 公布的 IPv4 地址。 |
 | `FILESHARING_FTP_PLAIN_CLIENTS` | 明文监听器允许的客户端 CIDR，逗号分隔。使用组织私网或 VPN 的访问控制。 |
 | `FILESHARING_TLS_DIR` | 证书目录。新证书就绪后重建或重启服务及 Nginx，再验证两种 TLS 入口。 |
@@ -23,6 +24,10 @@
 DNS/证书续期由部署环境维护。生产反向代理覆盖 `Host`、`X-Forwarded-Host`、`X-Forwarded-For`、`X-Forwarded-Proto`。仅将直接上游代理 IP 加到 `FileSharing__KnownProxies`。Nginx 模板还转发 WebSocket Upgrade 并关闭流量缓冲。Caddy 可以用 `reverse_proxy` 保持这些头部和升级语义。Kestrel 的 HTTP 端口仅留在容器网络。
 
 将 FTP/FTPS 控制端口与整个被动端口范围逐端口做 TCP 映射，被动端口必须一一对应并从同一客户端 IP 可达。显式 FTPS 使用 `AUTH TLS` 与 `PROT P`。传统 FTP 数据及账号密码是明文，部署在专用网络入口和受限 CIDR。优先采用保留来源 IP 的 DNAT。代理重写来源 IP 时将实际访问控制落实在入口防火墙。部署配置示例为 [compose.yaml](../deploy/compose.yaml) 和 [nginx.conf.template](../deploy/nginx.conf.template)。标准见 [RFC 4217](https://www.rfc-editor.org/info/rfc4217/) 与 [RFC 3659](https://www.rfc-editor.org/info/rfc3659/)。
+
+SFTP 使用独立的 SSH TCP 入口，只需发布一个端口。Compose 在服务容器内运行 SFTP 工作进程，ASP.NET Core 启停并监测该进程。内部文件 RPC 由回环地址和进程级随机密钥保护。反向代理拒绝内部路径的请求。容器首次启动将 SSH 主机私钥写入 `/data/sftp-host-key`，文件权限为 `0600`。在管理 API 读取指纹后通过可信渠道核对客户端首次连接。备份并恢复主机密钥可维持客户端的信任记录。
+
+裸机运行时，使用 Go 1.26 或更新工具链从 `src/Sftp` 构建 `filesharing-sftp`，将可执行文件放在服务程序集旁或设置 `FileSharing__Sftp__Binary`。设置 `FileSharing__Sftp__Port` 开启监听，`FileSharing__Sftp__BridgePort` 指向 Kestrel 的本机 HTTP 端口，默认 8080。配置为 0 的 SFTP 端口停用该入口。启用后 `/health/ready` 同时检查 SFTP 工作进程是否就绪。
 
 ## macOS 拖装 DMG
 
@@ -42,5 +47,6 @@ DNS/证书续期由部署环境维护。生产反向代理覆盖 `Host`、`X-For
 
 - 管理域名验证证书、Passkey 建立和重置、关闭管理会话后 HTTP 受限及 WSS 退出。
 - 连接内网 FTP 和 FTPS，下载到测试目录并计算哈希。打开目录订阅后在 Mac 的测试目录内手工重命名文件，检查客户端推送。
+- 使用 `sftp -P 2222 username@filesharing.example.com` 核对指纹、列出当前授权的 Mac 主目录并下载一份非敏感测试文件。轮换密码后验证旧连接退出，旧密码登录失败。
 - 定期对 SQLite 做在线一致性备份，例如 SQLite 的 `.backup` 命令。停止服务后迁移整个持久卷也可获得一致状态。滚动升级提前备份并复测登录和传输，单实例重启待设备重新连接后继续已登记的单文件传输。
 - 使用 `scripts/test-local.sh` 运行集成测试，通过 `scripts/build-agent.sh dmg` 编译两种架构并静态检查镜像。使用本机测试包安装或升级后，运行 `python3 tests/installed_agent_smoke.py` 验证实际的 launchd 启动和心跳，并在目标 Mac 检查 TCC 流程。
