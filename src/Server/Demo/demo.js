@@ -7,10 +7,13 @@ const permissions = [
     ["pasteboard", "剪贴板"]
 ]
 const statuses = { notDetermined: "未检测", allowed: "已授权", denied: "已拒绝",
-    requiresSystemSettings: "需系统设置", unavailable: "目录不可用", unknown: "未知" }
+    requiresSystemSettings: "需系统设置", unavailable: "不可用", unknown: "未知" }
 const errors = { authentication_required: "请先解锁后台。",
     agent_connection_access_required: "请先授权当前设备连接。",
     agent_connection_changed: "设备已重连，请重新授权当前连接。",
+    agent_connection_ended: "设备连接已中断，本次操作未返回结果。",
+    device_unavailable: "设备连接已中断，本次操作未返回结果。",
+    device_timeout: "设备未在规定时间内回报。",
     permission_denied: "macOS 拒绝访问，请先申请相应目录权限。",
     root_access_denied: "当前连接没有此目录授权。",
     not_found: "当前目录或文件不存在。",
@@ -25,6 +28,7 @@ let socket
 let pendingJobs = new Map()
 let page
 let refreshInProgress = false
+let jobPollInProgress = false
 
 function message(text, failed = false) {
     element("notice").textContent = text
@@ -37,6 +41,10 @@ function selected() {
 
 function enabled() {
     return selected()?.connection.online && selected()?.connection.accessGranted
+}
+
+function permissionPending(kind) {
+    return snapshot[kind]?.phase === "requesting" || [...pendingJobs.values()].some(job => job.kind === kind)
 }
 
 function devicePath(suffix = "") {
@@ -148,7 +156,9 @@ function renderDevice() {
     element("device-status").textContent = connection?.online
         ? "在线 · " + (connection.protocol ?? "") + " · " + (connection.accessGranted ? "可远程操作" : "等待授权")
         : deviceId ? "设备离线" : "等待 FileSharingService 上线"
-    for (const button of element("permissions").querySelectorAll("button")) button.disabled = !enabled()
+    for (const row of element("permissions").rows) {
+        row.querySelector("button").disabled = !enabled() || permissionPending(row.dataset.permission)
+    }
 }
 
 element("devices").addEventListener("change", perform(async event => {
@@ -270,7 +280,7 @@ function renderPermissions() {
         const action = cell("")
         const ask = document.createElement("button")
         ask.textContent = value?.checkedAt ? "重新检测" : "申请"
-        ask.disabled = !enabled()
+        ask.disabled = !enabled() || permissionPending(key)
         ask.addEventListener("click", perform(() => askPermission(key, name)))
         action.append(ask)
         row.append(cell(name), cell(label(value)), cell(value?.checkedAt
@@ -282,19 +292,45 @@ function renderPermissions() {
 
 async function askPermission(kind, name) {
     message("正在向 Mac 发送" + name + "申请。")
+    const jobs = pendingJobs
     const job = await call(devicePath("/permissions/requests"), {method:"POST", body:{kind}})
-    pendingJobs.set(job.id, name)
+    if (jobs !== pendingJobs) return
+    pendingJobs.set(job.id, {kind, name})
+    renderDevice()
     await readJob(job.id)
 }
 
 async function readJob(id) {
     const job = await call("/jobs/" + id)
     if (job.state === "queued") return
-    const name = pendingJobs.get(id)
-    if (!name) return
+    const pending = pendingJobs.get(id)
+    if (!pending) return
     pendingJobs.delete(id)
-    if (job.state === "completed") message(name + " · " + label(job.result?.result))
-    else message(name + " · " + (errors[job.error] ?? job.error ?? job.state), true)
+    renderDevice()
+    if (job.state !== "completed") {
+        message(pending.name + " · " + (errors[job.error] ?? job.error ?? job.state), true)
+        return
+    }
+
+    const result = job.result?.result
+    if (pending.kind === "pasteboard" && result?.state === "requiresSystemSettings") {
+        message("剪贴板 · macOS 设置为每次询问。可在这台 Mac 的「隐私与安全性 → 剪贴板」修改。")
+    } else if (pending.kind === "pasteboard" && result?.state === "notDetermined") {
+        message("剪贴板 · macOS 尚未报告授权。可先复制一段测试文字，再重新申请。")
+    } else {
+        message(pending.name + " · " + label(result))
+    }
+    if (!socket || socket.readyState !== WebSocket.OPEN) await readSnapshot()
+}
+
+async function pollJobs() {
+    if (jobPollInProgress || pendingJobs.size === 0) return
+    jobPollInProgress = true
+    try {
+        for (const id of pendingJobs.keys()) await readJob(id)
+    } finally {
+        jobPollInProgress = false
+    }
 }
 
 async function browse({append = false} = {}) {
@@ -396,6 +432,7 @@ setInterval(() => {
         if (error.status === 401) void perform(updateSession)()
         else message(error.message, true)
     })
+    void perform(pollJobs)()
 }, 2500)
 
 void perform(updateSession)()

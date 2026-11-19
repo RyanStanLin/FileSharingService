@@ -32,7 +32,6 @@ struct FileSharingAgent {
             case "roots":
                 try updateRoots(state, arguments: Array(arguments.dropFirst()))
             case nil, "run":
-                _ = NSApplication.shared
                 let enrollment = try state.loadOrCreate(homeWritable: EndpointProfile.homeWritable)
                 let transport = AgentTransport(enrollment: enrollment, state: state)
                 await transport.run()

@@ -44,9 +44,9 @@ class Browser:
 
 
 class LocalDemoBrowser(unittest.TestCase):
-    def test_browser_pushes_permission_and_previews_fixture_file(self):
+    def test_browser_reports_pending_pasteboard_and_previews_file_over_polling(self):
         class DemoFixture(integration.Acceptance):
-            def start_server(self, polling=False):
+            def start_server(self, polling=True):
                 self.env["FileSharing__EnableDemo"] = "true"
                 super().start_server(polling)
 
@@ -57,7 +57,9 @@ class LocalDemoBrowser(unittest.TestCase):
         folder.mkdir()
         expected = "FileSharing isolated browser fixture.\n"
         (folder / "preview.txt").write_text(expected)
-        fixture.spawn([str(integration.APP), "run"], "agent.log", fixture.env)
+        release = fixture.work / "release-pasteboard"
+        fixture.spawn([str(integration.APP), "run"], "agent.log",
+                      fixture.env | {"FILESHARING_TEST_PASTEBOARD_RELEASE": str(release)})
         self.assertEqual(fixture.browser.get(fixture.origin + "/demo", timeout=5).status_code, 200)
 
         profile = fixture.work / "browser"
@@ -87,8 +89,18 @@ class LocalDemoBrowser(unittest.TestCase):
             browser.evaluate("document.querySelector('#unlock').click()")
             browser.wait("!document.querySelector('#access').disabled")
             browser.wait("document.querySelector('#feed-status').textContent === 'WebSocket 已订阅'")
+            self.assertIn("在线 · https", browser.evaluate("document.querySelector('#device-status').textContent"))
+            connection_id = """(async () => {
+                const device = (await (await fetch('/api/v1/devices')).json()).items[0]
+                return device.connection.connectionId
+            })()"""
+            live_connection = browser.evaluate(connection_id)
+            self.assertIsNotNone(live_connection)
             browser.evaluate("document.querySelector('#access').click()")
             browser.wait("!document.querySelector('[data-permission=downloads] button')?.disabled")
+            browser.evaluate("document.querySelector('[data-permission=pasteboard] button').click()")
+            browser.wait("document.querySelector('[data-permission=pasteboard]').textContent.includes('等待 macOS 确认')")
+            self.assertTrue(browser.evaluate("document.querySelector('[data-permission=pasteboard] button').disabled"))
             browser.evaluate("document.querySelector('[data-permission=downloads] button').click()")
             browser.wait("document.querySelector('[data-permission=downloads]').textContent.includes('已授权')")
             self.assertEqual(browser.evaluate("document.querySelector('#feed-status').textContent"),
@@ -98,6 +110,14 @@ class LocalDemoBrowser(unittest.TestCase):
             browser.evaluate("document.querySelector('#entries button').click()")
             browser.wait("document.querySelector('#preview')?.offsetHeight > 0")
             self.assertEqual(browser.evaluate("document.querySelector('#preview-content').textContent"), expected)
+            self.assertIn("等待 macOS 确认", browser.evaluate("document.querySelector('[data-permission=pasteboard]').textContent"))
+            self.assertEqual(browser.evaluate(connection_id), live_connection)
+            release.touch()
+            browser.wait("document.querySelector('[data-permission=pasteboard]').textContent.includes('需系统设置')")
+            browser.wait("!document.querySelector('[data-permission=pasteboard] button').disabled")
+            self.assertIn("每次询问", browser.evaluate("document.querySelector('#notice').textContent"))
+            self.assertEqual(browser.evaluate(connection_id), live_connection)
+            self.assertIn("当前连接已授权", browser.evaluate("document.querySelector('#access').textContent"))
             browser.evaluate("document.querySelector('#lock').click()")
             browser.wait("document.querySelector('#workspace').hidden")
             self.assertEqual(browser.evaluate("document.querySelector('#preview-content').textContent"), "")

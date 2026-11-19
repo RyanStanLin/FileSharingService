@@ -17,12 +17,14 @@
 | 初始后台尚未配置时公网设备也能登记上线 | `test_public_admission_before_admin_registration` |
 | 旧 SQLite 设备、别名和根授权可迁移 | `test_sqlite_upgrade_preserves_preexisting_device_and_grant` |
 | 机器可读 REST 合同 | `test_openapi_contract` |
-| 本机网页 Passkey、权限申请、WebSocket 状态与实际文件字节 | `test_browser_pushes_permission_and_previews_fixture_file` |
+| 本机网页 Passkey、剪贴板等待期间的设备长轮询、文件夹权限、WebSocket 回报与实际文件字节 | `test_browser_reports_pending_pasteboard_and_previews_file_over_polling` |
 | 容器部署、测试 CA 验证、HTTPS、Agent 与浏览器 WSS、FTPS 被动数据 | `test_nginx_https_wss_and_embedded_ftps` |
 
 ## 执行结果
 
-Agent 0.3.0 的 13 项本机集成测试和 1 项浏览器验收测试全部通过，.NET 构建为 0 警告、0 错误。挂载本机 DMG 验证了两种架构、内置 LaunchAgent、App 签名、系统默认图标、Applications 链接与启动脚本。Agent 0.2.0 的生产反向代理测试通过 1 项。0.1.0 的 NuGet 依赖审计未报告已知漏洞。0.1.0 隔离测试构建的 8 个空闲采样中，Agent CPU 峰值 0.7%，RSS 38.9–42.7 MiB。
+Agent 0.3.1 的 13 项本机集成测试和 1 项浏览器回归通过，.NET 构建为 0 警告、0 错误。挂载本机 DMG 验证了两种架构、内置 LaunchAgent、App 签名、系统默认图标、Applications 链接与启动脚本。Agent 0.2.0 的生产反向代理测试通过 1 项。0.1.0 的 NuGet 依赖审计未报告已知漏洞。0.1.0 隔离测试构建的 8 个空闲采样中，Agent CPU 峰值 0.7%，RSS 38.9–42.7 MiB。
+
+0.3.0 实机安装后曾出现启动超过两分钟才发起首个 WebSocket 尝试。长轮询上线后，应用遥测占用主线程，导致失去心跳并使权限任务以 `device_unavailable` 结束。0.3.1 将应用扫描移到工作队列，让轮询心跳在权限探测等待期间继续运行。浏览器回归在剪贴板探测未返回时完成下载目录权限申请和预览，释放模拟探测后检查任务结果及连接 ID。
 
 ## 复现
 
@@ -37,4 +39,4 @@ python3 tests/deployment_smoke.py
 
 ## 现场验收
 
-实际安装时，目标用户首次打开 App，让 macOS 批准后台服务。通过网页发送 Downloads、Documents 或 Desktop 的权限申请，由本机用户在系统弹窗确认，再打开文件预览。此次自动化验收在隔离目录中完成；真实登录项注册、真实 TCC 弹窗以及重启后保活由目标 Mac 完成。 [本机联调](local-demo.md)
+0.3.1 的实机验收仍待执行。首次打开 App 后检查登录项注册和设备上线，等待至少一个 45 秒心跳窗口后执行剪贴板申请。目标用户确认 macOS 反馈，然后在授权的 Downloads、Documents 或 Desktop 打开文件预览。最后验证退出网页、锁屏及再次登录后的连接状态。 [本机联调](local-demo.md)

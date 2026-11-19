@@ -132,6 +132,8 @@ Profile 为 `{id,name,settings,revision}`。采样周期以秒为单位，`0` �
 
 Root 为 `{id,deviceId,rootKey,label,writable,enabled,revision}`。TCC 管理包含 `downloads`、`documents`、`desktop`、`inputMonitoring`、`pasteboard`。目录读写以服务器 Root、终端本地范围和 macOS 权限的交集为准。系统结果包括 `notDetermined`、`allowed`、`denied`、`requiresSystemSettings`、`unavailable` 或 `unknown`。phase 为 `idle`、`requesting`、`completed`。在权限作业完成前向用户展示 macOS 设备本机操作提示。
 
+剪贴板请求返回系统报告的应用级设置。`requiresSystemSettings` 对应「每次询问」，单次系统许可后也可能保持这个状态。`allowed` 对应「始终允许」，`denied` 对应「始终拒绝」，`notDetermined` 表示系统尚未建立应用权限条目。剪贴板权限探测回报中只有权限状态和时间。 [Apple 剪贴板权限说明](https://developer.apple.com/documentation/appkit/nspasteboard/accessbehavior-swift.enum)
+
 ```json
 {"topic":"permissions","observedAt":"2026-11-19T08:22:00Z","stale":false,"value":{"documents":{"state":"allowed","phase":"completed","checkedAt":"2026-11-19T08:22:00Z","systemSettingsPane":"Privacy_FilesAndFolders"}}}
 ```

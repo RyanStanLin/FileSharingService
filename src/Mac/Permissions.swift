@@ -12,8 +12,10 @@ final class DevicePermissions {
     }
 
     private static let folders = ["downloads": "Downloads", "documents": "Documents", "desktop": "Desktop"]
+    private static let settingsPanes = ["inputMonitoring": "Privacy_ListenEvent", "pasteboard": "Privacy_Pasteboard"]
     private let roots: [LocalRoot]
     private var results = [String: Check]()
+    private var systemStates = ["inputMonitoring": "requiresSystemSettings", "pasteboard": "notDetermined"]
 
     init(roots: [LocalRoot]) { self.roots = roots }
 
@@ -24,55 +26,86 @@ final class DevicePermissions {
             value[id] = format(check?.state ?? "notDetermined", check, pane: "Privacy_FilesAndFolders")
         }
 
-        #if FILESHARING_TEST
-        let input = "requiresSystemSettings"
-        let pasteboard = "requiresSystemSettings"
-        #else
-        let input = CGPreflightListenEventAccess() ? "allowed" : "requiresSystemSettings"
-        let pasteboard: String
-        if #available(macOS 15.4, *) {
-            switch NSPasteboard.general.accessBehavior {
-            case .alwaysAllow: pasteboard = "allowed"
-            case .alwaysDeny: pasteboard = "denied"
-            case .ask, .default: pasteboard = "requiresSystemSettings"
-            @unknown default: pasteboard = "unknown"
-            }
-        } else {
-            pasteboard = "unavailable"
+        for (id, pane) in Self.settingsPanes {
+            value[id] = format(systemStates[id] ?? "notDetermined", results[id], pane: pane)
         }
-        #endif
-        value["inputMonitoring"] = format(input, results["inputMonitoring"], pane: "Privacy_ListenEvent")
-        value["pasteboard"] = format(pasteboard, results["pasteboard"], pane: "Privacy_Pasteboard")
         return .object(value)
     }
 
+    func refresh() async -> JSON {
+        for id in Self.settingsPanes.keys where results[id]?.phase != "requesting" {
+            let version = results[id]?.time
+            let state = await Self.check(id)
+            if results[id]?.time == version { systemStates[id] = state }
+        }
+        return snapshot()
+    }
+
     func request(_ id: String, changed: () -> Void) async throws -> JSON {
-        guard Self.folders[id] != nil || ["inputMonitoring", "pasteboard"].contains(id) else {
+        guard Self.folders[id] != nil || Self.settingsPanes[id] != nil else {
             throw AgentError("unsupported")
         }
         if let last = results[id], last.phase == "requesting" || Date().timeIntervalSince(last.time) < 15 {
             throw AgentError("limit_reached")
         }
-        guard let folder = Self.folders[id] else {
-            results[id] = Check(state: "requiresSystemSettings", time: Date(), phase: "completed")
-            return snapshot()[id]
+        let path = Self.folders[id].map { LocalState.home.appendingPathComponent($0, isDirectory: true).path(percentEncoded: false) }
+        if let path, !roots.contains(where: { $0.isHome || $0.path == path || $0.path.hasPrefix(path + "/") }) {
+            throw AgentError("permission_denied")
         }
 
-        let path = LocalState.home.appendingPathComponent(folder, isDirectory: true).path(percentEncoded: false)
-        guard roots.contains(where: { $0.isHome || $0.path == path || $0.path.hasPrefix(path + "/") })
-        else { throw AgentError("permission_denied") }
-        results[id] = Check(state: results[id]?.state ?? "notDetermined", time: Date(), phase: "requesting")
+        let previous = systemStates[id] ?? results[id]?.state ?? "notDetermined"
+        results[id] = Check(state: previous, time: Date(), phase: "requesting")
         changed()
-        let state = await Task.detached(priority: .utility) {
-            Self.checkDirectory(path)
-        }.value
+        let state = await Self.check(id, directory: path, request: true)
         results[id] = Check(state: state, time: Date(), phase: "completed")
+        if path == nil { systemStates[id] = state }
         return snapshot()[id]
     }
 
     private func format(_ state: String, _ check: Check?, pane: String) -> JSON {
         ["state": .string(state), "phase": .string(check?.phase ?? "idle"),
          "checkedAt": check.map { .date($0.time) } ?? .null, "systemSettingsPane": .string(pane)]
+    }
+
+    nonisolated private static func check(_ id: String, directory: String? = nil, request: Bool = false) async -> String {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                let state = directory.map(Self.checkDirectory) ?? Self.checkSystemPermission(id, request: request)
+                continuation.resume(returning: state)
+            }
+        }
+    }
+
+    nonisolated private static func checkSystemPermission(_ id: String, request: Bool) -> String {
+        #if FILESHARING_TEST
+        if id == "pasteboard", request,
+           let release = ProcessInfo.processInfo.environment["FILESHARING_TEST_PASTEBOARD_RELEASE"] {
+            let deadline = ContinuousClock.now + .seconds(40)
+            while !FileManager.default.fileExists(atPath: release), ContinuousClock.now < deadline {
+                Thread.sleep(forTimeInterval: 0.05)
+            }
+        }
+        return "requiresSystemSettings"
+        #else
+        if id == "inputMonitoring" {
+            return CGPreflightListenEventAccess() ? "allowed" : "requiresSystemSettings"
+        }
+        guard #available(macOS 15.4, *) else { return "unavailable" }
+        return autoreleasepool {
+            let pasteboard = NSPasteboard.general
+            let behavior = pasteboard.accessBehavior
+            if request, behavior == .default || behavior == .ask {
+                _ = pasteboard.data(forType: .string)
+            }
+            switch pasteboard.accessBehavior {
+            case .alwaysAllow: return "allowed"
+            case .alwaysDeny: return "denied"
+            case .ask: return "requiresSystemSettings"
+            case .default: return "notDetermined"
+            @unknown default: return "unknown"
+            }
+        }
+        #endif
     }
 
     nonisolated private static func checkDirectory(_ path: String) -> String {

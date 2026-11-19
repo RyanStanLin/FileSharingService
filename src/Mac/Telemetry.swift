@@ -59,7 +59,8 @@ private final class DiskObserver {
 
 @MainActor
 final class Telemetry {
-    static let version = "0.3.0"
+    static let version = "0.3.1"
+    private static let applicationQueue = DispatchQueue(label: "FileSharing.applications", qos: .utility)
     private let boot = Date()
     private let roots: [LocalRoot]
     private let emit: (String, JSON, Bool) -> Void
@@ -78,6 +79,8 @@ final class Telemetry {
     private var diskObserver: DiskObserver?
     private var installedObservers = [NativeDirectoryStream]()
     private var inventoryRefresh: Task<Void, Never>?
+    private var runningRefresh: Task<Void, Never>?
+    private var runningInvalidated = false
     private var externalPower: JSON = .null
     private var asleep = false
     private var displaySleeping = false
@@ -92,13 +95,16 @@ final class Telemetry {
     }
 
     func start() async {
+        await sample("roots", force: true)
+        await sample("agent", force: true)
+        publish("permissions", permissions.snapshot(), force: true)
         if !started {
             started = true
             observe()
+            Task { await observeInstalledApps() }
         }
         updatePower()
-        for topic in ["identity", "system", "power", "locale", "network", "agent", "roots", "displays",
-                      "permissions", "apps-running", "storage"] {
+        for topic in ["permissions", "identity", "system", "power", "locale", "network", "displays", "apps-running", "storage"] {
             await sample(topic, force: true)
         }
         if sampling.disk > 0 { await sample("disk", force: true) }
@@ -117,6 +123,7 @@ final class Telemetry {
     }
 
     func tick() async {
+        guard started else { return }
         for (topic, interval) in [("agent", Int64(60)), ("system", 60), ("network", 30), ("power", 4),
                                   ("cpu", sampling.cpu), ("memory", sampling.memory), ("disk", sampling.disk),
                                   ("battery", sampling.battery), ("displays", sampling.displays), ("apps-installed", 600)] {
@@ -173,6 +180,7 @@ final class Telemetry {
     }
 
     private func observe() {
+        _ = NSApplication.shared
         let workspace = NSWorkspace.shared.notificationCenter
         for (notification, change) in [(NSWorkspace.didLaunchApplicationNotification, "launched"),
                                        (NSWorkspace.didTerminateApplicationNotification, "terminated"),
@@ -182,13 +190,17 @@ final class Telemetry {
                                        (NSWorkspace.didUnhideApplicationNotification, "unhidden")] {
             observers.append(workspace.addObserver(forName: notification, object: nil, queue: .main) { [weak self] event in
                 let application = event.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+                let occurredAt = Date()
                 Task { @MainActor [weak self] in
                     guard let self else { return }
+                    self.scheduleRunningRefresh()
                     if let application {
-                        self.emit("applications.changed", ["kind": .string(change), "application": Self.running(application),
-                                                          "occurredAt": .date(Date())], false)
+                        let value = await Self.readApplications {
+                            Self.running(application, foreground: NSWorkspace.shared.frontmostApplication?.processIdentifier)
+                        }
+                        self.emit("applications.changed", ["kind": .string(change), "application": value,
+                                                          "occurredAt": .date(occurredAt)], false)
                     }
-                    await self.sample("apps-running", force: false)
                 }
             })
         }
@@ -225,21 +237,45 @@ final class Telemetry {
             Task { @MainActor in await self?.sample("displays", force: true) }
         })
         diskObserver = DiskObserver { [weak self] in Task { @MainActor in await self?.sample("storage", force: false) } }
-        installedObservers = Self.inventoryPaths.compactMap { path in
-            guard FileManager.default.fileExists(atPath: path) else { return nil }
-            return NativeDirectoryStream(path: path) { [weak self] _ in
-                Task { @MainActor in
-                    guard let self else { return }
-                    self.inventoryRefresh?.cancel()
-                    self.inventoryRefresh = Task {
-                        do {
-                            try await Task.sleep(for: .seconds(1))
-                            await self.sample("apps-installed", force: false)
-                        } catch {
-                        }
-                    }
+    }
+
+    private func observeInstalledApps() async {
+        let changed: @Sendable (Bool) -> Void = { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.inventoryRefresh?.cancel()
+                self.inventoryRefresh = Task {
+                    do {
+                        try await Task.sleep(for: .seconds(1))
+                        await self.sample("apps-installed", force: false)
+                    } catch {}
                 }
             }
+        }
+        installedObservers = await Self.readApplications {
+            Self.inventoryPaths.compactMap { path in
+                guard FileManager.default.fileExists(atPath: path) else { return nil }
+                return NativeDirectoryStream(path: path, action: changed)
+            }
+        }
+    }
+
+    private func scheduleRunningRefresh() {
+        runningInvalidated = true
+        guard runningRefresh == nil else { return }
+        runningRefresh = Task {
+            while runningInvalidated {
+                try? await Task.sleep(for: .milliseconds(350))
+                runningInvalidated = false
+                await sample("apps-running", force: false)
+            }
+            runningRefresh = nil
+        }
+    }
+
+    private static func readApplications<T: Sendable>(_ work: @escaping @Sendable () -> T) async -> T {
+        await withCheckedContinuation { continuation in
+            applicationQueue.async { continuation.resume(returning: work()) }
         }
     }
 
@@ -280,11 +316,15 @@ final class Telemetry {
         case "roots":
             value = .array(roots.map(\.announcement))
         case "permissions":
-            value = permissions.snapshot()
+            value = await permissions.refresh()
         case "apps-running":
-            value = .array(NSWorkspace.shared.runningApplications.prefix(600).map(Self.running))
+            value = await Self.readApplications {
+                let workspace = NSWorkspace.shared
+                let foreground = workspace.frontmostApplication?.processIdentifier
+                return .array(workspace.runningApplications.prefix(600).map { Self.running($0, foreground: foreground) })
+            }
         case "apps-installed":
-            let discovered = await Task.detached(priority: .utility) { Self.inventory() }.value
+            let discovered = await Self.readApplications { Self.inventory() }
             if last[topic] != nil {
                 diff(installed, discovered, topic: "applications.changed",
                      appeared: "installed", removed: "removed", changed: "updated")
@@ -527,7 +567,7 @@ final class Telemetry {
                 "installPath": .string(path), "executablePath": .text(Bundle(url: url)?.executableURL?.path(percentEncoded: false))]
     }
 
-    private static func running(_ app: NSRunningApplication) -> JSON {
+    nonisolated private static func running(_ app: NSRunningApplication, foreground: pid_t?) -> JSON {
         var data: [String: JSON] = [:]
         if let url = app.bundleURL, case .object(let value) = Self.app(url) { data = value }
         data["name"] = .text(app.localizedName ?? data["name"]?.string)
@@ -535,7 +575,7 @@ final class Telemetry {
         data["pid"] = .integer(Int64(app.processIdentifier))
         data["launchedAt"] = app.launchDate.map(JSON.date) ?? .null
         data["uptimeSeconds"] = app.launchDate.map { .integer(Int64(max(0, Date().timeIntervalSince($0)))) } ?? .null
-        data["foreground"] = .boolean(NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier)
+        data["foreground"] = .boolean(foreground == app.processIdentifier)
         data["active"] = .boolean(app.isActive)
         data["hidden"] = .boolean(app.isHidden)
         data["executablePath"] = .text(app.executableURL?.path(percentEncoded: false))

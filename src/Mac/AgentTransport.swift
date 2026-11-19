@@ -1,5 +1,6 @@
 import Foundation
 import Network
+import OSLog
 import Security
 
 struct AgentHttp {
@@ -86,7 +87,7 @@ final class AgentTransport {
     private let files: ScopedFiles
     private let roots: [LocalRoot]
     private let monitor = NWPathMonitor()
-    private let logger = Logger()
+    private let logger = Logger(subsystem: "in.ryanl.filesharing.agent", category: "Connection")
     private var session: URLSession?
     private var socket: URLSessionWebSocketTask?
     private var outbox: [Signal] = []
@@ -100,7 +101,7 @@ final class AgentTransport {
     private var changesObserved = false
     private var routeState: String?
     private var lastPathConfiguration: String?
-    private var networkSettings = Telemetry.network()
+    private var networkSettings: JSON?
     private var persisted = [JSON]()
     private var reviewLossNoted = false
     private var lastSave = Date.distantPast
@@ -151,11 +152,11 @@ final class AgentTransport {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(5))
                 let current = Telemetry.network()
-                if current != networkSettings {
-                    networkSettings = current
+                if let previous = networkSettings, current != previous {
                     resetNetwork()
                     _ = await telemetry.refresh(["network"])
                 }
+                networkSettings = current
             }
         }
         var outage = 0.5
@@ -266,6 +267,7 @@ final class AgentTransport {
                 if value["type"].string == "error" { throw AgentError(value["code"].string ?? "connection_unavailable") }
                 guard value["type"].string == "ready", value["deviceId"].string == id else { throw AgentError("invalid_message") }
                 changesObserved = true
+                logger.notice("WebSocket connection established.")
                 report = Task { await reportConnection() }
                 wake?.yield()
                 continue
@@ -330,15 +332,15 @@ final class AgentTransport {
         let response = try await http.call("connect", body: hello)
         guard response["deviceId"].string == id else { throw AgentError("invalid_message") }
         let channel = try response.requireString("channel")
+        logger.notice("HTTP polling connection established.")
+        let report = Task { await reportConnection() }
         let refresh = Task {
-            await updatePollingPolicy(http, channel: channel)
-            await reportConnection()
             while !Task.isCancelled {
+                await updatePollingPolicy(http, channel: channel)
                 try? await Task.sleep(for: .seconds(5))
-                if !Task.isCancelled { await updatePollingPolicy(http, channel: channel) }
             }
         }
-        defer { refresh.cancel() }
+        defer { report.cancel(); refresh.cancel() }
         do {
             try await withThrowingTaskGroup(of: Void.self) { group in
                 group.addTask {
@@ -462,9 +464,7 @@ final class AgentTransport {
         case "diagnostics.run":
             return try telemetry.diagnostic(input.requireString("diagnostic"))
         case "permissions.request":
-            let result = try await telemetry.permission(input.requireString("permission"))
-            try await confirmReports(["permissions"])
-            return result
+            return try await telemetry.permission(input.requireString("permission"))
         case "app.icon": return try telemetry.icon(input.requireString("applicationId"))
         case "files.watch": return try await observer.start(input)
         case "files.unwatch": return try observer.stop(input)
@@ -474,11 +474,5 @@ final class AgentTransport {
         default:
             throw AgentError("unsupported")
         }
-    }
-}
-
-private struct Logger {
-    func notice(_ line: String) {
-        FileHandle.standardError.write(Data((line + "\n").utf8))
     }
 }

@@ -2,15 +2,15 @@ import CoreServices
 import Foundation
 
 private final class StreamSignal {
-    let action: (Bool) -> Void
-    init(action: @escaping (Bool) -> Void) { self.action = action }
+    let action: @Sendable (Bool) -> Void
+    init(action: @escaping @Sendable (Bool) -> Void) { self.action = action }
 }
 
-final class NativeDirectoryStream {
+final class NativeDirectoryStream: @unchecked Sendable {
     private let signal: StreamSignal
     private let stream: FSEventStreamRef
 
-    init?(path: String, action: @escaping (Bool) -> Void) {
+    init?(path: String, action: @escaping @Sendable (Bool) -> Void) {
         let signal = StreamSignal(action: action)
         var context = FSEventStreamContext()
         context.info = Unmanaged.passUnretained(signal).toOpaque()

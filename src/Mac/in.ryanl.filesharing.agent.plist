@@ -23,6 +23,6 @@
     <key>ThrottleInterval</key>
     <integer>20</integer>
     <key>ProcessType</key>
-    <string>Background</string>
+    <string>Standard</string>
 </dict>
 </plist>
