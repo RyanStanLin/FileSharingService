@@ -114,7 +114,7 @@ async function unlock() {
 Profile 为 `{id,name,settings,revision}`。采样周期以秒为单位，`0` 表示由手动刷新或系统事件触发。KeepAwake 是配置状态，生效状态位于设备的 `power` 样本。
 
 ```json
-{"cpu":0,"memory":0,"disk":60,"battery":60,"displays":0,"keepAwake":true}
+{"cpu":0,"memory":0,"disk":60,"battery":60,"displays":0,"network":30,"system":60,"agent":60,"power":60,"storage":60,"appsRunning":60,"keepAwake":true}
 ```
 
 ## 根与权限
@@ -250,6 +250,6 @@ Root 为 `{id,deviceId,rootKey,label,writable,enabled,revision}`。TCC 管理包
 {"type":"unsubscribed","id":"browse-folder"}
 ```
 
-普通主题为 `identity,cpu,memory,disk,battery,power,system,displays,locale,network,agent,apps-running,apps-installed,storage,permissions,roots,connection.changed,applications.changed,storage.changed,system.changed,telemetry.gap,transfers.changed,jobs.changed`。连接后可在 subscribe 传 `after` 续收历史。错误帧为 `{type:"error",id,code}`。管理会话撤销后服务器以 1008 关闭。
+普通主题包括所有[设备样本及事件](telemetry.md)。连接后可在 subscribe 传 `after` 续收历史。遇到 WebSocket 断线时用 `GET /events?deviceId=D&topic=...&after=...` 读取同一游标之后的事件，逐页读取到 `hasMore:false`。若服务端返回 `410 resync_required`，读取最新快照并重新订阅。错误帧为 `{type:"error",id,code}`。管理会话撤销后服务器以 1008 关闭。
 
 目录订阅使用 `added`、`removed`、`updated`、`renamed`，或者 `change.kind:"resync_required"`。目录初订阅和重连须拉取新的 REST 快照。事件前置版本与当前快照不符时也重新读取。目录变更经 WebSocket 投递，失去 WebSocket 时可通过 REST 周期拉取目录。这一机制允许授权撤销立即停止目录推送。

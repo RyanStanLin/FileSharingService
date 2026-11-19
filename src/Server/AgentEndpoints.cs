@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Net.WebSockets;
+using System.Text.Json;
 using Dapper;
 
 namespace FileSharing;
@@ -15,7 +16,7 @@ internal sealed class AgentIngest(Database db, AgentBroker broker, WatchRegistry
 {
     public static readonly string[] SnapshotTopics =
         ["identity", "cpu", "memory", "disk", "battery", "power", "system", "displays", "locale", "network", "agent",
-         "apps-running", "apps-installed", "storage", "permissions", "roots"];
+         "apps-running", "apps-installed", "storage", "permissions", "roots", "lid"];
 
     public async Task Receive(AgentBroker.Link link, AgentFrame frame, CancellationToken ct)
     {
@@ -40,10 +41,21 @@ internal sealed class AgentIngest(Database db, AgentBroker broker, WatchRegistry
         }
 
         var snapshot = frame.Snapshot == true && SnapshotTopics.Contains(topic);
-        if (!snapshot && topic is not ("applications.changed" or "storage.changed" or "system.changed" or "telemetry.gap"))
+        if (!snapshot && topic is not ("applications.changed" or "storage.changed" or "system.changed" or "telemetry.gap"
+                                      or "clipboard.changed" or "lid.changed"))
             throw Fault.Bad("invalid_topic");
         if (payload.GetRawText().Length > 1_250_000)
             throw new Fault(413, "event_too_large");
+
+        if (topic == "clipboard.changed")
+        {
+            // Persist a freshly typed timestamp, never an arbitrary pasteboard payload.
+            if (frame.Snapshot == true || payload.ValueKind != JsonValueKind.Object ||
+                payload.EnumerateObject().Count() != 1 || !payload.TryGetProperty("occurredAt", out var timestamp) ||
+                timestamp.ValueKind != JsonValueKind.String || !timestamp.TryGetDateTimeOffset(out var occurredAt))
+                throw Fault.Bad("invalid_clipboard_event");
+            payload = Wire.Element(new { occurredAt = occurredAt.ToUniversalTime() });
+        }
 
         LocalRoot[]? roots = null;
         if (topic == "roots")

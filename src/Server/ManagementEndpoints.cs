@@ -22,11 +22,12 @@ internal sealed record DeviceRecord(string Id, string Name, string ProfileId, lo
 internal sealed record DeviceView(string Id, string Name, string ProfileId, DateTimeOffset CreatedAt, DateTimeOffset? RevokedAt,
     long Revision, AgentPresence Connection);
 internal sealed record DeviceInput(string Name, string ProfileId, long Revision);
-internal sealed record Sampling(int Cpu, int Memory, int Disk, int Battery, int Displays, bool KeepAwake)
+internal sealed record Sampling(int Cpu, int Memory, int Disk, int Battery, int Displays, bool KeepAwake,
+    int Network = 30, int System = 60, int Agent = 60, int Power = 60, int Storage = 60, int AppsRunning = 60)
 {
     public void Validate()
     {
-        foreach (var value in new[] { Cpu, Memory, Disk, Battery, Displays })
+        foreach (var value in new[] { Cpu, Memory, Disk, Battery, Displays, Network, System, Agent, Power, Storage, AppsRunning })
             if (value != 0 && value is < 5 or > 3600)
                 throw Fault.Bad("invalid_sampling_interval");
     }

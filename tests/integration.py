@@ -705,6 +705,65 @@ class Acceptance(unittest.TestCase):
         self.assertEqual(client.pwd(), "/")
         client.quit()
 
+    def test_clipboard_timestamp_lid_and_heartbeat_over_both_transports(self):
+        self.env["FILESHARING_TEST_PASTEBOARD_NAME"] = "FileSharing.Test." + uuid.uuid4().hex
+        lid = self.work / "lid"
+        lid.write_text("open")
+        self.env["FILESHARING_TEST_LID"] = str(lid)
+        self.setup_device()
+
+        for protocol in ("wss", "https"):
+            if protocol == "https":
+                self.stop(self.agent)
+                self.stop(self.server)
+                self.start_server(polling=True)
+                self.agent = self.spawn([str(APP), "run"], "agent.log", self.env)
+            start = self.wait(lambda: self.api("GET", self.device_api + "/status").json()
+                              if self.api("GET", self.device_api).json()["connection"]["protocol"] == protocol else None)
+            expected_lid = protocol == "wss"
+            self.wait(lambda: any(snapshot["topic"] == "lid" and snapshot["value"]["lidClosed"] is not expected_lid
+                                  for snapshot in self.api("GET", self.device_api + "/status").json()["samples"]))
+            with self.channel() as ws:
+                ready = self.receive(ws, lambda value: value["type"] == "ready")
+                for topic in ("clipboard.changed", "lid.changed", "connection.quality"):
+                    ws.send(json.dumps({"type": "subscribe", "id": topic, "deviceId": self.device,
+                                        "topic": topic, "after": ready["cursor"]}))
+                    self.receive(ws, lambda value: value["type"] == "subscribed" and value["id"] == topic)
+                subprocess.run(["swift", "-", self.env["FILESHARING_TEST_PASTEBOARD_NAME"]], input="""
+import AppKit
+let board = NSPasteboard(name: .init(CommandLine.arguments[1]))
+board.clearContents()
+precondition(board.setString("ISOLATED_CLIPBOARD_CONTENT", forType: .string))
+""", text=True, check=True, timeout=35)
+                lid.write_text("closed" if expected_lid else "open")
+                events = {}
+                while len(events) < 3:
+                    item = self.receive(ws, lambda value: value["type"] == "event" and value["id"] not in events)["item"]
+                    events[item["topic"]] = item
+                clipboard_event = events["clipboard.changed"]
+                self.assertEqual(set(clipboard_event["payload"]), {"occurredAt"})
+                self.assertEqual(events["lid.changed"]["payload"]["lidClosed"], expected_lid)
+                quality = events["connection.quality"]["payload"]
+                self.assertTrue(quality["online"])
+                self.assertEqual(quality["connectionId"], start["connection"]["connectionId"])
+                self.assertEqual(quality["protocol"], protocol)
+                self.assertGreaterEqual(quality["latencyMs"], 0)
+                replay = self.api("GET", self.device_api + "/history",
+                                  params={"topic": "clipboard.changed", "after": ready["cursor"]}).json()
+                self.assertEqual(replay["items"], [clipboard_event])
+                self.assertNotIn("ISOLATED_CLIPBOARD_CONTENT", json.dumps(replay))
+
+        outsider = self.client()
+        registered = self.api("POST", "/agent/v1/connect", session=outsider,
+                              json={"deviceId": str(uuid.uuid4()), "name": "Privacy fixture"}).json()
+        frame = {"type": "event", "id": str(uuid.uuid4()), "topic": "clipboard.changed", "snapshot": False,
+                 "payload": {"occurredAt": clipboard_event["payload"]["occurredAt"], "contents": "SYNTHETIC"}}
+        reply = self.api("POST", "/agent/v1/frames", 400, outsider, json={"frames": [frame]},
+                         headers={"X-FileSharing-Channel": registered["channel"]})
+        self.assertEqual(reply.json()["code"], "invalid_clipboard_event")
+        self.assertEqual(self.api("GET", API + "/events",
+                                  params={"deviceId": registered["deviceId"], "topic": "clipboard.changed"}).json()["items"], [])
+
     def test_permissions_per_device_policy_and_history(self):
         self.setup_device()
         for folder in ("Downloads", "Documents", "Desktop"):

@@ -92,7 +92,7 @@ internal sealed class JobService(Database db, AgentBroker broker, ReviewService 
 
 internal static class DataEndpoints
 {
-    private static readonly string[] StatusTopics = ["identity", "cpu", "memory", "disk", "battery", "power", "system", "displays", "locale", "network", "agent"];
+    private static readonly string[] StatusTopics = ["identity", "cpu", "memory", "disk", "battery", "power", "system", "displays", "locale", "network", "agent", "lid"];
     private static readonly string[] Permissions = ["downloads", "documents", "desktop", "inputMonitoring", "pasteboard"];
     private static readonly string[] Diagnostics = ["osVersion", "uptime", "diskSpace", "agentHealth"];
 
@@ -166,7 +166,8 @@ internal static class DataEndpoints
     {
         var review = await reviews.Require(ctx, ct);
         await devices.Require(id, ct);
-        if (body.Topics is not { Count: > 0 and <= 17 } || body.Topics.Any(x => !AgentIngest.SnapshotTopics.Contains(x)))
+        if (body.Topics is not { Count: > 0 } || body.Topics.Count > AgentIngest.SnapshotTopics.Length ||
+            body.Topics.Any(x => !AgentIngest.SnapshotTopics.Contains(x)))
             throw Fault.Bad("invalid_topics");
         var job = await jobs.Start(review, id, "status.refresh", new { topics = body.Topics.Distinct().ToArray() }, ct);
         return TypedResults.Accepted($"/api/v1/jobs/{job.Id}", job);

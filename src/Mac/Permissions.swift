@@ -91,19 +91,12 @@ final class DevicePermissions {
             return CGPreflightListenEventAccess() ? "allowed" : "requiresSystemSettings"
         }
         guard #available(macOS 15.4, *) else { return "unavailable" }
-        return autoreleasepool {
-            let pasteboard = NSPasteboard.general
-            let behavior = pasteboard.accessBehavior
-            if request, behavior == .default || behavior == .ask {
-                _ = pasteboard.data(forType: .string)
-            }
-            switch pasteboard.accessBehavior {
-            case .alwaysAllow: return "allowed"
-            case .alwaysDeny: return "denied"
-            case .ask: return "requiresSystemSettings"
-            case .default: return "notDetermined"
-            @unknown default: return "unknown"
-            }
+        switch NSPasteboard.general.accessBehavior {
+        case .alwaysAllow: return "allowed"
+        case .alwaysDeny: return "denied"
+        case .ask: return "requiresSystemSettings"
+        case .default: return "notDetermined"
+        @unknown default: return "unknown"
         }
         #endif
     }

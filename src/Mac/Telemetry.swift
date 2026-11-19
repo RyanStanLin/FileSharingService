@@ -16,6 +16,12 @@ struct Sampling: Equatable {
     var disk: Int64 = 60
     var battery: Int64 = 60
     var displays: Int64 = 0
+    var network: Int64 = 30
+    var system: Int64 = 60
+    var agent: Int64 = 60
+    var power: Int64 = 60
+    var storage: Int64 = 60
+    var appsRunning: Int64 = 60
     var keepAwake = true
 
     init() {}
@@ -26,6 +32,12 @@ struct Sampling: Equatable {
         disk = Self.interval(value["disk"])
         battery = Self.interval(value["battery"])
         displays = Self.interval(value["displays"])
+        network = value["network"].int == nil ? 30 : Self.interval(value["network"])
+        system = value["system"].int == nil ? 60 : Self.interval(value["system"])
+        agent = value["agent"].int == nil ? 60 : Self.interval(value["agent"])
+        power = value["power"].int == nil ? 60 : Self.interval(value["power"])
+        storage = value["storage"].int == nil ? 60 : Self.interval(value["storage"])
+        appsRunning = value["appsRunning"].int == nil ? 60 : Self.interval(value["appsRunning"])
         keepAwake = value["keepAwake"].bool ?? true
     }
 
@@ -70,13 +82,14 @@ final class Telemetry {
     private var lastValues = [String: JSON]()
     private var cpuBaseline: (busy: UInt64, total: UInt64)?
     private var installed = [String: JSON]()
-    private var icons = [String: Data]()
+    private let icons = ApplicationIcons()
     private var storage = [String: JSON]()
     private let permissions: DevicePermissions
     private let lid: LidLease
     private var assertion: IOPMAssertionID = 0
     private var observers = [NSObjectProtocol]()
     private var diskObserver: DiskObserver?
+    private var storageRefresh: Task<Void, Never>?
     private var installedObservers = [NativeDirectoryStream]()
     private var inventoryRefresh: Task<Void, Never>?
     private var runningRefresh: Task<Void, Never>?
@@ -85,6 +98,8 @@ final class Telemetry {
     private var asleep = false
     private var displaySleeping = false
     private var lockState = "unknown"
+    private var lidClosed: JSON = .null
+    private var reachability: String?
     private var started = false
 
     init(roots: [LocalRoot], state: LocalState, emit: @escaping (String, JSON, Bool) -> Void) {
@@ -104,7 +119,7 @@ final class Telemetry {
             Task { await observeInstalledApps() }
         }
         updatePower()
-        for topic in ["permissions", "identity", "system", "power", "locale", "network", "displays", "apps-running", "storage"] {
+        for topic in ["permissions", "identity", "system", "power", "lid", "locale", "network", "displays", "apps-running", "storage"] {
             await sample(topic, force: true)
         }
         if sampling.disk > 0 { await sample("disk", force: true) }
@@ -124,17 +139,34 @@ final class Telemetry {
 
     func tick() async {
         guard started else { return }
-        for (topic, interval) in [("agent", Int64(60)), ("system", 60), ("network", 30), ("power", 4),
+        updatePower()
+        for (topic, interval) in [("agent", sampling.agent), ("system", sampling.system), ("network", sampling.network), ("power", sampling.power),
                                   ("cpu", sampling.cpu), ("memory", sampling.memory), ("disk", sampling.disk),
-                                  ("battery", sampling.battery), ("displays", sampling.displays), ("apps-installed", 600)] {
+                                  ("battery", sampling.battery), ("displays", sampling.displays), ("storage", sampling.storage),
+                                  ("apps-running", sampling.appsRunning), ("apps-installed", 600)] {
             if interval > 0 && Date().timeIntervalSince(last[topic] ?? .distantPast) >= Double(interval) {
                 await sample(topic, force: topic != "power")
             }
         }
     }
 
+    func setReachability(_ value: String) { reachability = value }
+
+    func observeLid() {
+        guard started else { return }
+        let value = lid.lidClosed()
+        guard value != lidClosed else { return }
+        let wasKnown = lidClosed.bool != nil
+        lidClosed = value
+        if wasKnown, value.bool != nil {
+            emit("lid.changed", ["lidClosed": value, "occurredAt": .date(Date())], false)
+        }
+        publish("lid", ["lidClosed": value], force: true)
+        publish("power", power(), force: true)
+    }
+
     func refresh(_ topics: [JSON]) async -> JSON {
-        for topic in topics.compactMap(\.string).prefix(17) { await sample(topic, force: true) }
+        for topic in topics.compactMap(\.string) { await sample(topic, force: true) }
         return ["refreshed": .array(topics)]
     }
 
@@ -163,19 +195,11 @@ final class Telemetry {
         return ["permission": .string(id), "result": result]
     }
 
-    func icon(_ id: String) throws -> JSON {
-        if let saved = icons[id] { return ["data": .string(saved.base64EncodedString())] }
+    func icon(_ id: String) async throws -> JSON {
         let candidate = installed[id] ?? (lastValues["apps-running"]?.array?.first(where: { $0["applicationId"].string == id }))
-        guard let appPath = candidate?["installPath"].string else { throw AgentError("not_found") }
-        let icon = NSWorkspace.shared.icon(forFile: appPath)
-        let image = NSImage(size: NSSize(width: 64, height: 64), flipped: false) { rect in
-            icon.draw(in: rect)
-            return true
+        guard let candidate, let png = await Self.readApplications({ [icons] in icons.rendition(for: candidate)?.png }) else {
+            throw AgentError("not_found")
         }
-        guard let tiff = image.tiffRepresentation, let bitmap = NSBitmapImageRep(data: tiff),
-              let png = bitmap.representation(using: .png, properties: [:]), png.count <= 131_072 else { throw AgentError("not_found") }
-        if icons.count >= 32 { icons.removeAll(keepingCapacity: true) }
-        icons[id] = png
         return ["data": .string(png.base64EncodedString())]
     }
 
@@ -195,8 +219,8 @@ final class Telemetry {
                     guard let self else { return }
                     self.scheduleRunningRefresh()
                     if let application {
-                        let value = await Self.readApplications {
-                            Self.running(application, foreground: NSWorkspace.shared.frontmostApplication?.processIdentifier)
+                        let value = await Self.readApplications { [icons = self.icons] in
+                            Self.running(application, foreground: NSWorkspace.shared.frontmostApplication?.processIdentifier, icons: icons)
                         }
                         self.emit("applications.changed", ["kind": .string(change), "application": value,
                                                           "occurredAt": .date(occurredAt)], false)
@@ -236,7 +260,18 @@ final class Telemetry {
                                                                 object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in await self?.sample("displays", force: true) }
         })
-        diskObserver = DiskObserver { [weak self] in Task { @MainActor in await self?.sample("storage", force: false) } }
+        diskObserver = DiskObserver { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                self.storageRefresh?.cancel()
+                self.storageRefresh = Task {
+                    do {
+                        try await Task.sleep(for: .milliseconds(200))
+                        await self.sample("storage", force: false)
+                    } catch {}
+                }
+            }
+        }
     }
 
     private func observeInstalledApps() async {
@@ -299,6 +334,9 @@ final class Telemetry {
         case "power":
             updatePower()
             value = power()
+        case "lid":
+            observeLid()
+            value = ["lidClosed": lidClosed]
         case "system":
             let uptime = ProcessInfo.processInfo.systemUptime
             value = ["uptimeSeconds": .integer(Int64(uptime)), "bootedAt": .date(Date().addingTimeInterval(-uptime)),
@@ -310,7 +348,7 @@ final class Telemetry {
             value = ["language": .text(Locale.preferredLanguages.first), "timeZone": .string(TimeZone.current.identifier),
                      "region": .text(Locale.current.region?.identifier)]
         case "network":
-            value = Self.network()
+            value = Self.network(reachability: reachability)
         case "agent":
             value = agent()
         case "roots":
@@ -318,10 +356,10 @@ final class Telemetry {
         case "permissions":
             value = await permissions.refresh()
         case "apps-running":
-            value = await Self.readApplications {
+            value = await Self.readApplications { [icons] in
                 let workspace = NSWorkspace.shared
                 let foreground = workspace.frontmostApplication?.processIdentifier
-                return .array(workspace.runningApplications.prefix(600).map { Self.running($0, foreground: foreground) })
+                return .array(workspace.runningApplications.prefix(600).map { Self.running($0, foreground: foreground, icons: icons) })
             }
         case "apps-installed":
             let discovered = await Self.readApplications { Self.inventory() }
@@ -329,7 +367,7 @@ final class Telemetry {
                 diff(installed, discovered, topic: "applications.changed",
                      appeared: "installed", removed: "removed", changed: "updated")
             }
-            if installed != discovered { icons.removeAll() }
+            if installed != discovered { await Self.readApplications { [icons] in icons.invalidate() } }
             installed = discovered
             value = .array(discovered.sorted(by: { $0.key < $1.key }).map(\.value))
         case "storage":
@@ -341,9 +379,11 @@ final class Telemetry {
                     let before = old?["mountPath"].string
                     let after = new?["mountPath"].string
                     if old == nil, let new { storageEvent("inserted", new) }
-                    if before != after, let old, before != nil { storageEvent("unmounted", old) }
+                    if before != after, let old, before != nil {
+                        storageEvent("unmounted", new ?? disconnectedStorage(old, status: "unmounted"))
+                    }
                     if before != after, let new, after != nil { storageEvent("mounted", new) }
-                    if new == nil, let old { storageEvent("removed", old) }
+                    if new == nil, let old { storageEvent("removed", disconnectedStorage(old, status: "removed")) }
                 }
             }
             storage = found
@@ -367,6 +407,14 @@ final class Telemetry {
         emit("storage.changed", ["kind": .string(kind), "storage": item, "occurredAt": .date(Date())], false)
     }
 
+    private func disconnectedStorage(_ item: JSON, status: String) -> JSON {
+        guard case .object(var attributes) = item else { return item }
+        attributes["mountPath"] = .null
+        attributes["remainingBytes"] = .null
+        attributes["status"] = .string(status)
+        return .object(attributes)
+    }
+
     private func publish(_ topic: String, _ value: JSON, force: Bool = false) {
         if force || lastValues[topic] != value {
             lastValues[topic] = value
@@ -381,7 +429,7 @@ final class Telemetry {
 
     private func power() -> JSON {
         ["configured": .boolean(sampling.keepAwake), "idleAssertionActive": .boolean(assertion != 0),
-         "closedLid": lid.status(), "lowPowerMode": .boolean(ProcessInfo.processInfo.isLowPowerModeEnabled),
+         "closedLid": lid.status(lidClosed: lidClosed), "lowPowerMode": .boolean(ProcessInfo.processInfo.isLowPowerModeEnabled),
          "sleepState": asleep ? "sleeping" : "awake", "externalPower": externalPower,
          "displaySleeping": .boolean(displaySleeping), "lockState": .string(lockState),
          "displayAndLockPolicy": "managedByMacOS"]
@@ -530,7 +578,7 @@ final class Telemetry {
                 "httpsHost": .text(data[kSCPropNetProxiesHTTPSProxy as String] as? String)]
     }
 
-    nonisolated static func network() -> JSON {
+    nonisolated static func network(reachability: String?) -> JSON {
         var first: UnsafeMutablePointer<ifaddrs>?
         var interfaces = [JSON]()
         var tunnels = Set<String>()
@@ -552,7 +600,9 @@ final class Telemetry {
                                    "up": .boolean(up), "loopback": .boolean(element.ifa_flags & UInt32(IFF_LOOPBACK) != 0)])
             }
         }
-        return ["interfaces": .array(interfaces), "proxy": proxySettings(),
+        let defaultRoute: [String: Any]? = SCDynamicStoreCopyValue(nil, "State:/Network/Global/IPv4" as CFString) as? [String: Any]
+        return ["interfaces": .array(interfaces), "proxy": proxySettings(), "reachability": .text(reachability),
+                "primaryInterface": .text(defaultRoute?["PrimaryInterface"] as? String),
                 "vpn": ["state": tunnels.isEmpty ? "noTunnelObserved" : "tunnelObserved",
                         "tunnelInterfaces": .array(tunnels.sorted().map(JSON.string))]]
     }
@@ -567,7 +617,7 @@ final class Telemetry {
                 "installPath": .string(path), "executablePath": .text(Bundle(url: url)?.executableURL?.path(percentEncoded: false))]
     }
 
-    nonisolated private static func running(_ app: NSRunningApplication, foreground: pid_t?) -> JSON {
+    nonisolated private static func running(_ app: NSRunningApplication, foreground: pid_t?, icons: ApplicationIcons) -> JSON {
         var data: [String: JSON] = [:]
         if let url = app.bundleURL, case .object(let value) = Self.app(url) { data = value }
         data["name"] = .text(app.localizedName ?? data["name"]?.string)
@@ -579,6 +629,7 @@ final class Telemetry {
         data["active"] = .boolean(app.isActive)
         data["hidden"] = .boolean(app.isHidden)
         data["executablePath"] = .text(app.executableURL?.path(percentEncoded: false))
+        data["iconHash"] = .text(icons.rendition(for: .object(data))?.hash)
         return .object(data)
     }
 
@@ -619,15 +670,18 @@ final class Telemetry {
             guard let bsd = IORegistryEntryCreateCFProperty(service, kIOBSDNameKey as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue() as? String,
                   let disk = DADiskCreateFromBSDName(kCFAllocatorDefault, session, bsd),
                   let value = DADiskCopyDescription(disk) as? [String: Any] else { continue }
+            let transport = value[kDADiskDescriptionDeviceProtocolKey as String] as? String
             let hotPlug = (value[kDADiskDescriptionMediaRemovableKey as String] as? Bool) == true ||
                           (value[kDADiskDescriptionDeviceInternalKey as String] as? Bool) == false
-            guard hotPlug else { continue }
+            guard hotPlug, transport != "Disk Image" else { continue }
             let mount = (value[kDADiskDescriptionVolumePathKey as String] as? URL)?.path(percentEncoded: false).trimmingSuffixSlash
             let capacity = (value[kDADiskDescriptionMediaSizeKey as String] as? NSNumber)?.int64Value
             results[bsd] = ["id": .string(bsd), "name": .text((value[kDADiskDescriptionVolumeNameKey as String]
                 ?? value[kDADiskDescriptionMediaNameKey as String]) as? String), "capacityBytes": capacity.map(JSON.integer) ?? .null,
                 "remainingBytes": mount.flatMap { mounted[$0]?["availableBytes"] } ?? .null,
                 "fileSystem": .text(value[kDADiskDescriptionVolumeKindKey as String] as? String), "mountPath": .text(mount),
+                "transport": .text(transport),
+                "wholeDisk": (value[kDADiskDescriptionMediaWholeKey as String] as? Bool).map(JSON.boolean) ?? .null,
                 "status": mount == nil ? "connected" : "mounted"]
         }
         return results

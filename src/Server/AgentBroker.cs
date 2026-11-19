@@ -36,6 +36,7 @@ internal sealed class AgentBroker(Database db, AgentRegistration registration, I
         public long Seen { get; set; } = Clock.Now;
         public long Connected { get; } = Clock.Now;
         public double? Latency { get; set; }
+        public long QualityReported { get; set; }
         public bool Closed { get; set; }
         public bool AccessGranted { get; set; }
 
@@ -134,16 +135,24 @@ internal sealed class AgentBroker(Database db, AgentRegistration registration, I
     {
         var now = Clock.Now;
         bool persist;
+        AgentPresence? quality = null;
         lock (link)
         {
             RequireOnline(link);
             persist = link.Seen != now;
             link.Seen = now;
             link.Latency = latency ?? link.Latency;
+            if (latency is not null && now - link.QualityReported >= 5)
+            {
+                link.QualityReported = now;
+                quality = Read(link);
+            }
         }
         if (persist)
             await db.Execute("UPDATE Devices SET LastSeen=@now WHERE Id=@device AND LastSeen<@now AND Revoked IS NULL",
                 new { now, device = link.Device }, ct);
+        if (quality is not null)
+            await db.AppendEvent(link.Device, "connection.quality", Wire.Element(quality), ct);
     }
 
     public async Task Expire(CancellationToken ct)

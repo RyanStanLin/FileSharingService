@@ -105,6 +105,7 @@ final class AgentTransport {
     private var persisted = [JSON]()
     private var reviewLossNoted = false
     private var lastSave = Date.distantPast
+    private var clipboard = ClipboardObserver()
 
     private lazy var telemetry = Telemetry(roots: roots, state: state) { [weak self] topic, payload, snapshot in
         self?.emit(topic: topic, data: payload, snapshot: snapshot)
@@ -151,7 +152,7 @@ final class AgentTransport {
         let proxyMonitor = Task {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(5))
-                let current = Telemetry.network()
+                let current = Telemetry.proxySettings()
                 if let previous = networkSettings, current != previous {
                     resetNetwork()
                     _ = await telemetry.refresh(["network"])
@@ -159,8 +160,17 @@ final class AgentTransport {
                 networkSettings = current
             }
         }
+        let signals = Task {
+            while !Task.isCancelled {
+                if let observedAt = clipboard.detectChange() {
+                    emitClipboardChange(observedAt)
+                }
+                telemetry.observeLid()
+                try? await Task.sleep(for: .milliseconds(500))
+            }
+        }
         var outage = 0.5
-        defer { sampler.cancel(); proxyMonitor.cancel(); monitor.cancel(); session?.invalidateAndCancel() }
+        defer { signals.cancel(); sampler.cancel(); proxyMonitor.cancel(); monitor.cancel(); session?.invalidateAndCancel() }
         while !Task.isCancelled {
             let started = Date()
             let generation = networkGeneration
@@ -198,6 +208,7 @@ final class AgentTransport {
         let changed = lastPathConfiguration != nil
         lastPathConfiguration = configuration
         routeState = reachability
+        telemetry.setReachability(reachability)
         if changed { resetNetwork() }
         Task { _ = await telemetry.refresh(["network"]) }
     }
@@ -380,6 +391,10 @@ final class AgentTransport {
         if outbox.isEmpty { reviewLossNoted = false }
     }
 
+    private func emitClipboardChange(_ observedAt: Date) {
+        emit(topic: "clipboard.changed", data: ["occurredAt": .date(observedAt)], snapshot: false)
+    }
+
     private func emit(topic: String, data: JSON, snapshot: Bool) {
         let value: JSON = ["type": "event", "id": .string(JSON.id()), "topic": .string(topic), "snapshot": .boolean(snapshot), "payload": data]
         guard let size = try? value.encoded().count, size < 1_200_000 else { return }
@@ -465,7 +480,7 @@ final class AgentTransport {
             return try telemetry.diagnostic(input.requireString("diagnostic"))
         case "permissions.request":
             return try await telemetry.permission(input.requireString("permission"))
-        case "app.icon": return try telemetry.icon(input.requireString("applicationId"))
+        case "app.icon": return try await telemetry.icon(input.requireString("applicationId"))
         case "files.watch": return try await observer.start(input)
         case "files.unwatch": return try observer.stop(input)
         case "files.list", "files.stat", "files.thumbnail", "files.read", "files.mkdir", "files.move", "files.trash",

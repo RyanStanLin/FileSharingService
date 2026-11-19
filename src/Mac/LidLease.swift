@@ -17,11 +17,11 @@ struct LidLease {
         #endif
     }
 
-    func status() -> JSON {
+    func status(lidClosed: JSON) -> JSON {
         #if FILESHARING_TEST
-        return ["state": "testIsolated", "configuredByHelper": false, "lidClosed": .null]
+        return ["state": "testIsolated", "configuredByHelper": false, "lidClosed": lidClosed]
         #else
-        var result: [String: JSON] = ["state": "systemControlled", "configuredByHelper": false, "lidClosed": lidClosed()]
+        var result: [String: JSON] = ["state": "systemControlled", "configuredByHelper": false, "lidClosed": lidClosed]
         let url = URL(fileURLWithPath: "/var/db/in.ryanl.filesharing.power/status.json")
         if let bytes = try? Data(contentsOf: url), bytes.count < 2048, let status = try? JSON.decode(bytes),
            let when = status["at"].int, abs(Date().timeIntervalSince1970 - Double(when)) < 20 {
@@ -34,7 +34,15 @@ struct LidLease {
         #endif
     }
 
-    private func lidClosed() -> JSON {
+    func lidClosed() -> JSON {
+        #if FILESHARING_TEST
+        if let file = ProcessInfo.processInfo.environment["FILESHARING_TEST_LID"],
+           let value = try? String(contentsOfFile: file, encoding: .utf8),
+           value == "open" || value == "closed" {
+            return .boolean(value == "closed")
+        }
+        return .null
+        #else
         let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("IOPMrootDomain"))
         guard service != IO_OBJECT_NULL else { return .null }
         defer { IOObjectRelease(service) }
@@ -42,5 +50,6 @@ struct LidLease {
                                                            kCFAllocatorDefault, 0)?.takeRetainedValue() as? Bool
         else { return .null }
         return .boolean(value)
+        #endif
     }
 }

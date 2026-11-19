@@ -1,7 +1,7 @@
 asyncapi: 3.0.0
 info:
   title: FileSharing browser events
-  version: 1.0.0
+  version: 1.1.0
 servers:
   enterprise:
     host: filesharing.example.com
@@ -152,7 +152,24 @@ components:
           type: string
           format: date-time
         payload:
-          description: Theme-specific value. files.changed uses DirectoryEvent.
+          description: Topic-specific value. files.changed uses DirectoryEvent; clipboard.changed uses ClipboardChange; lid.changed uses LidChange.
+    ClipboardChange:
+      type: object
+      additionalProperties: false
+      required: [occurredAt]
+      properties:
+        occurredAt:
+          type: string
+          format: date-time
+    LidChange:
+      type: object
+      required: [lidClosed, occurredAt]
+      properties:
+        lidClosed:
+          type: boolean
+        occurredAt:
+          type: string
+          format: date-time
     DirectoryEvent:
       type: object
       required: [watchId, rootId, path, change]
