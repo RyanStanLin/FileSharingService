@@ -21,7 +21,7 @@ enum DiagnosticRunner {
     private static let workers = DispatchQueue(label: "FileSharing.diagnostics", qos: .utility, attributes: .concurrent)
 
     @MainActor
-    static func run(_ name: String, data: JSON, emit: (JSON) throws -> Void) async throws -> JSON {
+    static func run(_ name: String, input: JSON, data: JSON, emit: (JSON) throws -> Void) async throws -> JSON {
         var capture = ["stdout": Data(), "stderr": Data()]
         var index = 0
         var truncated = false
@@ -38,7 +38,9 @@ enum DiagnosticRunner {
         if name == "agentHealth" {
             try append("stdout", data.encoded())
         } else {
-            guard let command = commands[name] else { throw AgentError("unsupported") }
+            guard let command = name == "custom" ? try customCommand(input) : commands[name] else {
+                throw AgentError("unsupported")
+            }
             for try await event in execute(command) {
                 try Task.checkCancellation()
                 switch event {
@@ -55,6 +57,49 @@ enum DiagnosticRunner {
                 "stderr": .string(String(decoding: capture["stderr"] ?? Data(), as: UTF8.self)),
                 "exitCode": .integer(Int64(exitCode)), "truncated": .boolean(truncated),
                 "timedOut": .boolean(timedOut), "data": data]
+    }
+
+    // Validate independently of the server. Only fixed executable paths and reviewed arguments reach Process.
+    private static func customCommand(_ input: JSON) throws -> Command {
+        guard let executable = input["executable"].string, let values = input["arguments"].array, values.count <= 8 else {
+            throw AgentError("invalid_diagnostic_command")
+        }
+        let args = values.compactMap(\.string)
+        guard values.count == args.count else { throw AgentError("invalid_diagnostic_command") }
+        let path: String
+        switch executable {
+        case "sw_vers" where args.isEmpty || (args.count == 1 && ["-productName", "-productVersion", "-buildVersion"].contains(args[0])):
+            path = "/usr/bin/sw_vers"
+        case "uptime" where args.isEmpty:
+            path = "/usr/bin/uptime"
+        case "whoami" where args.isEmpty:
+            path = "/usr/bin/whoami"
+        case "df" where diagnosticFlags(args, allowed: "hkl"):
+            path = "/bin/df"
+        case "uname" where diagnosticFlags(args, allowed: "amnprsv"):
+            path = "/usr/bin/uname"
+        case "date" where args.isEmpty || args == ["-u"]:
+            path = "/bin/date"
+        case "pmset" where args == ["-g"] || (args.count == 2 && args[0] == "-g" && ["batt", "cap", "custom", "therm"].contains(args[1])):
+            path = "/usr/bin/pmset"
+        case "sysctl" where safeSysctl(args):
+            path = "/usr/sbin/sysctl"
+        default:
+            throw AgentError("invalid_diagnostic_command")
+        }
+        return Command(path: path, arguments: args)
+    }
+
+    private static func diagnosticFlags(_ arguments: [String], allowed: String) -> Bool {
+        arguments.allSatisfy { arg in
+            (2...8).contains(arg.utf8.count) && arg.hasPrefix("-") && arg.utf8.dropFirst().allSatisfy(allowed.utf8.contains)
+        }
+    }
+
+    private static func safeSysctl(_ arguments: [String]) -> Bool {
+        let keys = arguments.first == "-n" ? arguments.dropFirst() : arguments[...]
+        let allowed: Set<String> = ["hw.model", "hw.ncpu", "hw.logicalcpu", "hw.memsize", "kern.osrelease", "kern.osversion", "machdep.cpu.brand_string"]
+        return !keys.isEmpty && keys.allSatisfy(allowed.contains)
     }
 
     private static func execute(_ command: Command) -> AsyncThrowingStream<Output, Error> {

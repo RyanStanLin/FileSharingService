@@ -249,6 +249,15 @@ class LocalDemoBrowser(unittest.TestCase):
         browser.evaluate("document.querySelector('#tab-actions').click(); document.querySelector('#diagnostic-form').requestSubmit()")
         browser.wait("document.querySelector('#diagnostic-status').textContent === '退出码 0'")
         self.assertIn("ProductVersion", browser.evaluate("document.querySelector('#diagnostic-stdout').textContent"))
+        browser.evaluate("""
+            const kind = document.querySelector('#diagnostic-kind');
+            kind.value = 'custom';
+            kind.dispatchEvent(new Event('change', {bubbles: true}));
+            document.querySelector('#diagnostic-command').value = 'uname -m';
+            document.querySelector('#diagnostic-form').requestSubmit();
+        """)
+        browser.wait("document.querySelector('#diagnostic-status').textContent === '退出码 0'")
+        self.assertEqual(browser.evaluate("document.querySelector('#diagnostic-stdout').textContent.trim()"), os.uname().machine)
         self.capture(browser, "actions-desktop", 1360)
 
         browser.evaluate("document.querySelector('#tab-gateway').click()")

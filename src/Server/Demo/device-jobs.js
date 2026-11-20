@@ -147,8 +147,21 @@ export function deviceJobs({call, perform, errorText, collectCompleted}) {
         }
     }
 
-    element("diagnostic-form").addEventListener("submit", perform(() =>
-        submit("diagnostic", "/diagnostics", {kind: element("diagnostic-kind").value})))
+    const diagnosticKind = element("diagnostic-kind")
+    const diagnosticCommand = element("diagnostic-command")
+    function updateCommandField() {
+        const custom = diagnosticKind.value === "custom"
+        element("diagnostic-command-field").hidden = !custom
+        element("diagnostic-examples").hidden = !custom
+        diagnosticCommand.required = custom
+    }
+    diagnosticKind.addEventListener("change", updateCommandField)
+    updateCommandField()
+    element("diagnostic-form").addEventListener("submit", perform(() => {
+        const kind = diagnosticKind.value
+        const body = kind === "custom" ? {kind, command: diagnosticCommand.value} : {kind}
+        return submit("diagnostic", "/diagnostics", body)
+    }))
     element("dialog-form").addEventListener("submit", perform(() => {
         const mode = element("dialog-input").value
         const choices = [1, 2, 3].map(index => ({id: "choice-" + index, label: element("dialog-choice-" + index).value.trim()}))

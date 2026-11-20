@@ -1,5 +1,16 @@
 # FileSharing 验收记录
 
+## Agent 0.4.1
+
+21 项集成测试和 4 项浏览器回归通过。原生 AppKit 测试在已登录的 macOS 图形会话验证窗口层级、当前空间、默认按钮、必填说明及回传。本机已安装的 0.4.1 从 LaunchAgent 上线，同一进程及连接连续运行 30 秒。安装前的 HOME 记录保存了旧装载编号，升级后迁移出卷 UUID，原有根标识继续匹配服务器授权。双架构 DMG 通过签名和 SHA-256 校验。
+
+| 验收项 | 对应用例 |
+| --- | --- |
+| 装载编号变化后通过 HTTP 与 FTP 列出 HOME 内容，卷 UUID 不符时拒绝访问 | `test_home_volume_identity_recovers_directory_and_ftp_listings` |
+| 自定义命令在 WSS 和 HTTPS 回退下回传输出及退出码，REST 可补读 | `test_diagnostic_outputs_stream_and_resume_on_wss_and_https` |
+| Demo 输入自定义命令后显示输出并报告退出码 | `test_browser_saves_power_policy_collects_samples_and_rotates_ftp_credentials` |
+| 原生弹窗置顶、请求标题及正文、首按钮及说明框 | `tests/native_dialog_smoke.swift` |
+
 ## Milestone 2 · Agent 0.4.0
 
 验证环境为 Apple silicon Mac、.NET 10、Go 1.27、Xcode 和 Docker Compose。集成用例启动隔离的真实服务及 Swift Agent，Passkey 使用测试凭证。

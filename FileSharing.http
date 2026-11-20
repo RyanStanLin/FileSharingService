@@ -229,6 +229,14 @@ Content-Type: application/json
 
 {"kind":"osVersion"}
 
+### Run a custom read-only diagnostic
+POST {{api}}/devices/{{device}}/diagnostics
+Cookie: {{cookie}}
+Origin: {{origin}}
+Content-Type: application/json
+
+{"kind":"custom","command":"sysctl -n hw.model"}
+
 ### Read jobs
 GET {{api}}/jobs?deviceId={{device}}&limit=30
 Cookie: {{cookie}}

@@ -1075,27 +1075,37 @@ app.run()
                     return result if result["protocol"] == protocol else None
                 self.set_access(self.wait(connected)["connectionId"], True)
             self.api("POST", self.device_api + "/diagnostics", 400, json={"kind": "sw_vers -productVersion"})
+            for invalid in (None, "uname -m | uname -r", "/usr/bin/uname", "df /", "sysctl -a", "pmset sleepnow"):
+                response = self.api("POST", self.device_api + "/diagnostics", 400, json={"kind": "custom", "command": invalid})
+                self.assertEqual(response.json()["code"], "invalid_diagnostic_command")
             with self.channel() as ws:
                 ws.send(json.dumps({"type": "subscribe", "id": "output", "deviceId": self.device, "topic": "jobs.output"}))
                 self.receive(ws, lambda value: value["type"] == "subscribed")
                 ws.send(json.dumps({"type": "subscribe", "id": "finished", "deviceId": self.device, "topic": "jobs.changed"}))
                 self.receive(ws, lambda value: value["type"] == "subscribed" and value["id"] == "finished")
-                job = self.api("POST", self.device_api + "/diagnostics", 202, json={"kind": "osVersion"}).json()
-                item = self.receive(ws, lambda value: value["type"] == "event" and value["id"] == "output")["item"]["payload"]
-                self.assertEqual((item["jobId"], item["index"], item["stream"]), (job["id"], 1, "stdout"))
-                terminal = self.receive(ws, lambda value: value["type"] == "event" and value["id"] == "finished")["item"]["payload"]
-                self.assertEqual((terminal["id"], terminal["state"], terminal["exitCode"]), (job["id"], "completed", 0))
-                finished = self.finished_job(job)
-                self.assertEqual((finished["state"], finished["result"]["exitCode"]), ("completed", 0))
-                self.assertFalse(finished["result"]["timedOut"])
-                output = f"{API}/jobs/{job['id']}/output"
-                page = self.api("GET", output).json()
-                joined = b"".join(base64.b64decode(part["data"]) for part in page["items"] if part["stream"] == "stdout")
-                self.assertEqual(joined.decode(), finished["result"]["stdout"])
-                self.assertIn(b"ProductVersion:", joined)
-                self.assertEqual(self.api("GET", output, params={"after": page["cursor"]}).json(),
-                                 {"items": [], "cursor": page["cursor"]})
-                self.api("GET", output, 401, session=self.client())
+                for body in ({"kind": "osVersion"}, {"kind": "custom", "command": "sw_vers -productVersion"}):
+                    job = self.api("POST", self.device_api + "/diagnostics", 202, json=body).json()
+                    item = self.receive(ws, lambda value: value["type"] == "event" and value["id"] == "output"
+                                        and value["item"]["payload"]["jobId"] == job["id"])["item"]["payload"]
+                    self.assertEqual((item["index"], item["stream"]), (1, "stdout"))
+                    terminal = self.receive(ws, lambda value: value["type"] == "event" and value["id"] == "finished"
+                                            and value["item"]["payload"]["id"] == job["id"])["item"]["payload"]
+                    self.assertEqual((terminal["state"], terminal["exitCode"]), ("completed", 0))
+                    finished = self.finished_job(job)
+                    self.assertEqual((finished["state"], finished["result"]["exitCode"]), ("completed", 0))
+                    self.assertFalse(finished["result"]["timedOut"])
+                    output = f"{API}/jobs/{job['id']}/output"
+                    page = self.api("GET", output).json()
+                    joined = b"".join(base64.b64decode(part["data"]) for part in page["items"] if part["stream"] == "stdout")
+                    self.assertEqual(joined.decode(), finished["result"]["stdout"])
+                    if body["kind"] == "custom":
+                        self.assertEqual(joined, subprocess.check_output(["/usr/bin/sw_vers", "-productVersion"]))
+                        self.assertEqual(finished["result"]["stderr"], "")
+                    else:
+                        self.assertIn(b"ProductVersion:", joined)
+                    self.assertEqual(self.api("GET", output, params={"after": page["cursor"]}).json(),
+                                     {"items": [], "cursor": page["cursor"]})
+                    self.api("GET", output, 401, session=self.client())
 
     def test_stderr_progress_precedes_exit_and_duplicate_is_ignored(self):
         self.register()

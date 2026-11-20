@@ -513,8 +513,8 @@ final class AgentTransport {
             return result
         case "diagnostics.run":
             let name = try input.requireString("diagnostic")
-            let data = try telemetry.diagnosticData(name)
-            return try await DiagnosticRunner.run(name, data: data) { part in
+            let data = name == "custom" ? .null : try telemetry.diagnosticData(name)
+            return try await DiagnosticRunner.run(name, input: input, data: data) { part in
                 guard urgent.count < 96 else { throw AgentError("limit_reached") }
                 urgent.append(["type": "progress", "id": .string(id), "payload": part])
                 wake?.yield()

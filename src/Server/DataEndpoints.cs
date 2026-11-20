@@ -12,6 +12,8 @@ internal sealed record SnapshotView(string Topic, DateTimeOffset ObservedAt, boo
 internal sealed record DeviceState(string DeviceId, AgentPresence Connection, IReadOnlyList<SnapshotView> Samples);
 internal sealed record RefreshRequest(IReadOnlyList<string> Topics);
 internal sealed record JobInput(string Kind);
+/// <summary>A predefined diagnostic or a command assembled from supported read-only utilities and options.</summary>
+internal sealed record DiagnosticRequest(string Kind, string? Command);
 internal sealed record JobRecord(string Id, string Owner, string DeviceId, string Kind, string State, long Created, long? Finished,
     string? Result, string? Error, string ReviewId)
 {
@@ -162,7 +164,8 @@ internal static class DataEndpoints
         devices.MapGet("/permissions", async (string id, HttpContext ctx, Database db, DeviceService devices, ReviewService reviews, AgentBroker broker, CancellationToken ct) =>
             await Snapshot(id, "permissions", ctx, db, devices, reviews, broker, ct)).WithSummary("Get device permission states");
         devices.MapPost("/permissions/requests", RequestPermission).WithSummary("Ask macOS to evaluate or prompt for a supported permission");
-        devices.MapPost("/diagnostics", RunDiagnostic).WithSummary("Run a predefined read-only diagnostic");
+        devices.MapPost("/diagnostics", RunDiagnostic).WithSummary("Run a predefined or custom read-only diagnostic")
+            .ProducesProblem(400);
         api.MapGet("/jobs", ListJobs).WithTags("Jobs").WithSummary("List asynchronous jobs");
         api.MapGet("/jobs/{id}", GetJob).WithTags("Jobs").WithSummary("Get a job result");
         api.MapGet("/jobs/{id}/output", GetOutput).WithTags("Jobs")
@@ -237,15 +240,55 @@ internal static class DataEndpoints
         return TypedResults.Accepted($"/api/v1/jobs/{job.Id}", job);
     }
 
-    private static async Task<Accepted<JobView>> RunDiagnostic(string id, JobInput body, HttpContext ctx, DeviceService devices,
+    private static async Task<Accepted<JobView>> RunDiagnostic(string id, DiagnosticRequest body, HttpContext ctx, DeviceService devices,
         ReviewService reviews, JobService jobs, CancellationToken ct)
     {
         var review = await reviews.Require(ctx, ct);
         await devices.Require(id, ct);
-        if (!Diagnostics.Contains(body.Kind))
+        if (body.Kind != "custom" && !Diagnostics.Contains(body.Kind))
             throw Fault.Bad("unsupported_diagnostic");
-        var job = await jobs.Start(review, id, "diagnostics.run", new { diagnostic = body.Kind }, ct);
+        if (body.Kind != "custom" && body.Command is not null)
+            throw Fault.Bad("invalid_diagnostic_command");
+        var payload = body.Kind == "custom" ? ParseDiagnostic(body.Command) : new { diagnostic = body.Kind };
+        var job = await jobs.Start(review, id, "diagnostics.run", payload, ct);
         return TypedResults.Accepted($"/api/v1/jobs/{job.Id}", job);
+    }
+
+    private static object ParseDiagnostic(string? line)
+    {
+        if (line is null || line.Length > 160)
+            throw Fault.Bad("invalid_diagnostic_command");
+        var tokens = line.Split([' ', '\t'], StringSplitOptions.RemoveEmptyEntries);
+        if (tokens.Length is < 1 or > 9)
+            throw Fault.Bad("invalid_diagnostic_command");
+        var executable = tokens[0];
+        var arguments = tokens[1..];
+        var safe = executable switch
+        {
+            "sw_vers" => arguments is [] or ["-productName" or "-productVersion" or "-buildVersion"],
+            "uptime" or "whoami" => arguments.Length == 0,
+            "df" => arguments.All(arg => DiagnosticFlags(arg, "hkl")),
+            "uname" => arguments.All(arg => DiagnosticFlags(arg, "amnprsv")),
+            "date" => arguments is [] or ["-u"],
+            "pmset" => arguments is ["-g"] or ["-g", "batt" or "cap" or "custom" or "therm"],
+            "sysctl" => SafeSysctl(arguments),
+            _ => false
+        };
+        if (!safe)
+            throw Fault.Bad("invalid_diagnostic_command");
+        return new { diagnostic = "custom", executable, arguments };
+    }
+
+    private static bool DiagnosticFlags(string argument, string allowed) =>
+        argument.Length is >= 2 and <= 8 && argument[0] == '-' && argument.AsSpan(1).IndexOfAnyExcept(allowed.AsSpan()) < 0;
+
+    private static bool SafeSysctl(string[] arguments)
+    {
+        var keys = arguments.AsSpan(arguments is ["-n", ..] ? 1 : 0);
+        foreach (var key in keys)
+            if (key is not ("hw.model" or "hw.ncpu" or "hw.logicalcpu" or "hw.memsize" or "kern.osrelease" or "kern.osversion" or "machdep.cpu.brand_string"))
+                return false;
+        return !keys.IsEmpty;
     }
 
     private static async Task<Ok<Page<JobView>>> ListJobs(string? deviceId, string? cursor, int? limit, HttpContext ctx,

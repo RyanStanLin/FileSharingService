@@ -174,10 +174,15 @@
               <select id="diagnostic-kind">
                 <option value="osVersion">macOS 版本</option><option value="uptime">系统运行时长</option>
                 <option value="diskSpace">磁盘空间</option><option value="agentHealth">Agent 健康检查</option>
+                <option value="custom">自定义只读命令</option>
               </select>
+              <label id="diagnostic-command-field" class="row" hidden>命令
+                <input id="diagnostic-command" maxlength="160" autocomplete="off" autocapitalize="off" spellcheck="false" aria-describedby="diagnostic-examples">
+              </label>
               <button class="primary" type="submit">运行诊断</button>
             </fieldset>
           </form>
+          <p id="diagnostic-examples" class="muted" hidden>例如 <code>uname -m</code>、<code>df -h -l</code> 或 <code>pmset -g batt</code>。</p>
           <p id="diagnostic-status" class="muted" role="status"></p>
           <div class="detail-grid">
             <div><h3>STDOUT</h3><pre id="diagnostic-stdout" tabindex="0" aria-label="标准输出"></pre></div>

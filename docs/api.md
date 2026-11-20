@@ -74,7 +74,7 @@ async function unlock() {
 
 | HTTP | 常见错误码 |
 | --- | --- |
-| 400 | `invalid_request`、`invalid_path`、`invalid_sort`、`invalid_directory_page`、`invalid_cursor`、`invalid_time_range`、`unsupported_permission` |
+| 400 | `invalid_request`、`invalid_path`、`invalid_sort`、`invalid_directory_page`、`invalid_cursor`、`invalid_time_range`、`unsupported_permission`、`invalid_diagnostic_command` |
 | 401 | `authentication_required`，含会话锁定、WebAuthn 失败、challenge 已消费或密钥错误 |
 | 403 | `invalid_origin`、`invalid_host`、`root_access_denied`、`agent_connection_access_required`、`permission_denied`、`filesystem_access_denied` |
 | 404 | `not_found`、`device_not_found`、`ftp_account_not_found`、`snapshot_unavailable`、`transfer_not_found` |
@@ -217,7 +217,7 @@ SFTP 客户端首次连接时校验 `hostKeyFingerprint`，格式为 `SHA256:…
 | `GET /devices/D/apps/installed` | 无 | `200 Snapshot` 安装清单 |
 | `GET /devices/D/apps/icon` | `applicationId` 每个应用的 ID | `200 image/png` |
 | `GET /devices/D/storage` | 无 | `200 Snapshot` 外接存储 |
-| `POST /devices/D/diagnostics` | `{kind}`，`osVersion,uptime,diskSpace,agentHealth` | `202 Job`，`Location` 指向作业 URL |
+| `POST /devices/D/diagnostics` | `{kind}`，`osVersion,uptime,diskSpace,agentHealth`，或 `{kind:"custom",command}` | `202 Job`，`Location` 指向作业 URL |
 | `GET /jobs` | `cursor,limit,deviceId` | `200 Page<Job>` |
 | `GET /jobs/{id}` | 无 | `200 Job` |
 | `GET /jobs/{id}/output` | `after` 为上次收到的分片编号，初次传 `0` | `200 {items:[{index,stream,data}],cursor}` |
@@ -231,7 +231,17 @@ SFTP 客户端首次连接时校验 `hostKeyFingerprint`，格式为 `SHA256:…
 {"id":"2204ec63-266b-45d3-8f67-8a088c744b21","deviceId":"144bae60-503d-45e3-8a17-ec7a64886c20","kind":"diagnostics.run","state":"completed","createdAt":"2026-11-19T08:22:00Z","finishedAt":"2026-11-19T08:22:01Z","result":{"stdout":"{\"seconds\":20188}","stderr":"","exitCode":0,"data":{"seconds":20188}},"error":null}
 ```
 
-诊断对应固定的 `/usr/bin/sw_vers`、`/usr/bin/uptime`、`/bin/df -k -l` 与 Agent 健康检查。操作员提交诊断 ID，设备以当前用户运行。每台设备同时执行一项。外部进程时限约 10 秒，每个输出流最多 16 KiB。
+预设诊断对应 `/usr/bin/sw_vers`、`/usr/bin/uptime`、`/bin/df -k -l` 与 Agent 健康检查。Agent 0.4.1 起支持 `{"kind":"custom","command":"sysctl -n hw.model"}`，用空格或 Tab 分隔程序名和参数。命令最多 160 个字符、8 个参数。服务端和设备端分别校验，设备直接启动对应的系统程序。每台设备同时执行一项，使用当前用户身份。外部进程时限约 10 秒，每个输出流最多 16 KiB。自定义命令的结果 `data` 为 `null`，输出与退出码使用同一协议。
+
+| 程序 | 可用参数 |
+| --- | --- |
+| `sw_vers` | 无，或一个 `-productName`、`-productVersion`、`-buildVersion` |
+| `uptime`、`whoami` | 无 |
+| `df` | `-h`、`-k`、`-l`，支持合并参数 |
+| `uname` | `-a`、`-m`、`-n`、`-p`、`-r`、`-s`、`-v`，支持合并参数 |
+| `date` | 无，或 `-u` |
+| `pmset` | `-g`，可跟 `batt`、`cap`、`custom` 或 `therm` |
+| `sysctl` | 可选 `-n`，后接一个或多个 `hw.model`、`hw.ncpu`、`hw.logicalcpu`、`hw.memsize`、`kern.osrelease`、`kern.osversion`、`machdep.cpu.brand_string` |
 
 启动前订阅 `jobs.output` 和 `jobs.changed`。输出事件的 `payload` 形如 `{jobId,index,stream,data}`。编号从 1 递增，`stream` 是 `stdout` 或 `stderr`，`data` 是 Base64 编码的原始字节。分别增量解码两个流的 UTF-8 数据，按 `jobId,index` 去重。丢失 WS 或遇到编号间隙时用 `/jobs/{id}/output?after=...` 读取已保存的分片。诊断的 `jobs.changed` 完成事件附带 `exitCode`。可继续读取 `/jobs/{id}`，结果有 `stdout,stderr,exitCode,data,truncated,timedOut`。`completed` 表示设备返回了退出码，程序成功与否由 `exitCode` 判断。连接失效导致的 `failed` 保留已收到的分片。
 

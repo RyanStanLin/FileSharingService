@@ -217,7 +217,7 @@ components:
           type: integer
           minimum: 0
           maximum: 255
-          description: Present for diagnostics that returned a process exit code.
+          description: Present for predefined and custom diagnostics that returned a process exit code.
     ClipboardChange:
       type: object
       additionalProperties: false
