@@ -7,7 +7,11 @@ namespace FileSharing;
 internal sealed record FtpAccount(string Id, string Name, string Mode, bool Disabled, long Revision, IReadOnlyList<string> RootIds,
     string Scope, DateTimeOffset? PasswordChangedAt, bool PasswordRetrievable);
 internal sealed record FtpAccountRecord(string Id, string Name, string Mode, long Disabled, long Revision, string Scope,
-    long? PasswordChanged, long HasCipher);
+    long? PasswordChanged, long HasCipher)
+{
+    // An empty SQLite result reports the computed HasCipher column without an integer runtime type.
+    public FtpAccountRecord() : this("", "", "", 0, 0, "", null, 0) { }
+}
 /// <summary>Creates a protocol-specific credential and selects its directory scope.</summary>
 internal sealed record FtpAccountInput(string Name, string Mode, IReadOnlyList<string>? RootIds, string? Password, string? Scope = null);
 /// <summary>Changes a username, enabled state or directory scope using the current revision.</summary>

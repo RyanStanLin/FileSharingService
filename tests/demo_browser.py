@@ -1,9 +1,15 @@
+import base64
+import ftplib
 import itertools
 import json
 import os
 from pathlib import Path
+import sqlite3
 import time
 import unittest
+import uuid
+from contextlib import closing
+from datetime import datetime, timezone
 
 from websockets.sync.client import connect
 
@@ -55,9 +61,10 @@ class LocalDemoBrowser(unittest.TestCase):
         self.downloads = self.fixture.home / "Downloads"
         self.downloads.mkdir()
 
-    def start_browser(self, **agent_env):
+    def start_browser(self, *, real_agent=True, **agent_env):
         fixture = self.fixture
-        fixture.spawn([str(integration.APP), "run"], "agent.log", fixture.env | agent_env)
+        if real_agent:
+            fixture.spawn([str(integration.APP), "run"], "agent.log", fixture.env | agent_env)
         self.assertEqual(fixture.browser.get(fixture.origin + "/demo", timeout=5).status_code, 200)
 
         profile = fixture.work / "browser"
@@ -91,6 +98,16 @@ class LocalDemoBrowser(unittest.TestCase):
         browser.evaluate("document.querySelector('#access').click()")
         browser.wait("!document.querySelector('#browse-button').disabled")
         return browser
+
+    def capture(self, browser, name, width):
+        browser.call("Emulation.setDeviceMetricsOverride", width=width, height=900, deviceScaleFactor=1, mobile=False)
+        browser.evaluate("window.scrollTo(0, 0); document.fonts.ready.then(() => true)")
+        self.assertTrue(browser.evaluate("document.scrollingElement.scrollWidth <= innerWidth"))
+        if directory := os.environ.get("FILESHARING_DEMO_SCREENSHOT_DIR"):
+            path = Path(directory)
+            path.mkdir(parents=True, exist_ok=True)
+            shot = browser.call("Page.captureScreenshot", format="png", captureBeyondViewport=False)
+            (path / (name + ".png")).write_bytes(base64.b64decode(shot["data"]))
 
     def test_browser_reports_pending_pasteboard_and_previews_file_over_polling(self):
         expected = "FileSharing isolated browser fixture.\n"
@@ -196,6 +213,152 @@ class LocalDemoBrowser(unittest.TestCase):
         browser.evaluate("document.querySelector('#lock').click()")
         browser.wait("document.querySelector('#workspace').hidden")
         self.assertEqual(browser.evaluate("document.querySelector('#entries').childElementCount"), 0)
+
+    def test_browser_saves_power_policy_collects_samples_and_rotates_ftp_credentials(self):
+        fixture = self.fixture
+        lid = fixture.work / "lid"
+        lid.write_text("open")
+        browser = self.start_browser(FILESHARING_TEST_LID=str(lid))
+        self.assertEqual(browser.evaluate("""
+            const tab = document.querySelector('#tab-files');
+            tab.focus();
+            tab.dispatchEvent(new KeyboardEvent('keydown', {key: 'ArrowRight', bubbles: true}));
+            document.activeElement.id
+        """), "tab-telemetry")
+        browser.wait("document.querySelector('#telemetry-feed').textContent === 'WebSocket 直播'")
+        browser.wait("!document.querySelector('#policy-fields').disabled && document.querySelector('#telemetry-summary').textContent.includes('已开盖')")
+        browser.evaluate("""
+            document.querySelector('#keep-awake').checked = false;
+            document.querySelector('#sample-cpu').value = 5;
+            document.querySelector('#device-policy').requestSubmit()
+        """)
+        browser.wait("document.querySelector('#policy-status').textContent.includes('已保存设备策略')")
+        browser.wait("document.querySelector('#power-details').textContent.includes('遵循默认睡眠')")
+        lid.write_text("closed")
+        browser.wait("document.querySelector('#device-events').textContent.includes('已合盖')")
+        browser.evaluate("document.querySelector('#collect-telemetry').click()")
+        browser.wait("document.querySelector('#collect-status').textContent.includes('设备已回传最新采样')", seconds=35)
+        self.assertTrue(browser.evaluate("document.querySelector('#telemetry-summary meter')?.value >= 0"))
+        self.capture(browser, "telemetry-desktop", 1360)
+        self.capture(browser, "telemetry-tablet", 768)
+        self.capture(browser, "telemetry-mobile", 375)
+        self.capture(browser, "telemetry-narrow", 320)
+        browser.evaluate("document.querySelector('#inherit-policy').click()")
+        browser.wait("document.querySelector('#policy-status').textContent === '已恢复继承。'")
+
+        browser.evaluate("document.querySelector('#tab-actions').click(); document.querySelector('#diagnostic-form').requestSubmit()")
+        browser.wait("document.querySelector('#diagnostic-status').textContent === '退出码 0'")
+        self.assertIn("ProductVersion", browser.evaluate("document.querySelector('#diagnostic-stdout').textContent"))
+        self.capture(browser, "actions-desktop", 1360)
+
+        browser.evaluate("document.querySelector('#tab-gateway').click()")
+        browser.wait("!document.querySelector('#gateway-create-fields').disabled")
+        browser.evaluate("""
+            document.querySelector('#gateway-mode').value = 'ftp';
+            document.querySelector('#gateway-name').value = 'demo-ftp-fixture';
+            document.querySelector('#gateway-create').requestSubmit()
+        """)
+        browser.wait("!document.querySelector('#gateway-credential').hidden")
+        original = browser.evaluate("document.querySelector('#gateway-visible-password').value")
+        with ftplib.FTP() as client:
+            client.connect("127.0.0.1", fixture.plain_port, timeout=10)
+            client.login("demo-ftp-fixture", original)
+            self.assertTrue(client.nlst("/"))
+            browser.wait("document.querySelector('#gateway-connections').textContent.includes('demo-ftp-fixture')")
+            browser.evaluate("document.querySelector('#gateway-hide').click()")
+            self.assertEqual(browser.evaluate("document.querySelector('#gateway-visible-password').value"), "")
+            with closing(sqlite3.connect(fixture.work / "db" / "filesharing.db")) as db, db:
+                db.execute("UPDATE Reviews SET Created=Created-301 WHERE Revoked IS NULL")
+            browser.evaluate("document.querySelector('#gateway-reveal').click()")
+            browser.wait("document.querySelector('#gateway-account-status').textContent === '已验证账号密码。'")
+            self.assertTrue(browser.evaluate("document.querySelector('#gateway-visible-password').value") == original)
+            browser.evaluate("document.querySelector('#gateway-rotate').requestSubmit()")
+            browser.wait("document.querySelector('#gateway-account-status').textContent.includes('密码已轮换')")
+            self.assertTrue(browser.evaluate("document.querySelector('#gateway-visible-password').value") != original)
+            with self.assertRaises(ftplib.error_perm):
+                client.nlst("/")
+        browser.evaluate("document.querySelector('#gateway-hide').click()")
+        self.capture(browser, "gateway-desktop", 1360)
+        browser.evaluate("document.querySelector('#lock').click()")
+        browser.wait("document.querySelector('#workspace').hidden")
+        self.assertEqual(browser.evaluate("document.querySelector('#gateway-visible-password').value"), "")
+
+    def test_browser_streams_application_activity_and_recovers_dialog_and_diagnostics_over_rest(self):
+        fixture = self.fixture
+        device = str(uuid.uuid4())
+        channel = fixture.api("POST", "/agent/v1/connect", json={"deviceId": device, "name": "Browser fixture Mac"}).json()
+        header = {"X-FileSharing-Channel": channel["channel"]}
+        browser = self.start_browser(real_agent=False)
+        stamp = lambda: datetime.now(timezone.utc).isoformat()
+
+        def send(*frames):
+            fixture.api("POST", "/agent/v1/frames", 204, headers=header, json={"frames": frames})
+
+        def event(topic, payload, snapshot=False):
+            return {"type": "event", "id": str(uuid.uuid4()), "topic": topic, "snapshot": snapshot, "payload": payload}
+
+        def command(kind):
+            commands = fixture.api("GET", "/agent/v1/commands", headers=header).json()
+            selected, = [entry for entry in commands if entry["kind"] == kind]
+            return selected
+
+        browser.evaluate("document.querySelector('#tab-apps').click()")
+        browser.wait("document.querySelector('#apps-feed').textContent === 'WebSocket 直播'")
+        app = {"name": "Browser Fixture App", "applicationId": "fixture", "bundleId": "test.example.fixture", "version": "2.0",
+               "pid": 987, "active": True, "foreground": True, "hidden": False, "launchedAt": stamp(), "uptimeSeconds": 5}
+        send(event("apps-running", [app], True), event("apps-installed", [app | {"pid": None}], True),
+             event("applications.changed", {"kind": "launched", "application": app, "occurredAt": stamp()}))
+        browser.wait("document.querySelector('#app-rows').textContent.includes('PID 987') && document.querySelector('#app-events').textContent.includes('启动')")
+        self.capture(browser, "apps-desktop", 1360)
+        browser.evaluate("document.querySelector('#apps-mode').value='apps-installed'; document.querySelector('#apps-mode').dispatchEvent(new Event('change'))")
+        browser.wait("document.querySelector('#app-rows').textContent.includes('Browser Fixture App') && !document.querySelector('#app-rows').textContent.includes('PID 987')")
+        browser.call("Page.addScriptToEvaluateOnNewDocument", source="""
+            window.WebSocket = class OfflineSocket extends EventTarget {
+                static OPEN = 1;
+                readyState = 0;
+                constructor() { super(); queueMicrotask(() => this.close()); }
+                close() {
+                    if (this.readyState === 3) return;
+                    this.readyState = 3;
+                    this.dispatchEvent(new Event("close"));
+                }
+            };
+        """)
+        browser.call("Page.reload")
+        browser.wait("!document.querySelector('#workspace').hidden && !document.querySelector('#revoke-access').hidden")
+        browser.evaluate("document.querySelector('#tab-apps').click()")
+        browser.wait("document.querySelector('#apps-feed').textContent === 'REST 回退'")
+        send(event("apps-running", [], True), event("applications.changed", {"kind": "terminated", "application": app, "occurredAt": stamp()}))
+        browser.wait("document.querySelector('#app-rows').textContent.includes('清单为空') && document.querySelector('#app-events').textContent.includes('退出')")
+
+        browser.evaluate("""
+            document.querySelector('#tab-actions').click();
+            document.querySelector('#dialog-input').value = 'required';
+            document.querySelector('#dialog-icon').value = 'warning';
+            document.querySelector('#dialog-form').requestSubmit()
+        """)
+        dialog = command("interaction.dialog")
+        self.assertEqual(dialog["payload"]["icon"], "warning")
+        self.assertTrue(dialog["payload"]["askText"] and dialog["payload"]["textRequired"])
+        send({"type": "result", "id": dialog["id"], "ok": True,
+              "payload": {"outcome": "submitted", "choiceId": "choice-1", "text": "<b>维护说明</b>", "respondedAt": stamp()}})
+        browser.wait("document.querySelector('#dialog-status').textContent === 'Mac 用户已提交'")
+        self.assertEqual(browser.evaluate("document.querySelector('#dialog-result dd:nth-of-type(1)').textContent"), "同意")
+        self.assertEqual(browser.evaluate("document.querySelector('#dialog-result dd:nth-of-type(2)').textContent"), "<b>维护说明</b>")
+        self.assertFalse(browser.evaluate("Boolean(document.querySelector('#dialog-result b'))"))
+
+        browser.evaluate("document.querySelector('#diagnostic-form').requestSubmit()")
+        diagnostic = command("diagnostics.run")
+        def part(index, stream, data):
+            return {"type": "progress", "id": diagnostic["id"],
+                    "payload": {"index": index, "stream": stream, "data": base64.b64encode(data).decode()}}
+        content = "运行中\n".encode()
+        send(part(1, "stdout", content[:2]), part(2, "stderr", b"warning\n"), part(3, "stdout", content[2:]))
+        browser.wait("document.querySelector('#diagnostic-stdout').textContent.includes('运行中') && document.querySelector('#diagnostic-stderr').textContent.includes('warning')")
+        self.assertNotIn("退出码", browser.evaluate("document.querySelector('#diagnostic-status').textContent"))
+        send({"type": "result", "id": diagnostic["id"], "ok": True,
+              "payload": {"stdout": "运行中\n", "stderr": "warning\n", "exitCode": 4, "data": None}})
+        browser.wait("document.querySelector('#diagnostic-status').textContent === '退出码 4'")
 
 
 if __name__ == "__main__":

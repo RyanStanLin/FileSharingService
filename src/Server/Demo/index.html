@@ -33,58 +33,240 @@
           <label for="devices">选择设备</label>
           <select id="devices" disabled></select>
           <button id="access" class="primary" disabled>授权当前连接</button>
+          <button id="revoke-access" type="button" hidden>撤销授权</button>
           <button id="refresh" disabled>刷新状态</button>
         </div>
-        <p id="device-status" aria-live="polite"></p>
-      </section>
-      <section>
-        <div class="section-title">
-          <h2>系统权限</h2>
-          <span id="feed-status">等待设备</span>
+        <div class="row device-summary">
+          <span id="device-status" role="status"></span>
+          <span id="device-link-quality" class="muted"></span>
         </div>
-        <table>
-          <thead><tr><th scope="col">权限</th><th scope="col">状态</th><th scope="col">最近检测</th><th scope="col">操作</th></tr></thead>
-          <tbody id="permissions"></tbody>
-        </table>
       </section>
-      <section>
-        <h2>读取文件</h2>
-        <form id="browse" class="row">
-          <label for="path">相对 HOME 的目录</label>
-          <input id="path" value="Downloads" spellcheck="false">
-          <button id="browse-button" class="primary" disabled>列出文件</button>
-          <button id="parent" type="button" disabled>上一级</button>
-        </form>
-        <div class="row shortcuts">
-          <button type="button" data-directory="Downloads">下载</button>
-          <button type="button" data-directory="Documents">文稿</button>
-          <button type="button" data-directory="Desktop">桌面</button>
-          <label class="hidden-toggle"><input type="checkbox" id="show-hidden" disabled> 显示隐藏项目</label>
-        </div>
-        <p id="file-status" role="status"></p>
-        <div id="files" class="file-table" role="region" aria-label="文件列表" tabindex="0" hidden>
+      <div class="workspace-tabs" role="tablist" aria-label="联调功能">
+        <button id="tab-files" role="tab" type="button" data-pane="files" aria-selected="true" aria-controls="panel-files">文件与权限</button>
+        <button id="tab-telemetry" role="tab" type="button" data-pane="telemetry" aria-selected="false" aria-controls="panel-telemetry" tabindex="-1">设备与电源</button>
+        <button id="tab-apps" role="tab" type="button" data-pane="apps" aria-selected="false" aria-controls="panel-apps" tabindex="-1">应用直播</button>
+        <button id="tab-actions" role="tab" type="button" data-pane="actions" aria-selected="false" aria-controls="panel-actions" tabindex="-1">诊断与交互</button>
+        <button id="tab-gateway" role="tab" type="button" data-pane="gateway" aria-selected="false" aria-controls="panel-gateway" tabindex="-1">FTP / SFTP</button>
+      </div>
+      <div id="panel-files" role="tabpanel" aria-labelledby="tab-files" tabindex="0">
+        <section>
+          <div class="section-title">
+            <h2>系统权限</h2>
+            <span id="feed-status">等待设备</span>
+          </div>
           <table>
-            <thead>
-              <tr>
-                <th scope="col">缩略图</th>
-                <th scope="col" aria-sort="ascending"><button type="button" class="sort-button" data-sort="name">名称 <span aria-hidden="true">↑</span></button></th>
-                <th scope="col"><button type="button" class="sort-button" data-sort="type">类型 <span aria-hidden="true"></span></button></th>
-                <th scope="col"><button type="button" class="sort-button" data-sort="size">大小 <span aria-hidden="true"></span></button></th>
-                <th scope="col"><button type="button" class="sort-button" data-sort="createdAt">创建时间 <span aria-hidden="true"></span></button></th>
-                <th scope="col"><button type="button" class="sort-button" data-sort="modifiedAt">修改时间 <span aria-hidden="true"></span></button></th>
-                <th scope="col"><button type="button" class="sort-button" data-sort="lastOpenedAt">上次打开 <span aria-hidden="true"></span></button></th>
-                <th scope="col">操作</th>
-              </tr>
-            </thead>
-            <tbody id="entries"></tbody>
+            <thead><tr><th scope="col">权限</th><th scope="col">状态</th><th scope="col">最近检测</th><th scope="col">操作</th></tr></thead>
+            <tbody id="permissions"></tbody>
           </table>
-        </div>
-        <button id="next-page" hidden>加载下一页</button>
-        <div id="preview" hidden>
-          <h3 id="preview-title"></h3>
-          <pre id="preview-content"></pre>
-        </div>
-      </section>
+        </section>
+        <section>
+          <h2>读取文件</h2>
+          <form id="browse" class="row">
+            <label for="path">相对 HOME 的目录</label>
+            <input id="path" value="Downloads" spellcheck="false">
+            <button id="browse-button" class="primary" disabled>列出文件</button>
+            <button id="parent" type="button" disabled>上一级</button>
+          </form>
+          <div class="row shortcuts">
+            <button type="button" data-directory="Downloads">下载</button>
+            <button type="button" data-directory="Documents">文稿</button>
+            <button type="button" data-directory="Desktop">桌面</button>
+            <label class="hidden-toggle"><input type="checkbox" id="show-hidden" disabled> 显示隐藏项目</label>
+          </div>
+          <p id="file-status" role="status"></p>
+          <div id="files" class="file-table" role="region" aria-label="文件列表" tabindex="0" hidden>
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">缩略图</th>
+                  <th scope="col" aria-sort="ascending"><button type="button" class="sort-button" data-sort="name">名称 <span aria-hidden="true">↑</span></button></th>
+                  <th scope="col"><button type="button" class="sort-button" data-sort="type">类型 <span aria-hidden="true"></span></button></th>
+                  <th scope="col"><button type="button" class="sort-button" data-sort="size">大小 <span aria-hidden="true"></span></button></th>
+                  <th scope="col"><button type="button" class="sort-button" data-sort="createdAt">创建时间 <span aria-hidden="true"></span></button></th>
+                  <th scope="col"><button type="button" class="sort-button" data-sort="modifiedAt">修改时间 <span aria-hidden="true"></span></button></th>
+                  <th scope="col"><button type="button" class="sort-button" data-sort="lastOpenedAt">上次打开 <span aria-hidden="true"></span></button></th>
+                  <th scope="col">操作</th>
+                </tr>
+              </thead>
+              <tbody id="entries"></tbody>
+            </table>
+          </div>
+          <button id="next-page" hidden>加载下一页</button>
+          <div id="preview" hidden>
+            <h3 id="preview-title"></h3>
+            <pre id="preview-content"></pre>
+          </div>
+        </section>
+      </div>
+      <div id="panel-telemetry" role="tabpanel" aria-labelledby="tab-telemetry" tabindex="0" hidden>
+        <section aria-labelledby="telemetry-heading">
+          <div class="section-title">
+            <div class="row"><h2 id="telemetry-heading">设备遥测</h2><span id="telemetry-feed" class="muted" role="status"></span></div>
+            <button id="collect-telemetry" type="button" disabled>请求设备采样</button>
+          </div>
+          <p id="collect-status" class="muted" role="status"></p>
+          <dl id="telemetry-summary" class="metric-strip"></dl>
+          <div class="detail-grid">
+            <div><h3>设备与系统</h3><dl id="system-details" class="facts"></dl></div>
+            <div><h3>电源、内存与网络</h3><dl id="resource-details" class="facts"></dl></div>
+          </div>
+          <h3>磁盘与外接存储</h3>
+          <div class="table-scroll" role="region" aria-label="磁盘与外接存储" tabindex="0">
+            <table><thead><tr><th scope="col">挂载点或设备</th><th scope="col">文件系统</th><th scope="col">容量</th><th scope="col">可用</th><th scope="col">状态</th></tr></thead><tbody id="storage-rows"></tbody></table>
+          </div>
+          <details><summary>显示器、网卡及原始样本</summary><pre id="raw-telemetry"></pre></details>
+          <h3>本次设备事件</h3>
+          <p id="device-events-empty" class="muted">等待合盖、电源、网络、外接存储或剪贴板更新。</p>
+          <ol id="device-events" class="event-list"></ol>
+        </section>
+        <section aria-labelledby="power-heading">
+          <div class="section-title"><h2 id="power-heading">合盖与采样策略</h2><span id="policy-source" class="muted"></span></div>
+          <dl id="power-details" class="facts"></dl>
+          <p class="muted" id="power-help">本机联调包由 macOS 管理实际睡眠。页面可保存策略、查看开合盖和 Mac 回报的状态。</p>
+          <form id="device-policy" aria-describedby="power-help">
+            <fieldset id="policy-fields" disabled>
+              <label class="check"><input id="keep-awake" type="checkbox"> 合盖或空闲时请求保持唤醒</label>
+              <fieldset class="nested-group">
+                <legend>采样间隔（秒）</legend>
+                <p class="muted">0 为手动采样。周期范围为 5–3600 秒，系统事件仍会推送。</p>
+                <div id="sampling-fields" class="form-grid"></div>
+              </fieldset>
+              <div class="row form-actions">
+                <button class="primary" type="submit">保存设备策略</button>
+                <button id="inherit-policy" type="button">恢复继承</button>
+                <button id="reload-policy" type="button">重新读取</button>
+              </div>
+            </fieldset>
+          </form>
+          <p id="policy-status" class="muted" role="status"></p>
+        </section>
+      </div>
+      <div id="panel-apps" role="tabpanel" aria-labelledby="tab-apps" tabindex="0" hidden>
+        <section aria-labelledby="apps-heading">
+          <div class="section-title"><h2 id="apps-heading">应用直播</h2><span id="apps-feed" class="muted" role="status"></span></div>
+          <div class="row list-controls">
+            <label for="apps-mode">清单</label>
+            <select id="apps-mode"><option value="apps-running">运行中</option><option value="apps-installed">已安装</option></select>
+            <label for="apps-filter">搜索应用</label>
+            <input id="apps-filter" type="search" placeholder="名称、Bundle ID 或 PID" spellcheck="false">
+            <span id="apps-count" class="muted"></span>
+          </div>
+          <div class="table-scroll app-table" role="region" aria-label="应用列表" tabindex="0">
+            <table><thead><tr><th scope="col">应用</th><th scope="col">版本 / PID</th><th scope="col">运行状态</th><th scope="col">路径</th></tr></thead><tbody id="app-rows"></tbody></table>
+          </div>
+          <div class="row list-controls">
+            <button id="apps-previous" type="button" disabled>上一页</button>
+            <button id="apps-next" type="button" disabled>下一页</button>
+          </div>
+        </section>
+        <section aria-labelledby="app-events-heading">
+          <div class="section-title"><h2 id="app-events-heading">本次应用事件</h2><button id="clear-app-events" type="button">清空列表</button></div>
+          <p id="app-events-empty" class="muted">等待应用启动、退出、切换、隐藏或安装变更。</p>
+          <ol id="app-events" class="event-list"></ol>
+        </section>
+      </div>
+      <div id="panel-actions" role="tabpanel" aria-labelledby="tab-actions" tabindex="0" hidden>
+        <section aria-labelledby="diagnostics-heading">
+          <h2 id="diagnostics-heading">受控诊断</h2>
+          <form id="diagnostic-form">
+            <fieldset id="diagnostic-fields" class="row" disabled>
+              <label for="diagnostic-kind">诊断项目</label>
+              <select id="diagnostic-kind">
+                <option value="osVersion">macOS 版本</option><option value="uptime">系统运行时长</option>
+                <option value="diskSpace">磁盘空间</option><option value="agentHealth">Agent 健康检查</option>
+              </select>
+              <button class="primary" type="submit">运行诊断</button>
+            </fieldset>
+          </form>
+          <p id="diagnostic-status" class="muted" role="status"></p>
+          <div class="detail-grid">
+            <div><h3>STDOUT</h3><pre id="diagnostic-stdout" tabindex="0" aria-label="标准输出"></pre></div>
+            <div><h3>STDERR</h3><pre id="diagnostic-stderr" tabindex="0" aria-label="标准错误"></pre></div>
+          </div>
+        </section>
+        <section aria-labelledby="dialog-heading">
+          <h2 id="dialog-heading">远程原生对话框</h2>
+          <p class="muted">需要 macOS Agent 0.4.0 或更新版本。请求会显示在所选 Mac 的已解锁用户会话中。</p>
+          <form id="dialog-form">
+            <fieldset id="dialog-fields" disabled>
+              <div class="form-grid">
+                <label>标题<input id="dialog-title" maxlength="100" required value="维护确认"></label>
+                <label>图标<select id="dialog-icon"><option value="info">信息</option><option value="question">问题</option><option value="warning">警告</option><option value="stop">停止</option></select></label>
+                <label>答复方式<select id="dialog-input"><option value="none">只选选项</option><option value="optional">选项与选填说明</option><option value="required">选项与必填说明</option></select></label>
+                <label>等待时间（秒）<input id="dialog-timeout" type="number" min="10" max="120" step="1" value="60" required></label>
+              </div>
+              <label class="form-label">提示文字<textarea id="dialog-message" rows="3" maxlength="1000" required>请选择是否同意本次维护。</textarea></label>
+              <div class="form-grid">
+                <label>选项 1<input id="dialog-choice-1" maxlength="40" value="同意" required></label>
+                <label>选项 2（可选）<input id="dialog-choice-2" maxlength="40" value="暂缓"></label>
+                <label>选项 3（可选）<input id="dialog-choice-3" maxlength="40"></label>
+              </div>
+              <div class="row form-actions"><button class="primary" type="submit">发送到 Mac</button></div>
+            </fieldset>
+          </form>
+          <p id="dialog-status" class="muted" role="status"></p>
+          <dl id="dialog-result" class="facts"></dl>
+        </section>
+      </div>
+      <div id="panel-gateway" role="tabpanel" aria-labelledby="tab-gateway" tabindex="0" hidden>
+        <section aria-labelledby="gateway-heading">
+          <div class="section-title"><h2 id="gateway-heading">FTP / FTPS / SFTP</h2><button id="gateway-reload" type="button">刷新网关</button></div>
+          <p class="muted">网关根目录会列出当前连接已授权的在线 Mac，可浏览和下载其共享主目录。</p>
+          <ul id="gateway-endpoints" class="event-list"></ul>
+          <p id="gateway-status" class="muted" role="status"></p>
+        </section>
+        <section aria-labelledby="account-heading">
+          <h2 id="account-heading">网关账号</h2>
+          <div class="table-scroll" role="region" aria-label="网关账号" tabindex="0">
+            <table><thead><tr><th scope="col">用户名</th><th scope="col">协议</th><th scope="col">目录范围</th><th scope="col">状态</th><th scope="col">操作</th></tr></thead><tbody id="gateway-accounts"></tbody></table>
+          </div>
+          <button id="gateway-more" type="button" hidden>加载下一页</button>
+          <form id="gateway-create" autocomplete="off">
+            <fieldset id="gateway-create-fields" disabled>
+              <legend>创建账号</legend>
+              <div class="form-grid">
+                <label>协议<select id="gateway-mode" required></select></label>
+                <label>用户名<input id="gateway-name" maxlength="64" pattern="[A-Za-z0-9_.\-]+" spellcheck="false" required></label>
+                <label>密码<input id="gateway-password" type="password" autocomplete="new-password" minlength="16" maxlength="128" placeholder="留空则随机生成"></label>
+              </div>
+              <div class="row form-actions"><button class="primary" type="submit">创建账号</button></div>
+            </fieldset>
+          </form>
+          <div id="gateway-account-detail" class="account-detail" hidden>
+            <div class="row section-title"><h3 id="gateway-account-heading">账号设置</h3><button id="close-account" type="button">收起账号设置</button></div>
+            <form id="gateway-account-form">
+              <fieldset id="gateway-account-fields">
+                <div class="row">
+                  <label for="gateway-edit-name">用户名</label>
+                  <input id="gateway-edit-name" maxlength="64" pattern="[A-Za-z0-9_.\-]+" spellcheck="false" required>
+                  <label class="check"><input id="gateway-enabled" type="checkbox"> 启用</label>
+                  <button type="submit">保存账号</button>
+                </div>
+              </fieldset>
+            </form>
+            <form id="gateway-rotate" class="row form-actions" autocomplete="off">
+              <label for="gateway-new-password">新密码</label>
+              <input id="gateway-new-password" type="password" autocomplete="new-password" minlength="16" maxlength="128" placeholder="留空则随机生成">
+              <button type="submit">轮换密码</button>
+              <button id="gateway-reveal" type="button">查看密码</button>
+            </form>
+            <p id="gateway-credential-label" class="muted">轮换会使该账号的旧连接失效。查看密码可能要求再次验证 Passkey。</p>
+            <div id="gateway-credential" class="row credential" role="group" aria-label="当前网关凭据" hidden>
+              <label for="gateway-visible-password">密码</label>
+              <input id="gateway-visible-password" type="text" readonly autocomplete="off" spellcheck="false">
+              <button id="gateway-copy" type="button">复制密码</button>
+              <button id="gateway-hide" type="button">隐藏密码</button>
+            </div>
+            <p id="gateway-account-status" class="muted" role="status"></p>
+          </div>
+        </section>
+        <section aria-labelledby="gateway-connections-heading">
+          <div class="section-title"><h2 id="gateway-connections-heading">当前连接</h2><span id="gateway-connections-status" class="muted" role="status"></span></div>
+          <div class="table-scroll" role="region" aria-label="网关连接列表" tabindex="0">
+            <table><thead><tr><th scope="col">账号</th><th scope="col">协议</th><th scope="col">客户端</th><th scope="col">连接时间</th><th scope="col">最近活动</th></tr></thead><tbody id="gateway-connections"></tbody></table>
+          </div>
+        </section>
+      </div>
     </div>
   </main>
 </body>

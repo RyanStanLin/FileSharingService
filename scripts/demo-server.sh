@@ -10,6 +10,10 @@ mkdir -p "$state"
 chmod 700 "$state"
 pidfile="$state/server.pid"
 configuration="$state/.env"
+gateway_key_file="$state/gateway.key"
+ftp_tls="$state/ftps-tls.pem"
+ftp_certificate="$state/ftps-cert.pem"
+control_ports=(8847 2121 2122 2990 2222)
 
 registered_pid() {
     [ -f "$pidfile" ] || return 1
@@ -35,16 +39,30 @@ case "${1:-start}" in
         ;;
     stop)
         if pid="$(registered_pid)"; then
-            kill "$pid"
+            kill "$pid" 2>/dev/null || ! kill -0 "$pid" 2>/dev/null
+            for _ in $(seq 1 160); do
+                if ! registered_pid >/dev/null; then break; fi
+                sleep 0.25
+            done
+            if registered_pid >/dev/null; then
+                printf '%s\n' 'The demo is still shutting down. Check its status before restarting.' >&2
+                exit 1
+            fi
         fi
         rm -f "$pidfile"
         ;;
     start)
         if registered_pid >/dev/null && healthy; then describe; exit 0; fi
-        if registered_pid >/dev/null || lsof -nP -iTCP:8847 -sTCP:LISTEN -t >/dev/null 2>&1; then
-            printf '%s\n' 'Port 8847 is already in use.' >&2
+        if registered_pid >/dev/null; then
+            printf '%s\n' 'The demo process is running but has not become ready.' >&2
             exit 1
         fi
+        for control_port in "${control_ports[@]}"; do
+            if lsof -nP -iTCP:"$control_port" -sTCP:LISTEN -t >/dev/null 2>&1; then
+                printf 'Port %s is already in use.\n' "$control_port" >&2
+                exit 1
+            fi
+        done
         if [ ! -e "$configuration" ]; then
             (set -C; printf 'FILESHARING_BOOTSTRAP_SECRET=%s\n' "$(openssl rand -hex 32)" > "$configuration")
         fi
@@ -53,6 +71,25 @@ case "${1:-start}" in
             printf '%s\n' 'The local demo deployment secret is invalid.' >&2
             exit 1
         fi
+        if [ ! -e "$gateway_key_file" ]; then
+            (set -C; openssl rand -hex 32 > "$gateway_key_file")
+        fi
+        IFS= read -r gateway_key < "$gateway_key_file"
+        if ! [[ "$gateway_key" =~ ^[0-9a-f]{64}$ ]]; then
+            printf '%s\n' 'The local gateway encryption key is invalid.' >&2
+            exit 1
+        fi
+        if ! openssl x509 -in "$ftp_tls" -checkend 86400 -noout >/dev/null 2>&1; then
+            tls_build="$(mktemp -d "$state/tls-build.XXXXXXXX")"
+            trap 'rm -f "$tls_build/key.pem" "$tls_build/cert.pem" "$tls_build/tls.pem"; rmdir "$tls_build"' EXIT
+            openssl req -x509 -newkey rsa:2048 -nodes -days 90 -subj /CN=localhost \
+                -addext subjectAltName=DNS:localhost,IP:127.0.0.1 \
+                -keyout "$tls_build/key.pem" -out "$tls_build/cert.pem" 2>"$state/ftps-certificate.log"
+            cat "$tls_build/cert.pem" "$tls_build/key.pem" > "$tls_build/tls.pem"
+            mv "$tls_build/tls.pem" "$ftp_tls"
+        fi
+        openssl x509 -in "$ftp_tls" -out "$ftp_certificate"
+        (cd "$root/src/Sftp" && go build -mod=readonly -trimpath -o "$state/filesharing-sftp" .)
         dotnet build "$root/src/Server/FileSharing.Server.csproj" -c Release -p:RestoreLockedMode=true --nologo
         dotnetExecutable="$(command -v dotnet)"
         pid="$(
@@ -60,12 +97,22 @@ case "${1:-start}" in
             ASPNETCORE_URLS=http://127.0.0.1:8847 \
             FileSharing__Origin="$origin" \
             FileSharing__BootstrapSecret="$secret" \
+            FileSharing__GatewayCredentialKey="$gateway_key" \
             FileSharing__EnableDemo=true \
             FileSharing__KnownProxies= \
             FileSharing__BlockAgentWebSocket=false \
-            FileSharing__Ftp__PlainPort=0 \
-            FileSharing__Ftp__ExplicitPort=0 \
-            FileSharing__Ftp__ImplicitPort=0 \
+            FileSharing__Ftp__Bind=127.0.0.1 \
+            FileSharing__Ftp__Host=localhost \
+            FileSharing__Ftp__PlainClients=127.0.0.0/8 \
+            FileSharing__Ftp__PlainPort=2121 \
+            FileSharing__Ftp__ExplicitPort=2122 \
+            FileSharing__Ftp__ImplicitPort=2990 \
+            FileSharing__Ftp__Certificate="$ftp_tls" \
+            FileSharing__Ftp__CertificateKey="$ftp_tls" \
+            FileSharing__Ftp__PassiveAddress=127.0.0.1 \
+            FileSharing__Sftp__Port=2222 \
+            FileSharing__Sftp__BridgePort=8847 \
+            FileSharing__Sftp__Binary="$state/filesharing-sftp" \
             python3 - "$dotnetExecutable" "$assembly" "$state" <<'PROCESS'
 from pathlib import Path
 import subprocess

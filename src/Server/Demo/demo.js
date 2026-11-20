@@ -1,4 +1,8 @@
-const element = id => document.getElementById(id)
+import {deviceData} from "./device-data.js"
+import {deviceJobs} from "./device-jobs.js"
+import {gatewayPanel} from "./gateway.js"
+import {dateText, duration, element, eventSocket, status} from "./ui.js"
+
 const permissions = [
     ["downloads", "下载目录"],
     ["documents", "文稿目录"],
@@ -18,7 +22,20 @@ const errors = { authentication_required: "请先解锁后台。",
     root_access_denied: "当前连接没有此目录授权。",
     not_found: "当前目录或文件不存在。",
     snapshot_unavailable: "设备状态正在同步。",
-    limit_reached: "刚发出过同项申请，请稍后重试。" }
+    limit_reached: "刚发出过同项申请，请稍后重试。",
+    interactive_session_required: "请先让 Mac 登录并解锁当前用户会话。",
+    interaction_already_running: "这台 Mac 已有对话框在等待答复。",
+    diagnostic_already_running: "这台 Mac 上已有诊断在运行。",
+    unsupported: "设备当前版本不支持这项操作。",
+    job_limit: "当前操作过多，请稍后重试。",
+    review_ended: "当前 Passkey 管理会话已结束。",
+    invalid_ftp_password: "密码需为 16–128 个可打印 ASCII 字符，至少 8 个不同字符，并同时包含字母和非字母。",
+    account_name_in_use: "该用户名已被使用。",
+    invalid_account_name: "用户名只可使用英文字母、数字、点、横线和下划线。",
+    password_reveal_unavailable: "当前账号没有可查询的密码，请先轮换。",
+    ftp_mode_disabled: "当前服务未启用该协议。"
+}
+const errorText = code => errors[code] ?? code
 const sortButtons = document.querySelectorAll("[data-sort]")
 const fileTimeFormat = new Intl.DateTimeFormat("zh-CN", {
     year:"numeric", month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit", hourCycle:"h23"
@@ -47,6 +64,42 @@ let sortKey = "name"
 let sortDirection = "asc"
 let refreshInProgress = false
 let jobPollInProgress = false
+let pane = "files"
+const tabs = [...document.querySelectorAll("[data-pane]")]
+const jobs = deviceJobs({call, perform, errorText, collectCompleted: () => data.refresh()})
+const data = deviceData({call, perform, submitCollection: topics => jobs.collect(topics)})
+const gateway = gatewayPanel({call, perform, authenticate})
+
+function updatePanes() {
+    const device = unlocked ? selected() : undefined
+    data.bind(device, pane)
+    jobs.bind(device)
+    gateway.bind(unlocked && pane === "gateway")
+}
+
+function selectPane(tab) {
+    pane = tab.dataset.pane
+    for (const item of tabs) {
+        const active = item === tab
+        item.setAttribute("aria-selected", String(active))
+        item.tabIndex = active ? 0 : -1
+        element(item.getAttribute("aria-controls")).hidden = !active
+    }
+    updatePanes()
+}
+
+for (const [index, tab] of tabs.entries()) {
+    tab.addEventListener("click", () => selectPane(tab))
+    tab.addEventListener("keydown", event => {
+        const offset = {ArrowLeft: -1, ArrowRight: 1}[event.key]
+        const next = offset ? (index + tabs.length + offset) % tabs.length :
+            event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : undefined
+        if (next == null) return
+        event.preventDefault()
+        selectPane(tabs[next])
+        tabs[next].focus()
+    })
+}
 
 function message(text, failed = false) {
     element("notice").textContent = text
@@ -91,7 +144,14 @@ function perform(work) {
     return async event => {
         event?.preventDefault()
         try { await work(event) }
-        catch (error) { if (error.name !== "AbortError") message(error.message, true) }
+        catch (error) {
+            if (error.name === "AbortError") return
+            if (error.status === 401 && unlocked) {
+                try { await updateSession() }
+                catch (sessionError) { message(sessionError.message, true) }
+            }
+            message(error.message, true)
+        }
     }
 }
 
@@ -107,6 +167,7 @@ async function updateSession() {
         closeSocket()
         deviceId = undefined
         resetDeviceView()
+        renderDevice()
         return
     }
     await refreshDevices()
@@ -130,12 +191,16 @@ element("setup").addEventListener("submit", perform(async () => {
     message("Passkey 已注册。请解锁后台。")
 }))
 
-element("unlock").addEventListener("click", perform(async () => {
+async function authenticate() {
     webAuthn()
     const {challengeId, publicKey} = await call("/auth/passkeys/authentication/options", {method:"POST"})
     const credential = await navigator.credentials.get({publicKey: PublicKeyCredential.parseRequestOptionsFromJSON(publicKey)})
     await call("/auth/passkeys/authentication", {method:"POST", body:{challengeId, credential:credential.toJSON()}})
     await updateSession()
+}
+
+element("unlock").addEventListener("click", perform(async () => {
+    await authenticate()
     message("后台已解锁。")
 }))
 
@@ -154,11 +219,13 @@ async function refreshDevices() {
         const previous = deviceId
         const previousConnection = selected()?.connection.connectionId
         devices = response.items
-        if (!selected()?.connection.online) deviceId = devices.find(device => device.connection.online)?.id ?? deviceId
-        if (!selected()) deviceId = devices[0]?.id
+        if (!selected()) deviceId = devices.find(device => device.connection.online)?.id ?? devices[0]?.id
         const select = element("devices")
-        select.replaceChildren(...devices.map(device =>
-            new Option(device.name + (device.connection.online ? " · 在线" : " · 离线"), device.id)))
+        const options = devices.map(device => [device.id, device.name + (device.connection.online ? " · 在线" : " · 离线")])
+        if (select.options.length !== options.length || options.some(([id, label], index) =>
+            select.options[index].value !== id || select.options[index].text !== label)) {
+            select.replaceChildren(...options.map(([id, label]) => new Option(label, id)))
+        }
         select.disabled = !devices.length
         if (deviceId) select.value = deviceId
         if (previousConnection !== selected()?.connection.connectionId) resetFiles()
@@ -176,17 +243,25 @@ function renderDevice() {
     if (!allowed && directory) resetFiles()
     element("access").disabled = !connection?.online || connection.accessGranted
     element("access").textContent = connection?.accessGranted ? "当前连接已授权" : "授权当前连接"
+    element("revoke-access").hidden = !allowed
     element("refresh").disabled = !deviceId
     element("browse-button").disabled = !allowed
     element("parent").disabled = !allowed || !element("path").value
     element("show-hidden").disabled = !allowed
     element("next-page").disabled = !allowed || directory?.pending === true
-    element("device-status").textContent = connection?.online
+    status("device-status", connection?.online
         ? "在线 · " + (connection.protocol ?? "") + " · " + (connection.accessGranted ? "可远程操作" : "等待授权")
-        : deviceId ? "设备离线" : "等待 FileSharingService 上线"
+        : deviceId ? "设备离线" : "等待 FileSharingService 上线")
+    const quality = [
+        Number.isFinite(connection?.latencyMs) && "RTT " + connection.latencyMs.toLocaleString("zh-CN", {maximumFractionDigits: 1}) + " ms",
+        connection?.online && "已连接 " + duration(connection.connectionSeconds),
+        connection?.lastCommunicationAt && "最近通信 " + dateText(connection.lastCommunicationAt)
+    ].filter(Boolean).join(" · ")
+    status("device-link-quality", quality)
     for (const row of element("permissions").rows) {
         row.querySelector("button").disabled = !enabled() || permissionPending(row.dataset.permission)
     }
+    updatePanes()
 }
 
 element("devices").addEventListener("change", perform(async event => {
@@ -195,19 +270,24 @@ element("devices").addEventListener("change", perform(async event => {
     await selectDevice()
 }))
 
-element("access").addEventListener("click", perform(async () => {
+async function changeAccess(grant) {
     const device = selected()
     if (!device?.connection.connectionId) return
     const result = await call(devicePath("/connection-access"), {method:"PUT",
-        body:{connectionId:device.connection.connectionId, enabled:true}})
-    device.connection = result
+        body:{connectionId:device.connection.connectionId, enabled:grant}})
+    const updated = devices.find(current => current.id === device.id && current.connection.connectionId === result.connectionId)
+    if (updated) updated.connection = result
     renderDevice()
-    message("当前连接已授权。可以申请权限或读取目录。")
-}))
+    message(grant ? "当前连接已授权。" : "已撤销当前连接的操作授权。")
+}
+
+element("access").addEventListener("click", perform(() => changeAccess(true)))
+element("revoke-access").addEventListener("click", perform(() => changeAccess(false)))
 
 element("refresh").addEventListener("click", perform(async () => {
     await refreshDevices()
     await readSnapshot()
+    await data.refresh()
 }))
 
 function resetDeviceView() {
@@ -248,14 +328,12 @@ function closeSocket() {
 }
 
 function connectSocket(id) {
-    const url = new URL("/api/v1/events/ws", location.href)
-    url.protocol = location.protocol === "https:" ? "wss:" : "ws:"
-    const channel = new WebSocket(url)
+    const channel = eventSocket()
     socket = channel
     element("feed-status").textContent = "WebSocket 连接中"
     channel.addEventListener("open", () => {
         if (socket !== channel) return
-        for (const topic of ["permissions", "jobs.changed", "connection.changed"]) {
+        for (const topic of ["permissions", "jobs.changed", "jobs.output", "connection.changed", "connection.quality"]) {
             channel.send(JSON.stringify({type:"subscribe", id:topic, deviceId:id, topic}))
         }
     })
@@ -274,14 +352,24 @@ function connectSocket(id) {
         if (frame.item.topic === "jobs.changed" && pendingJobs.has(frame.item.payload.id)) {
             void perform(() => readJob(frame.item.payload.id))()
         }
+        if (frame.item.topic === "jobs.changed" || frame.item.topic === "jobs.output") jobs.receive(frame.item)
         if (frame.item.topic === "connection.changed") {
             void perform(refreshDevices)()
+        }
+        if (frame.item.topic === "connection.quality") {
+            const device = selected()
+            const quality = frame.item.payload
+            if (device?.connection.connectionId === quality.connectionId && device?.connection.online) {
+                const {latencyMs, connectionSeconds, lastCommunicationAt} = quality
+                Object.assign(device.connection, {latencyMs, connectionSeconds, lastCommunicationAt})
+                renderDevice()
+            }
         }
     })
     channel.addEventListener("close", () => {
         if (socket !== channel) return
         socket = undefined
-        element("feed-status").textContent = "WebSocket 断开，可刷新状态"
+        element("feed-status").textContent = "WebSocket 断开 · REST 回退"
     })
 }
 
@@ -596,6 +684,9 @@ setInterval(() => {
         else message(error.message, true)
     })
     void perform(pollJobs)()
+    void perform(jobs.tick)()
+    void perform(data.tick)()
+    void perform(gateway.tick)()
 }, 2500)
 
 void perform(updateSession)()

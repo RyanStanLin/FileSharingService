@@ -13,7 +13,8 @@ internal static class DemoEndpoints
         var group = app.MapGroup("/demo").ExcludeFromDescription();
         group.MapGet("", (HttpContext context) => Page(context, "index.html", "text/html; charset=utf-8", websocketOrigin));
         group.MapGet("/demo.css", (HttpContext context) => Page(context, "demo.css", "text/css; charset=utf-8", websocketOrigin));
-        group.MapGet("/demo.js", (HttpContext context) => Page(context, "demo.js", "text/javascript; charset=utf-8", websocketOrigin));
+        foreach (var script in new[] { "demo.js", "device-data.js", "device-jobs.js", "gateway.js", "ui.js" })
+            group.MapGet("/" + script, (HttpContext context) => Page(context, script, "text/javascript; charset=utf-8", websocketOrigin));
     }
 
     private static IResult Page(HttpContext context, string file, string contentType, string websocketOrigin)

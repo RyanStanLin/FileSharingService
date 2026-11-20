@@ -1,6 +1,6 @@
 # 本机联调
 
-浏览器访问 `http://localhost:8847/demo`。本机 DMG 的服务端地址为 `http://localhost:8847`，服务端只绑定回环地址。Agent 使用只读 HOME 和独立本机状态。
+运行 `scripts/demo-server.sh start`，然后访问 `http://localhost:8847/demo`。本机 DMG 的服务端地址为 `http://localhost:8847`。网页、FTP、FTPS 和 SFTP 均只监听回环地址。Agent 使用只读 HOME 和独立本机状态。演示脚本需要 .NET 10、Go 和 OpenSSL。
 
 1. 打开 `artifacts/FileSharingService-0.4.0.dmg`，把 `FileSharingService.app` 拖到 `Applications`。升级时替换同名 App。
 2. 打开已拖装的 App，也可以在 DMG 里双击 `Open FileSharingService.command`。若 macOS 暂拦首次启动，从「系统设置 → 隐私与安全性」为此 App 选择「仍要打开」。[Apple 的首次打开说明](https://support.apple.com/en-us/102445)
@@ -11,6 +11,15 @@
 7. 验证原生通知时，在已安装的 App 中点「启用本地通知」，再用示例请求创建通知作业。用同一份示例验证原生对话框、诊断输出与回退接口。 [API 示例](../FileSharing.http)
 
 读取目录后，表格会显示从 Mac 取回的缩略图、扩展名、类型、大小和时间。点击表头按名称、类型、大小、创建时间、修改时间或上次打开排序，再点同一表头可反转。翻页会沿用当前排序与隐藏项设置。上次打开时间由 macOS 提供，缺失时显示「—」。
+
+| Demo 入口 | 联调方式 |
+| --- | --- |
+| 设备与电源 | 查询设备、CPU、内存、电池、网络、外接存储和开合盖。可修改每项采样间隔或请求即时采样，也可保存、恢复继承合盖保持唤醒策略。本机联调包的实际睡眠由 macOS 控制，页面显示 Mac 回报的有效状态。 |
+| 应用直播 | 查看运行中与已安装的应用清单，按名称、Bundle ID 或 PID 搜索。启动或退出一个测试 App，查看事件和清单变化。WebSocket 断线时，页面回退到 REST 并补读事件。 |
+| 诊断与交互 | 从下拉菜单运行固定诊断，查看 STDOUT、STDERR 和退出码。填写标题、提示文字、图标及选项后发送到所选 Mac，等待选择或说明回传。原生对话框需要 Agent 0.4.0 或更新版本。 |
+| FTP / SFTP | 创建测试账号，可留空密码以随机生成。用独立客户端连接并回到页面查看会话。轮换密码会使旧连接失效。查看历史已签发的可查询密码时，页面会按需重新验证 Passkey。 |
+
+网关端口为 FTP 2121、显式 FTPS 2122、隐式 FTPS 2990 和 SFTP 2222。FTPS 客户端可校验或导入本机公共证书 `.local/demo/ftps-cert.pem`。SFTP 主机指纹显示在页面中。页面创建的账号会看到所有已授权在线 Mac 的主目录。
 
 可再次打开 App 查看状态或停用其后台服务。本机服务器可以用 `scripts/demo-server.sh status` 检查、用 `scripts/demo-server.sh stop` 停止。日志和测试数据库都位于 `.local/demo`。
 
