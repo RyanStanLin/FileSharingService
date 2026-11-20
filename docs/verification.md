@@ -1,5 +1,19 @@
 # FileSharing 验收记录
 
+## Agent 0.4.2
+
+26 项集成测试及 4 项浏览器回归通过。.NET 的 Debug 和 Release 构建各报告 0 个警告和 0 个错误。
+
+已安装的 Agent 0.4.2 在本机联调重新上线。强制终止该进程后，launchd 在约 3.2 秒内启动了新进程并重新连上服务，随后心跳持续推进。AppKit 测试测量单个原生面板的 260 pt 宽度，并验证置顶、应用图标、默认选项、提交及关闭。安装包内实际运行的弹窗进程也验证了超时退出。双架构 DMG 与内置 App 通过校验，应用资源包含用户提供的 Icon Composer 图标。
+
+| 验收项 | 对应用例 |
+| --- | --- |
+| 弹窗进程失败或超时可回收，下一次弹窗和同一设备连接继续工作 | `test_dialog_helper_crash_and_timeout_preserve_connection` |
+| WSS 服务重启及切换 HTTPS 回退后原 Agent 进程自动重连 | `test_running_agent_recovers_when_server_restarts` |
+| HTTPS 单次 503 后重试成功，保留通道和连接授权 | `test_http_polling_retains_connection_after_a_transient_frame_error` |
+| 主线程卡在启动阶段时 watchdog 退出进程 | `test_agent_watchdog_exits_a_blocked_startup` |
+| 系统验证的结果契约与额外字段拒绝 | `test_dialog_response_notification_and_session_cancellation` |
+
 ## 本机 FTP 客户端兼容性
 
 `test_loopback_ftp_active_listing_and_protected_download` 验证 `PORT` 和 `EPRT` 列表、显式及隐式 FTPS 主动下载，拒绝与控制连接不同的目标 IP 和特权端口，并验证被动模式与 `EPSV ALL`。22 项集成测试和 Demo 网关浏览器回归通过。在 macOS 27.0 上用系统 `mount_ftp` 和隔离测试账号挂载 `localhost`、`127.0.0.1` 上的 FTP 根并读取同一文件。没有已授权设备时，同一地址依然可挂载，目录为空。
@@ -34,12 +48,12 @@
 | Linux 容器、HTTPS 与两侧 WSS、FTPS 和 SFTP | `test_nginx_https_wss_ftps_and_sftp` |
 | 历史库迁移后保留设备、账号及根授权 | `test_sqlite_upgrade_preserves_preexisting_device_and_grant` |
 
-在登录到 Aqua 的 Mac 上可以用以下命令验收 AppKit 对话框。测试程序打开自己的演示窗口、填写测试说明并自动提交。
+在登录到 Aqua 的 Mac 上可以用以下命令验收 AppKit 对话框。测试程序检查单窗体、宽度、层级和应用图标，再填写测试说明、提交和关闭。
 
 ```bash
 mkdir -p .local
 swiftc -swift-version 5 -parse-as-library -D FILESHARING_APP \
-  src/Mac/DeviceInteractions.swift src/Mac/JSON.swift tests/native_dialog_smoke.swift \
+  src/Mac/NativeDialog.swift src/Mac/DialogProcess.swift src/Mac/JSON.swift tests/native_dialog_smoke.swift \
   -o .local/native-dialog-smoke
 .local/native-dialog-smoke
 ```

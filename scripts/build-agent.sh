@@ -64,8 +64,12 @@ verify_app() {
     plutil -lint "$bundle/Contents/Info.plist" "$plist"
     codesign --verify --strict "$bundle"
     test "$(/usr/libexec/PlistBuddy -c 'Print :FileSharingOrigin' "$bundle/Contents/Info.plist")" = "$origin"
+    test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconName' "$bundle/Contents/Info.plist")" = FileSharing
+    test -s "$bundle/Contents/Resources/FileSharing.icns"
+    test -s "$bundle/Contents/Resources/Assets.car"
     test "$(/usr/libexec/PlistBuddy -c 'Print :Label' "$plist")" = in.ryanl.filesharing.agent
     test "$(/usr/libexec/PlistBuddy -c 'Print :BundleProgram' "$plist")" = Contents/MacOS/FileSharingService
+    test "$(/usr/libexec/PlistBuddy -c 'Print :KeepAlive' "$plist")" = true
     test "$(/usr/libexec/PlistBuddy -c 'Print :ProgramArguments:0' "$plist")" = FileSharingService
     test "$(/usr/libexec/PlistBuddy -c 'Print :ProgramArguments:1' "$plist")" = run
     test -x "$binary"
