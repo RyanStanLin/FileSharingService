@@ -1,9 +1,10 @@
 import Foundation
 import Network
+import os
 import OSLog
 import Security
 
-struct AgentHttp {
+struct AgentHttp: Sendable {
     let session: URLSession
     let base: URL
 
@@ -21,6 +22,7 @@ struct AgentHttp {
         let url = base.appendingPathComponent("agent/v1/\(path)")
         var request = URLRequest(url: url)
         request.httpMethod = method
+        if path == "connect" || path == "connection" { request.timeoutInterval = 8 }
         if let channel { request.setValue(channel, forHTTPHeaderField: "X-FileSharing-Channel") }
         if let body {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -34,8 +36,9 @@ struct AgentHttp {
         let (data, response) = try await session.data(for: request)
         guard let result = response as? HTTPURLResponse, (200..<300).contains(result.statusCode),
               data.count < 2_000_000 else {
-            let code = (try? JSON.decode(data)["code"].string) ?? "connection_unavailable"
-            throw AgentError(code)
+            let status = (response as? HTTPURLResponse)?.statusCode
+            let code = (try? JSON.decode(data)["code"].string) ?? (status == 429 ? "rate_limited" : "connection_unavailable")
+            throw AgentError(code, retryable: status.map { [408, 429, 500, 502, 503, 504].contains($0) } ?? false)
         }
         return data.isEmpty ? .null : try JSON.decode(data)
     }
@@ -74,80 +77,113 @@ final class RejectRedirects: NSObject, URLSessionTaskDelegate, @unchecked Sendab
     }
 }
 
-@MainActor
-final class AgentTransport {
+actor AgentTransport {
     private struct Signal {
         let value: JSON
         let bytes: Int
+    }
+
+    private struct LocalReport: Sendable {
+        let topic: String
+        let data: JSON
+        let snapshot: Bool
+    }
+
+    private struct LocalReports: Sendable {
+        var values: [LocalReport] = []
+        var dropped = false
+
+        mutating func append(_ report: LocalReport) {
+            if report.snapshot { values.removeAll { $0.snapshot && $0.topic == report.topic } }
+            if values.count >= 128 {
+                values.removeFirst()
+                dropped = true
+            }
+            values.append(report)
+        }
     }
 
     private let id: String
     private let hello: JSON
     private let state: LocalState
     private let files: ScopedFiles
-    private let roots: [LocalRoot]
+    private let telemetry: Telemetry
+    private let observer: DirectoryObserver
+    private let reports: OSAllocatedUnfairLock<LocalReports>
     private let monitor = NWPathMonitor()
     private let logger = Logger(subsystem: "in.ryanl.filesharing.agent", category: "Connection")
     private var session: URLSession?
     private var socket: URLSessionWebSocketTask?
     private var outbox: [Signal] = []
     private var urgent = [JSON]()
+    private var pong: JSON?
     private var wake: AsyncStream<Void>.Continuation?
     private var seen = [String: Date]()
     private var operations = [String: Task<Void, Never>]()
     private var managedOperations = Set<String>()
     private var activeOrigin: URL?
-    private lazy var interactions = DeviceInteractions()
+    private let interactions: DeviceInteractions
     private var recent = [(id: String, value: JSON)]()
     private var networkGeneration = 0
-    private var heartbeat = Date()
+    private var heartbeat = SuspendingClock.now
+    private var pollingHeartbeat = SuspendingClock.now
     private var changesObserved = false
+    private var linkReady = false
+    private var retryDelay: Task<Void, Never>?
+    private var policyDelivery: Task<Void, Never>?
     private var routeState: String?
     private var lastPathConfiguration: String?
     private var networkSettings: JSON?
     private var persisted = [JSON]()
     private var reviewLossNoted = false
     private var lastSave = Date.distantPast
-    private var clipboard = ClipboardObserver()
-
-    private lazy var telemetry = Telemetry(roots: roots, state: state) { [weak self] topic, payload, snapshot in
-        self?.emit(topic: topic, data: payload, snapshot: snapshot)
-    }
-    private lazy var observer = DirectoryObserver(files: files) { [weak self] value in
-        self?.emit(topic: "files.changed", data: value, snapshot: false)
-    }
-
-    init(enrollment: Enrollment, state: LocalState) {
+    @MainActor init(enrollment: Enrollment, state: LocalState) {
         self.id = enrollment.deviceId
         let name = Host.current().localizedName ?? ProcessInfo.processInfo.hostName
         self.hello = ["type": "hello", "deviceId": .string(enrollment.deviceId), "name": .string(name)]
         self.state = state
-        self.roots = enrollment.roots
-        self.files = ScopedFiles(roots: enrollment.roots)
+        let files = ScopedFiles(roots: enrollment.roots)
+        self.files = files
+        let reports = OSAllocatedUnfairLock(initialState: LocalReports())
+        self.reports = reports
+        self.telemetry = Telemetry(roots: enrollment.roots, state: state) { topic, data, snapshot in
+            reports.withLock { $0.append(LocalReport(topic: topic, data: data, snapshot: snapshot)) }
+        }
+        self.observer = DirectoryObserver(files: files) { data in
+            reports.withLock { $0.append(LocalReport(topic: "files.changed", data: data, snapshot: false)) }
+        }
+        self.interactions = DeviceInteractions()
         self.outbox = state.loadPending().compactMap { item in
             guard item["topic"].string != "clipboard.changed", let count = try? item.encoded().count else { return nil }
             return Signal(value: item, bytes: count)
         }
     }
 
-    func run() async {
+    func run(watchdog: AgentWatchdog) async {
         monitor.pathUpdateHandler = { [weak self] path in
             let configuration = "\(path.status)-\(path.availableInterfaces)-\(path.gateways)-\(path.supportsIPv4)-\(path.supportsIPv6)"
             let reachability = path.status == .satisfied ? "reachable" : "unavailable"
-            Task { @MainActor in self?.pathChanged(configuration, reachability: reachability) }
+            Task { await self?.pathChanged(configuration, reachability: reachability) }
         }
         monitor.start(queue: DispatchQueue(label: "FileSharing.network-monitor"))
+        let liveness = Task {
+            while !Task.isCancelled {
+                watchdog.transportProgress()
+                try? await Task.sleep(for: .seconds(1))
+            }
+        }
         let sampler = Task {
             while !Task.isCancelled {
-                observer.prune()
+                await observer.prune()
                 await telemetry.tick()
+                drainLocalReports()
                 if Date().timeIntervalSince(lastSave) > 2 {
                     let pending = outbox.filter {
                         $0.value["snapshot"].bool != true && $0.value["topic"].string != "files.changed" &&
                             $0.value["topic"].string != "clipboard.changed"
                     }.map(\.value)
                     if pending != persisted {
-                        state.savePending(pending)
+                        await Task.detached(priority: .utility) { [state] in state.savePending(pending) }.value
                         persisted = pending
                     }
                     lastSave = Date()
@@ -158,30 +194,39 @@ final class AgentTransport {
         let proxyMonitor = Task {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(5))
-                let current = Telemetry.proxySettings()
+                let current = await Task.detached(priority: .utility) { Telemetry.proxySettings() }.value
                 if let previous = networkSettings, current != previous {
-                    resetNetwork()
+                    if !linkReady { resetNetwork() }
                     _ = await telemetry.refresh(["network"])
                 }
                 networkSettings = current
             }
         }
-        let signals = Task {
+        let signals = Task { @MainActor [telemetry] in
+            var clipboard = ClipboardObserver()
             while !Task.isCancelled {
                 if let observedAt = clipboard.detectChange() {
-                    emitClipboardChange(observedAt)
+                    await emitClipboardChange(observedAt)
                 }
                 telemetry.observeLid()
                 try? await Task.sleep(for: .milliseconds(500))
             }
         }
-        var outage = 0.5
-        defer { signals.cancel(); sampler.cancel(); proxyMonitor.cancel(); monitor.cancel(); session?.invalidateAndCancel() }
+        var outage = 0.4
+        defer {
+            liveness.cancel()
+            signals.cancel()
+            sampler.cancel()
+            proxyMonitor.cancel()
+            monitor.cancel()
+            session?.invalidateAndCancel()
+        }
         while !Task.isCancelled {
-            let started = Date()
+            let started = SuspendingClock.now
             let generation = networkGeneration
             let connection = AgentHttp.createSession()
             session = connection
+            var refused = false
             for base in EndpointProfile.origins {
                 if Task.isCancelled || networkGeneration != generation { break }
                 let http = AgentHttp(session: connection, base: base)
@@ -191,20 +236,29 @@ final class AgentTransport {
                     } catch let error as AgentError where ["device_already_connected", "device_revoked", "device_capacity"].contains(error.code) {
                         throw error
                     } catch {
-                        if networkGeneration == generation, !Task.isCancelled, Date().timeIntervalSince(started) < 540 {
+                        if networkGeneration == generation, !Task.isCancelled, started.duration(to: .now) < .seconds(30) {
                             try await poll(http)
                         }
                     }
                 } catch {
+                    if let error = error as? AgentError, ["device_revoked", "device_capacity", "rate_limited"].contains(error.code) {
+                        refused = true
+                    }
                     logger.notice("The FileSharing connection will retry.")
                 }
             }
             connection.invalidateAndCancel()
             session = nil
-            if Date().timeIntervalSince(started) > 20 { outage = 0.5 }
+            if started.duration(to: .now) > .seconds(20) { outage = 0.4 }
             if networkGeneration == generation {
-                try? await Task.sleep(for: .seconds(outage * Double.random(in: 0.75...1.25)))
-                outage = min(outage * 2, 24)
+                let delay = (refused ? 24 : outage) * Double.random(in: 0.85...1.15)
+                let waiting = Task<Void, Never> { try? await Task.sleep(for: .seconds(delay)) }
+                retryDelay = waiting
+                await withTaskCancellationHandler { await waiting.value } onCancel: { waiting.cancel() }
+                retryDelay = nil
+                outage = min(outage * 2, 6)
+            } else {
+                outage = 0.4
             }
         }
     }
@@ -214,13 +268,16 @@ final class AgentTransport {
         let changed = lastPathConfiguration != nil
         lastPathConfiguration = configuration
         routeState = reachability
-        telemetry.setReachability(reachability)
-        if changed { resetNetwork() }
-        Task { _ = await telemetry.refresh(["network"]) }
+        if changed && !linkReady { resetNetwork() }
+        Task { @MainActor [telemetry] in
+            telemetry.setReachability(reachability)
+            _ = await telemetry.refresh(["network"])
+        }
     }
 
     private func resetNetwork() {
         networkGeneration += 1
+        retryDelay?.cancel()
         session?.invalidateAndCancel()
         socket?.cancel(with: .goingAway, reason: nil)
     }
@@ -232,14 +289,13 @@ final class AgentTransport {
         }
     }
 
-    private func updatePollingPolicy(_ http: AgentHttp, channel: String) async {
+    private func updatePollingPolicy(_ http: AgentHttp, channel: String) async throws {
         let started = ContinuousClock.now
-        if let response = try? await http.call("policy", channel: channel), !Task.isCancelled {
-            applyPolicy(response)
-            let elapsed = started.duration(to: .now).components
-            let milliseconds = Double(elapsed.seconds) * 1_000 + Double(elapsed.attoseconds) / 1e15
-            _ = try? await http.call("pulse", body: ["latencyMs": .decimal(milliseconds)], channel: channel)
-        }
+        let response = try await pollingCall(http, "policy", channel: channel)
+        applyPolicy(response)
+        let elapsed = started.duration(to: .now).components
+        let milliseconds = Double(elapsed.seconds) * 1_000 + Double(elapsed.attoseconds) / 1e15
+        _ = try await pollingCall(http, "pulse", body: ["latencyMs": .decimal(min(milliseconds, 60_000))], channel: channel)
     }
 
     private func openSocket(_ http: AgentHttp) async throws {
@@ -251,7 +307,7 @@ final class AgentTransport {
         current.maximumMessageSize = 1_500_000
         socket = current
         activeOrigin = http.base
-        heartbeat = Date()
+        heartbeat = .now
         changesObserved = false
         seen.removeAll()
         let signal = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
@@ -281,11 +337,12 @@ final class AgentTransport {
             let message = try await current.receive()
             guard case .string(let text) = message else { throw AgentError("invalid_message") }
             let value = try JSON.decode(Data(text.utf8))
-            heartbeat = Date()
+            heartbeat = .now
             if !changesObserved {
                 if value["type"].string == "error" { throw AgentError(value["code"].string ?? "connection_unavailable") }
                 guard value["type"].string == "ready", value["deviceId"].string == id else { throw AgentError("invalid_message") }
                 changesObserved = true
+                linkReady = true
                 logger.notice("WebSocket connection established.")
                 report = Task { await reportConnection() }
                 wake?.yield()
@@ -293,7 +350,7 @@ final class AgentTransport {
             }
             switch value["type"].string {
             case "ping":
-                urgent.append(["type": "pong", "id": value["id"]])
+                pong = ["type": "pong", "id": value["id"]]
                 wake?.yield()
             case "policy":
                 applyPolicy(value["payload"])
@@ -309,7 +366,7 @@ final class AgentTransport {
 
     private func checkSocket(signal: AsyncStream<Void>.Continuation) async throws {
         while !Task.isCancelled {
-            if Date().timeIntervalSince(heartbeat) > (changesObserved ? 32 : 9) {
+            if heartbeat.duration(to: .now) > .seconds(changesObserved ? 34 : 9) {
                 throw AgentError("connection_timeout")
             }
             if changesObserved { signal.yield() }
@@ -321,15 +378,13 @@ final class AgentTransport {
         for await _ in events {
             if Task.isCancelled { return }
             if !changesObserved { continue }
+            drainLocalReports()
             let now = Date()
             let transient = urgent
             urgent.removeAll(keepingCapacity: true)
-            do {
-                for value in transient {
-                    try await current.send(.string(String(decoding: value.encoded(), as: UTF8.self)))
-                }
-            } catch {
-                throw error
+            for value in transient {
+                try await sendPong(current)
+                try await current.send(.string(String(decoding: value.encoded(), as: UTF8.self)))
             }
             if changesObserved {
                 let events = outbox.filter { signal in
@@ -338,34 +393,43 @@ final class AgentTransport {
                 }.prefix(4)
                 if events.count == 4 { wake?.yield() }
                 for event in events {
+                    try await sendPong(current)
                     try await current.send(.string(String(decoding: event.value.encoded(), as: UTF8.self)))
                     if let id = event.value["id"].string { seen[id] = now }
                 }
             }
+            try await sendPong(current)
         }
     }
 
+    private func sendPong(_ current: URLSessionWebSocketTask) async throws {
+        guard let value = pong else { return }
+        pong = nil
+        try await current.send(.string(String(decoding: value.encoded(), as: UTF8.self)))
+    }
+
     private func poll(_ http: AgentHttp) async throws {
-        urgent.removeAll { $0["type"].string == "pong" }
         let response = try await http.call("connect", body: hello)
         guard response["deviceId"].string == id else { throw AgentError("invalid_message") }
         let channel = try response.requireString("channel")
         activeOrigin = http.base
+        linkReady = true
+        pollingHeartbeat = .now
         logger.notice("HTTP polling connection established.")
         let report = Task { await reportConnection() }
-        let refresh = Task {
-            while !Task.isCancelled {
-                await updatePollingPolicy(http, channel: channel)
-                try? await Task.sleep(for: .seconds(5))
-            }
-        }
-        defer { report.cancel(); refresh.cancel(); endCommandSession() }
+        defer { report.cancel(); endCommandSession() }
         do {
             try await withThrowingTaskGroup(of: Void.self) { group in
                 group.addTask {
                     while !Task.isCancelled {
-                        let commands = try await http.call("commands", channel: channel).array ?? []
+                        let commands = try await self.pollingCall(http, "commands", channel: channel).array ?? []
                         for value in commands { await self.accept(value) }
+                    }
+                }
+                group.addTask {
+                    while !Task.isCancelled {
+                        try await self.updatePollingPolicy(http, channel: channel)
+                        try await Task.sleep(for: .seconds(5))
                     }
                 }
                 group.addTask { try await self.flush(http, channel: channel) }
@@ -380,8 +444,33 @@ final class AgentTransport {
         }
     }
 
+    private func pollingCall(_ http: AgentHttp, _ path: String, body: JSON? = nil, channel: String) async throws -> JSON {
+        var delay = 0.3
+        while true {
+            try Task.checkCancellation()
+            do {
+                let result = try await http.call(path, body: body, channel: channel)
+                try Task.checkCancellation()
+                pollingHeartbeat = .now
+                return result
+            } catch {
+                let recoverable: Bool
+                if let urlError = error as? URLError {
+                    recoverable = [.timedOut, .networkConnectionLost, .notConnectedToInternet, .cannotConnectToHost,
+                                   .cannotFindHost, .dnsLookupFailed, .internationalRoamingOff].contains(urlError.code)
+                } else {
+                    recoverable = (error as? AgentError)?.retryable == true
+                }
+                guard recoverable, pollingHeartbeat.duration(to: .now) < .seconds(34) else { throw error }
+                try await Task.sleep(for: .seconds(delay))
+                delay = min(delay * 2, 3)
+            }
+        }
+    }
+
     private func flush(_ http: AgentHttp, channel: String) async throws {
         while !Task.isCancelled {
+            drainLocalReports()
             let results = Array(urgent.prefix(3))
             var budget = 1_800_000 - (try results.reduce(32) { $0 + (try $1.encoded().count) + 1 })
             let signals = outbox.prefix(2).prefix { item in
@@ -389,7 +478,7 @@ final class AgentTransport {
                 return budget >= 0
             }.map(\.value)
             if !results.isEmpty || !signals.isEmpty {
-                _ = try await http.call("frames", body: ["frames": .array(results + signals)], channel: channel)
+                _ = try await pollingCall(http, "frames", body: ["frames": .array(results + signals)], channel: channel)
                 urgent.removeFirst(min(urgent.count, results.count))
                 acknowledge(signals.compactMap { $0["id"].string })
             }
@@ -410,13 +499,33 @@ final class AgentTransport {
     private func endCommandSession() {
         for task in operations.values { task.cancel() }
         urgent.removeAll()
+        pong = nil
         activeOrigin = nil
+        linkReady = false
+        policyDelivery?.cancel()
     }
 
     private func applyPolicy(_ policy: JSON) {
-        telemetry.setPolicy(Sampling(policy["settings"]))
+        policyDelivery?.cancel()
+        let sampling = Sampling(policy["settings"])
+        policyDelivery = Task { @MainActor [telemetry] in
+            if !Task.isCancelled { telemetry.setPolicy(sampling) }
+        }
         if policy["accessGranted"].bool == false {
             for id in managedOperations { operations[id]?.cancel() }
+        }
+    }
+
+    private func drainLocalReports() {
+        let buffered = reports.withLock {
+            let pending = $0
+            $0 = LocalReports()
+            return pending
+        }
+        for report in buffered.values { emit(topic: report.topic, data: report.data, snapshot: report.snapshot) }
+        if buffered.dropped && !reviewLossNoted {
+            reviewLossNoted = true
+            emit(topic: "telemetry.gap", data: ["kind": "outboxFull", "observedAt": .date(Date())], snapshot: false)
         }
     }
 
@@ -449,7 +558,7 @@ final class AgentTransport {
     }
 
     private func accept(_ command: JSON) {
-        guard let id = command["id"].string, UUID(uuidString: id) != nil else { return }
+        guard !Task.isCancelled, let id = command["id"].string, UUID(uuidString: id) != nil else { return }
         if command["type"].string == "cancel" {
             operations[id]?.cancel()
             return
@@ -495,6 +604,7 @@ final class AgentTransport {
     }
 
     private func confirmReports(_ topics: Set<String>) async throws {
+        drainLocalReports()
         let deadline = ContinuousClock.now + .seconds(6)
         while outbox.contains(where: { item in
             item.value["snapshot"].bool == true && item.value["topic"].string.map(topics.contains) == true
@@ -513,28 +623,33 @@ final class AgentTransport {
             return result
         case "diagnostics.run":
             let name = try input.requireString("diagnostic")
-            let data = name == "custom" ? .null : try telemetry.diagnosticData(name)
+            let data = name == "custom" ? .null : try await telemetry.diagnosticData(name)
             return try await DiagnosticRunner.run(name, input: input, data: data) { part in
-                guard urgent.count < 96 else { throw AgentError("limit_reached") }
-                urgent.append(["type": "progress", "id": .string(id), "payload": part])
-                wake?.yield()
+                try await self.diagnosticProgress(part, id: id)
             }
         case "permissions.request":
             return try await telemetry.permission(input.requireString("permission"))
         case "interaction.dialog":
             guard activeOrigin != nil else { throw AgentError("connection_unavailable") }
-            return try await interactions.present(input)
+            return try await DeviceInteractions.present(input)
         case "interaction.notification":
             guard let activeOrigin else { throw AgentError("connection_unavailable") }
             return try await interactions.notify(input, id: id, from: activeOrigin)
         case "app.icon": return try await telemetry.icon(input.requireString("applicationId"))
         case "files.watch": return try await observer.start(input)
-        case "files.unwatch": return try observer.stop(input)
+        case "files.unwatch": return try await observer.stop(input)
         case "files.list", "files.stat", "files.thumbnail", "files.read", "files.mkdir", "files.move", "files.trash",
              "files.purge", "files.write", "files.commit", "files.abandon":
             return try await files.command(kind, input)
         default:
             throw AgentError("unsupported")
         }
+    }
+
+    private func diagnosticProgress(_ part: JSON, id: String) throws {
+        try Task.checkCancellation()
+        guard urgent.count < 96 else { throw AgentError("limit_reached") }
+        urgent.append(["type": "progress", "id": .string(id), "payload": part])
+        wake?.yield()
     }
 }

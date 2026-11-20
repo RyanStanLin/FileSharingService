@@ -191,13 +191,12 @@
         </section>
         <section aria-labelledby="dialog-heading">
           <h2 id="dialog-heading">远程原生对话框</h2>
-          <p class="muted">需要 macOS Agent 0.4.0 或更新版本。请求会显示在所选 Mac 的已解锁用户会话中。</p>
+          <p class="muted">请求会显示在所选 Mac 的已解锁用户会话中。系统身份验证需要 Agent 0.4.2 或更新版本。</p>
           <form id="dialog-form">
             <fieldset id="dialog-fields" disabled>
               <div class="form-grid">
                 <label>标题<input id="dialog-title" maxlength="100" required value="维护确认"></label>
-                <label>图标<select id="dialog-icon"><option value="info">信息</option><option value="question">问题</option><option value="warning">警告</option><option value="stop">停止</option></select></label>
-                <label>答复方式<select id="dialog-input"><option value="none">只选选项</option><option value="optional">选项与选填说明</option><option value="required">选项与必填说明</option></select></label>
+                <label>答复方式<select id="dialog-input"><option value="none">只选选项</option><option value="optional">选项与选填说明</option><option value="required">选项与必填说明</option><option value="authenticate">选项与系统身份验证</option></select></label>
                 <label>等待时间（秒）<input id="dialog-timeout" type="number" min="10" max="120" step="1" value="60" required></label>
               </div>
               <label class="form-label">提示文字<textarea id="dialog-message" rows="3" maxlength="1000" required>请选择是否同意本次维护。</textarea></label>

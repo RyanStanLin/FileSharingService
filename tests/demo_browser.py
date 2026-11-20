@@ -344,11 +344,10 @@ class LocalDemoBrowser(unittest.TestCase):
         browser.evaluate("""
             document.querySelector('#tab-actions').click();
             document.querySelector('#dialog-input').value = 'required';
-            document.querySelector('#dialog-icon').value = 'warning';
             document.querySelector('#dialog-form').requestSubmit()
         """)
         dialog = command("interaction.dialog")
-        self.assertEqual(dialog["payload"]["icon"], "warning")
+        self.assertFalse(browser.evaluate("Boolean(document.querySelector('#dialog-icon'))"))
         self.assertTrue(dialog["payload"]["askText"] and dialog["payload"]["textRequired"])
         send({"type": "result", "id": dialog["id"], "ok": True,
               "payload": {"outcome": "submitted", "choiceId": "choice-1", "text": "<b>维护说明</b>", "respondedAt": stamp()}})
@@ -356,6 +355,18 @@ class LocalDemoBrowser(unittest.TestCase):
         self.assertEqual(browser.evaluate("document.querySelector('#dialog-result dd:nth-of-type(1)').textContent"), "同意")
         self.assertEqual(browser.evaluate("document.querySelector('#dialog-result dd:nth-of-type(2)').textContent"), "<b>维护说明</b>")
         self.assertFalse(browser.evaluate("Boolean(document.querySelector('#dialog-result b'))"))
+
+        browser.evaluate("""
+            document.querySelector('#dialog-input').value = 'authenticate';
+            document.querySelector('#dialog-form').requestSubmit()
+        """)
+        protected = command("interaction.dialog")
+        self.assertTrue(protected["payload"]["requireLocalAuthentication"])
+        self.assertFalse(protected["payload"]["askText"])
+        send({"type": "result", "id": protected["id"], "ok": True,
+              "payload": {"outcome": "submitted", "choiceId": "choice-1", "text": None,
+                          "locallyAuthenticated": True, "respondedAt": stamp()}})
+        browser.wait("document.querySelector('#dialog-result').textContent.includes('已通过')")
 
         browser.evaluate("document.querySelector('#diagnostic-form').requestSubmit()")
         diagnostic = command("diagnostics.run")

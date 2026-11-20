@@ -20,23 +20,22 @@ enum DiagnosticRunner {
     ]
     private static let workers = DispatchQueue(label: "FileSharing.diagnostics", qos: .utility, attributes: .concurrent)
 
-    @MainActor
-    static func run(_ name: String, input: JSON, data: JSON, emit: (JSON) throws -> Void) async throws -> JSON {
+    static func run(_ name: String, input: JSON, data: JSON, emit: @Sendable (JSON) async throws -> Void) async throws -> JSON {
         var capture = ["stdout": Data(), "stderr": Data()]
         var index = 0
         var truncated = false
         var timedOut = false
         var exitCode: Int32 = 0
 
-        func append(_ stream: String, _ bytes: Data) throws {
+        func append(_ stream: String, _ bytes: Data) async throws {
             index += 1
-            try emit(["index": .integer(Int64(index)), "stream": .string(stream),
+            try await emit(["index": .integer(Int64(index)), "stream": .string(stream),
                       "data": .string(bytes.base64EncodedString())])
             capture[stream, default: Data()].append(bytes)
         }
 
         if name == "agentHealth" {
-            try append("stdout", data.encoded())
+            try await append("stdout", data.encoded())
         } else {
             guard let command = name == "custom" ? try customCommand(input) : commands[name] else {
                 throw AgentError("unsupported")
@@ -44,7 +43,7 @@ enum DiagnosticRunner {
             for try await event in execute(command) {
                 try Task.checkCancellation()
                 switch event {
-                case .bytes(let stream, let bytes): try append(stream, bytes)
+                case .bytes(let stream, let bytes): try await append(stream, bytes)
                 case .truncated: truncated = true
                 case .exit(let status, let expired):
                     exitCode = status

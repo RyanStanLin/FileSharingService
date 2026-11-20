@@ -247,7 +247,15 @@ Cookie: {{cookie}}
 Origin: {{origin}}
 Content-Type: application/json
 
-{"title":"Maintenance review","message":"Select a response and provide a reason.","icon":"warning","choices":[{"id":"allow","label":"Allow"},{"id":"defer","label":"Defer"}],"askText":true,"textRequired":true,"timeoutSeconds":60}
+{"title":"Maintenance review","message":"Select a response and provide a reason.","choices":[{"id":"allow","label":"Allow"},{"id":"defer","label":"Defer"}],"askText":true,"textRequired":true,"timeoutSeconds":60}
+
+### Ask for local macOS identity verification
+POST {{api}}/devices/{{device}}/interactions/dialogs
+Cookie: {{cookie}}
+Origin: {{origin}}
+Content-Type: application/json
+
+{"title":"Maintenance confirmation","message":"Confirm your identity before approving maintenance.","choices":[{"id":"approve","label":"Verify identity"}],"requireLocalAuthentication":true,"timeoutSeconds":60}
 
 ### Schedule a local macOS notification
 POST {{api}}/devices/{{device}}/interactions/notifications

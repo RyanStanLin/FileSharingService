@@ -124,7 +124,8 @@ export function deviceJobs({call, perform, errorText, collectCompleted}) {
             status("dialog-status", results[result.outcome] ?? result.outcome)
             facts("dialog-result", [
                 ["所选选项", run.choices.find(choice => choice.id === result.choiceId)?.label],
-                ["用户说明", result.text], ["答复时间", dateText(result.respondedAt)]
+                ["用户说明", result.text], ["本机身份验证", result.locallyAuthenticated ? "已通过" : null],
+                ["答复时间", dateText(result.respondedAt)]
             ])
         } else {
             status("collect-status", "设备已回传最新采样。")
@@ -172,7 +173,8 @@ export function deviceJobs({call, perform, errorText, collectCompleted}) {
         }
         return submit("dialog", "/interactions/dialogs", {
             title: element("dialog-title").value.trim(), message: element("dialog-message").value.trim(),
-            icon: element("dialog-icon").value, choices, askText: mode !== "none", textRequired: mode === "required",
+            choices, askText: mode === "optional" || mode === "required", textRequired: mode === "required",
+            requireLocalAuthentication: mode === "authenticate",
             timeoutSeconds: element("dialog-timeout").valueAsNumber
         })
     }))

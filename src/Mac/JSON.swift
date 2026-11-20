@@ -91,7 +91,11 @@ enum JSON: Codable, Equatable, Sendable, ExpressibleByStringLiteral, Expressible
 
 struct AgentError: Error {
     let code: String
-    init(_ code: String) { self.code = code }
+    let retryable: Bool
+    init(_ code: String, retryable: Bool = false) {
+        self.code = code
+        self.retryable = retryable
+    }
 }
 
 extension Data {

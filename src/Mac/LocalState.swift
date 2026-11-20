@@ -59,7 +59,7 @@ struct Enrollment: Codable, Sendable {
     let roots: [LocalRoot]
 }
 
-struct LocalState {
+struct LocalState: Sendable {
     static let home: URL = {
         #if FILESHARING_TEST
         guard let path = ProcessInfo.processInfo.environment["FILESHARING_TEST_HOME"], path.hasPrefix("/") else {

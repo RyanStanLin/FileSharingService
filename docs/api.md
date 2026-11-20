@@ -249,13 +249,15 @@ SFTP 客户端首次连接时校验 `hostKeyFingerprint`，格式为 `SHA256:…
 
 两个接口都要求 Passkey 会话和已授权的在线设备连接，并返回 `202 Job` 与作业位置。订阅 `jobs.changed` 接收完成提示，再读取 `GET /jobs/{id}`。WebSocket 不可用时轮询这个作业 API。
 
-向 `POST /devices/D/interactions/dialogs` 发送以下请求。 `icon` 可选值为 `info,warning,question,stop`。选项 1–3 个，ID 必须唯一，使用 1–32 个英文字母、数字、横线或下划线。标题最多 100 字符，提示最多 1000 字符，按钮最多 40 字符。超时范围 10–120 秒，默认 90 秒。文本输入默认关闭，开启 `textRequired` 时先开启 `askText`。
+向 `POST /devices/D/interactions/dialogs` 发送以下请求。Agent 0.4.2 起使用应用自身图标，`icon` 可省略。选项 1–3 个，ID 必须唯一，使用 1–32 个英文字母、数字、横线或下划线。标题最多 100 字符，提示最多 1000 字符，按钮最多 40 字符。超时范围 10–120 秒，默认 90 秒。文本输入默认关闭，开启 `textRequired` 时先开启 `askText`。
 
 ```json
-{"title":"维护确认","message":"请选择是否允许进入维护窗口，并填写原因。","icon":"warning","choices":[{"id":"allow","label":"同意"},{"id":"deny","label":"暂缓"}],"askText":true,"textRequired":true,"timeoutSeconds":60}
+{"title":"维护确认","message":"请选择是否允许进入维护窗口，并填写原因。","choices":[{"id":"allow","label":"同意"},{"id":"deny","label":"暂缓"}],"askText":true,"textRequired":true,"timeoutSeconds":60}
 ```
 
-应用在当前空间中以原生 NSAlert 置顶显示请求。窗口标题栏标明 FileSharingService，正文直接显示请求的标题、提示、可选说明框和按钮。第一个选项为默认按钮，用户也可以按 Escape 取消。每台设备同时展示一个请求。作业的 `result` 为 `{outcome,choiceId,text,respondedAt}`，结果 `submitted` 携带选择与最多 1024 字符的说明，`dismissed` 和 `expired` 的选择与说明为空。已锁定、已注销或退出当前用户的 Mac 不能答复。取消管理会话、撤销远程授权或设备断线会结束进行中的显示。答复作为作业结果保存，设备端自行运行的其他操作与此作业独立。
+应用使用独立进程在当前空间中置顶显示单个 260 pt 宽的原生面板。面板包含应用图标、标题、提示、可选说明框和按钮。首选项为默认按钮，可用 Escape 或关闭按钮取消。每台设备同时展示一个请求。作业的 `result` 为 `{outcome,choiceId,text,respondedAt}`，结果 `submitted` 携带选择与最多 1024 字符的说明，`dismissed` 和 `expired` 的选择与说明为空。已锁定、已注销或退出当前用户的 Mac 不能答复。取消管理会话、撤销远程授权或设备断线会结束进行中的显示。客户端会回收超时或出错的弹窗进程。
+
+选项需要本机身份验证时，使用 `requireLocalAuthentication:true`，并省略 `askText` 和 `textRequired`。选择选项后，macOS 使用系统窗口验证设备所有者。密码与 Touch ID 均由系统处理。验证通过时，结果额外包含 `locallyAuthenticated:true`，`text` 为 `null`。 [Apple LocalAuthentication](https://developer.apple.com/documentation/LocalAuthentication/LAPolicy/deviceOwnerAuthentication)
 
 向 `POST /devices/D/interactions/notifications` 提交 `{"title":"维护提醒","message":"18:00 开始维护。","sound":false}`。标题最多 100 字符，正文最多 500 字符，声音默认关闭。用户先在已安装 App 选择「启用本地通知」。成功的 `result` 为 `{status:"scheduled",scheduledAt}`，表示系统接受本地通知，展示行为遵从 macOS 设置。未获授权时作业失败并给出 `notification_permission_required`。
 

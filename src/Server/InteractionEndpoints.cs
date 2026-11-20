@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace FileSharing;
 
@@ -6,8 +7,9 @@ namespace FileSharing;
 internal sealed record DialogChoice(string Id, string Label);
 
 /// <summary>Content and deadline for an attributed macOS dialog with optional reason entry.</summary>
-internal sealed record DialogRequest(string Title, string Message, string Icon, IReadOnlyList<DialogChoice> Choices,
-    bool AskText = false, bool TextRequired = false, int TimeoutSeconds = 90);
+internal sealed record DialogRequest(string Title, string Message, string? Icon, IReadOnlyList<DialogChoice> Choices,
+    bool AskText = false, bool TextRequired = false, int TimeoutSeconds = 90,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool RequireLocalAuthentication = false);
 
 /// <summary>Content for one local macOS notification.</summary>
 internal sealed record LocalNotificationRequest(string Title, string Message, bool Sound = false);
@@ -20,7 +22,8 @@ internal static class InteractionEndpoints
     public static void Map(RouteGroupBuilder devices)
     {
         var interactions = devices.MapGroup("/interactions").WithTags("Device interactions");
-        interactions.MapPost("/dialogs", Present).WithSummary("Ask the active Mac user to select an option or submit a reason");
+        interactions.MapPost("/dialogs", Present)
+            .WithSummary("Ask the active Mac user to make a choice, submit a reason, or authenticate locally");
         interactions.MapPost("/notifications", Notify).WithSummary("Schedule a local notification in macOS Notification Center");
     }
 
@@ -29,9 +32,9 @@ internal static class InteractionEndpoints
     {
         var review = await reviews.Require(context, ct);
         await devices.Require(id, ct);
-        if (body.Icon is not ("info" or "warning" or "question" or "stop") ||
+        if (body.Icon is not (null or "info" or "warning" or "question" or "stop") ||
             body.TimeoutSeconds is < 10 or > 120 || body.Choices is not { Count: >= 1 and <= 3 } ||
-            body.TextRequired && !body.AskText)
+            body.TextRequired && !body.AskText || body.RequireLocalAuthentication && body.AskText)
             throw Fault.Bad("invalid_dialog");
         var choices = body.Choices.Select(choice =>
         {
@@ -42,7 +45,8 @@ internal static class InteractionEndpoints
         }).ToArray();
         if (choices.Select(x => x.Id).Distinct(StringComparer.Ordinal).Count() != choices.Length)
             throw Fault.Bad("invalid_dialog_choice");
-        var request = body with { Title = Secrets.Text(body.Title, 100), Message = Message(body.Message, 1000), Choices = choices };
+        var request = body with { Title = Secrets.Text(body.Title, 100), Message = Message(body.Message, 1000),
+            Choices = choices, Icon = body.Icon ?? "info" };
         var job = await jobs.Start(review, id, Dialog, request, ct);
         return TypedResults.Accepted($"/api/v1/jobs/{job.Id}", job);
     }
@@ -61,15 +65,21 @@ internal static class InteractionEndpoints
     {
         if (request is DialogRequest dialog)
         {
+            if (dialog.RequireLocalAuthentication && (payload.ValueKind != JsonValueKind.Object ||
+                payload.EnumerateObject().Any(property => property.Name is not
+                    ("outcome" or "choiceId" or "text" or "respondedAt" or "locallyAuthenticated"))))
+                throw Fault.Bad("invalid_dialog_result");
             var result = Wire.Model<DialogResult>(payload);
             if (result.Outcome == "submitted")
             {
                 if (!dialog.Choices.Any(x => x.Id == result.ChoiceId) ||
                     result.Text is { Length: > 1024 } || result.Text?.Any(char.IsControl) == true ||
-                    (!dialog.AskText && result.Text is not null) || (dialog.TextRequired && string.IsNullOrWhiteSpace(result.Text)))
+                    (!dialog.AskText && result.Text is not null) || (dialog.TextRequired && string.IsNullOrWhiteSpace(result.Text)) ||
+                    (dialog.RequireLocalAuthentication ? result.LocallyAuthenticated != true : result.LocallyAuthenticated is not null))
                     throw Fault.Bad("invalid_dialog_result");
             }
-            else if (result.Outcome is not ("dismissed" or "expired") || result.ChoiceId is not null || result.Text is not null)
+            else if (result.Outcome is not ("dismissed" or "expired") || result.ChoiceId is not null || result.Text is not null ||
+                     result.LocallyAuthenticated is not null)
                 throw Fault.Bad("invalid_dialog_result");
             if (result.RespondedAt == default)
                 throw Fault.Bad("invalid_dialog_result");
@@ -93,6 +103,7 @@ internal static class InteractionEndpoints
         return text;
     }
 
-    private sealed record DialogResult(string Outcome, string? ChoiceId, string? Text, DateTimeOffset RespondedAt);
+    private sealed record DialogResult(string Outcome, string? ChoiceId, string? Text, DateTimeOffset RespondedAt,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? LocallyAuthenticated);
     private sealed record NotificationResult(string Status, DateTimeOffset ScheduledAt);
 }

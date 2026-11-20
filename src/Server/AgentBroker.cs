@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Net.WebSockets;
 using System.Text.Json;
 
@@ -12,7 +13,7 @@ internal sealed record AgentPresence(bool Online, string? Protocol, DateTimeOffs
 internal sealed class AgentBroker(Database db, AgentRegistration registration, ILogger<AgentBroker> logger)
 {
     internal const string ChannelHeader = "X-FileSharing-Channel";
-    private const int PresenceWindow = 45;
+    private static readonly TimeSpan PresenceWindow = TimeSpan.FromSeconds(45);
 
     internal sealed class Pending(AgentCommand command, Func<JsonElement, CancellationToken, Task>? progress)
     {
@@ -36,7 +37,9 @@ internal sealed class AgentBroker(Database db, AgentRegistration registration, I
         public Queue<AgentCommand> Cancellations { get; } = [];
         public SemaphoreSlim Signal { get; } = new(0, 1);
         public long Seen { get; set; } = Clock.Now;
+        public long LastSignal { get; set; } = Stopwatch.GetTimestamp();
         public long Connected { get; } = Clock.Now;
+        public long ConnectedTick { get; } = Stopwatch.GetTimestamp();
         public double? Latency { get; set; }
         public long QualityReported { get; set; }
         public bool Closed { get; set; }
@@ -141,12 +144,14 @@ internal sealed class AgentBroker(Database db, AgentRegistration registration, I
         lock (link)
         {
             RequireOnline(link);
+            var tick = Stopwatch.GetTimestamp();
             persist = link.Seen != now;
             link.Seen = now;
+            link.LastSignal = tick;
             link.Latency = latency ?? link.Latency;
-            if (latency is not null && now - link.QualityReported >= 5)
+            if (latency is not null && (link.QualityReported == 0 || Stopwatch.GetElapsedTime(link.QualityReported, tick).TotalSeconds >= 5))
             {
-                link.QualityReported = now;
+                link.QualityReported = tick;
                 quality = Read(link);
             }
         }
@@ -225,6 +230,7 @@ internal sealed class AgentBroker(Database db, AgentRegistration registration, I
         }
         catch (TimeoutException)
         {
+            CancelCommand(link.Device, link.Id, pending.Command.Id);
             throw Fault.Unavailable("device_timeout");
         }
         finally
@@ -249,13 +255,13 @@ internal sealed class AgentBroker(Database db, AgentRegistration registration, I
                     return [cancellation];
                 if (link.AccessGranted)
                 {
-                    var now = Clock.Now;
+                    var now = Stopwatch.GetTimestamp();
                     var ready = link.Pending.Values.Where(x => x.LeaseUntil <= now && !x.Completion.Task.IsCompleted)
                         .Take(3).ToArray();
                     if (ready.Length > 0)
                     {
                         foreach (var item in ready)
-                            item.LeaseUntil = now + 8;
+                            item.LeaseUntil = now + 8 * Stopwatch.Frequency;
                         return ready.Select(x => x.Command).ToArray();
                     }
                 }
@@ -339,7 +345,7 @@ internal sealed class AgentBroker(Database db, AgentRegistration registration, I
             throw Fault.Forbidden("agent_connection_access_required");
     }
 
-    private static bool Online(Link link) => !link.Closed && Clock.Now - link.Seen <= PresenceWindow;
+    private static bool Online(Link link) => !link.Closed && Stopwatch.GetElapsedTime(link.LastSignal) <= PresenceWindow;
 
     private static void FailPending(Link link, Fault error)
     {
@@ -357,7 +363,7 @@ internal sealed class AgentBroker(Database db, AgentRegistration registration, I
 
     private static AgentPresence Read(Link link) => Online(link)
         ? new(true, link.Protocol, Clock.At(link.Connected), Clock.At(link.Seen), link.Latency,
-            Clock.Now - link.Connected, link.Id, link.AccessGranted, link.PeerAddress)
+            (long)Stopwatch.GetElapsedTime(link.ConnectedTick).TotalSeconds, link.Id, link.AccessGranted, link.PeerAddress)
         : new(false, null, null, Clock.At(link.Seen), null, null, null, false, null);
 
     private static Fault RemoteFault(string? code) => code switch
@@ -369,7 +375,8 @@ internal sealed class AgentBroker(Database db, AgentRegistration registration, I
         "already_exists" or "invalid_offset" or "snapshot_changed" or "directory_not_empty" or "trash_unavailable" or "delete_incomplete" or "cross_volume" or "root_identity_changed" => Fault.Conflict(code),
         "too_large" => new Fault(413, code),
         "limit_reached" => new Fault(429, code),
-        "diagnostic_launch_failed" => Fault.Unavailable(code),
+        "diagnostic_launch_failed" or "dialog_presentation_failed" => Fault.Unavailable(code),
+        "local_authentication_unavailable" => new Fault(422, code),
         "unsupported" => new Fault(422, code),
         _ => Fault.Unavailable("device_operation_failed")
     };

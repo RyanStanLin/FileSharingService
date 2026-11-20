@@ -248,8 +248,8 @@ internal static class AgentEndpoints
             var lastPing = 0L;
             while (!life.IsCancellationRequested)
             {
-                var now = Clock.Now;
-                if (now - lastPing >= 5)
+                var now = Stopwatch.GetTimestamp();
+                if (lastPing == 0 || Stopwatch.GetElapsedTime(lastPing, now).TotalSeconds >= 5)
                 {
                     lastPing = now;
                     pings.Clear();
@@ -257,7 +257,7 @@ internal static class AgentEndpoints
                     pings[ping] = Stopwatch.GetTimestamp();
                     await SocketWire.Send(socket, new { type = "ping", id = ping }, life);
                 }
-                if (now - lastPolicy >= 5)
+                if (lastPolicy == 0 || Stopwatch.GetElapsedTime(lastPolicy, now).TotalSeconds >= 5)
                 {
                     lastPolicy = now;
                     var policy = await Policy(link, broker, devices, life);

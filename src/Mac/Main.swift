@@ -1,6 +1,7 @@
 import AppKit
 import Darwin
 import Foundation
+import os
 import OSLog
 
 @main
@@ -18,7 +19,7 @@ struct FileSharingAgent {
         if let user = EndpointProfile.managedUser, user != NSUserName() { return }
         #endif
         #if FILESHARING_APP || FILESHARING_TEST
-        if arguments.isEmpty || arguments == ["run"] {
+        if arguments.isEmpty || arguments == ["run"] || arguments == ["dialog-helper"] {
             let app = NSApplication.shared
             app.setActivationPolicy(.accessory)
             Task { await execute(arguments); exit(EXIT_SUCCESS) }
@@ -46,15 +47,20 @@ struct FileSharingAgent {
                 try await FirstLaunch.repair()
                 return
             }
+            if arguments == ["dialog-helper"] {
+                await NativeDialog.serve()
+                return
+            }
             #endif
-            let state = try LocalState()
             switch arguments.first {
             case "roots":
-                try updateRoots(state, arguments: Array(arguments.dropFirst()))
+                try updateRoots(LocalState(), arguments: Array(arguments.dropFirst()))
             case nil, "run":
+                let watchdog = AgentWatchdog()
+                let state = try LocalState()
                 let enrollment = try state.loadOrCreate(homeWritable: EndpointProfile.homeWritable)
                 let transport = AgentTransport(enrollment: enrollment, state: state)
-                await transport.run()
+                await transport.run(watchdog: watchdog)
             default:
                 throw AgentError("usage_run_roots_version")
             }
@@ -85,4 +91,37 @@ struct FileSharingAgent {
         }
         print("Saved \(count) managed directories. Restart the agent to apply the change.")
     }
+}
+
+final class AgentWatchdog: @unchecked Sendable {
+    private struct Heartbeats: Sendable {
+        var main = SuspendingClock.now
+        var transport: SuspendingClock.Instant?
+    }
+
+    private let heartbeats = OSAllocatedUnfairLock(initialState: Heartbeats())
+    private let timer = DispatchSource.makeTimerSource(queue: DispatchQueue(label: "FileSharing.watchdog", qos: .utility))
+
+    init() {
+        timer.schedule(deadline: .now() + .seconds(1), repeating: .seconds(1), leeway: .milliseconds(100))
+        timer.setEventHandler { [heartbeats] in
+            let now = SuspendingClock.now
+            let stalled = heartbeats.withLock { ticks -> Bool in
+                ticks.main.duration(to: now) > .seconds(25) ||
+                    ticks.transport.map { $0.duration(to: now) > .seconds(25) } == true
+            }
+            if stalled {
+                Logger(subsystem: "in.ryanl.filesharing.agent", category: "Watchdog")
+                    .fault("Agent stopped making progress. Exiting for launchd recovery.")
+                Darwin._exit(EX_TEMPFAIL)
+            }
+            DispatchQueue.main.async {
+                heartbeats.withLock { $0.main = .now }
+            }
+        }
+        timer.resume()
+    }
+
+    func transportProgress() { heartbeats.withLock { $0.transport = .now } }
+    deinit { timer.cancel() }
 }

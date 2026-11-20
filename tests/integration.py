@@ -1,8 +1,11 @@
 import base64
 from contextlib import closing
 import concurrent.futures
+import fcntl
 import ftplib
 import hashlib
+from http.client import HTTPConnection
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import io
 import json
 import os
@@ -15,6 +18,7 @@ import ssl
 import struct
 import subprocess
 import tempfile
+import threading
 import time
 import unittest
 import uuid
@@ -443,6 +447,88 @@ class Acceptance(unittest.TestCase):
         self.api("DELETE", self.device_api, 204)
         self.entry("polling.txt", 403)
         self.assertEqual(self.api("POST", "/agent/v1/connect", 403, anonymous, json=body).json()["code"], "device_revoked")
+
+    def test_agent_watchdog_exits_a_blocked_startup(self):
+        with (self.agent_state / "enrollment.lock").open("wb") as locked:
+            fcntl.flock(locked, fcntl.LOCK_EX)
+            blocked = self.spawn([str(APP), "run"], "agent.log", self.env)
+            self.assertEqual(blocked.wait(timeout=34), os.EX_TEMPFAIL)
+
+    def test_running_agent_recovers_when_server_restarts(self):
+        registered = self.setup_device()
+        connection_id = registered["connection"]["connectionId"]
+        process = self.agent
+        for polling in (False, True):
+            self.stop(self.server)
+            self.start_server(polling=polling)
+            protocol = "https" if polling else "wss"
+
+            def connected():
+                current = self.api("GET", self.device_api).json()["connection"]
+                return current if current["protocol"] == protocol and current["connectionId"] != connection_id else None
+
+            current = self.wait(connected, seconds=20)
+            self.assertIsNone(process.poll())
+            self.assertTrue(current["online"])
+            self.assertFalse(current["accessGranted"])
+            connection_id = current["connectionId"]
+            self.wait(lambda: self.api("GET", self.device_api + "/file-roots/local").json())
+            self.set_access(connection_id, True)
+            self.assertEqual(self.entry("")["kind"], "directory")
+
+    def test_http_polling_retains_connection_after_a_transient_frame_error(self):
+        self.stop(self.server)
+        self.start_server(polling=True)
+        upstream_port = self.http_port
+        fail_next_frame = threading.Event()
+        interrupted = threading.Event()
+
+        class PollingProxy(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def forward(self):
+                body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
+                if self.path == "/agent/v1/frames" and fail_next_frame.is_set():
+                    fail_next_frame.clear()
+                    self.send_response(503)
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    interrupted.set()
+                    return
+                headers = {key: self.headers[key] for key in ("X-FileSharing-Channel", "Content-Type") if key in self.headers}
+                headers["Host"] = f"localhost:{upstream_port}"
+                try:
+                    with closing(HTTPConnection("127.0.0.1", upstream_port, timeout=25)) as origin:
+                        origin.request(self.command, self.path, body=body, headers=headers)
+                        result = origin.getresponse()
+                        contents = result.read()
+                        self.send_response(result.status)
+                        self.send_header("Content-Length", str(len(contents)))
+                        if content_type := result.getheader("Content-Type"):
+                            self.send_header("Content-Type", content_type)
+                        self.end_headers()
+                        self.wfile.write(contents)
+                except (ConnectionError, TimeoutError):
+                    self.close_connection = True
+
+            do_GET = do_POST = do_DELETE = forward
+
+        proxy = ThreadingHTTPServer(("127.0.0.1", 0), PollingProxy)
+        thread = threading.Thread(target=proxy.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(proxy.server_close)
+        self.addCleanup(proxy.shutdown)
+        self.env["FILESHARING_TEST_ORIGIN"] = f"http://localhost:{proxy.server_port}"
+        registered = self.setup_device()
+        connection_id = registered["connection"]["connectionId"]
+        self.assertEqual(registered["connection"]["protocol"], "https")
+        fail_next_frame.set()
+        job = self.api("POST", self.device_api + "/refresh", 202, json={"topics": ["identity"]}).json()
+        self.assertTrue(interrupted.wait(8))
+        self.assertEqual(self.finished_job(job)["state"], "completed")
+        presence = self.api("GET", self.device_api).json()["connection"]
+        self.assertEqual((presence["connectionId"], presence["accessGranted"]), (connection_id, True))
 
     def test_sqlite_upgrade_preserves_preexisting_device_and_grant(self):
         registration = self.setup_device()
@@ -1097,6 +1183,25 @@ app.run()
                     result = self.finished_job(job)["result"]
                     self.assertEqual((result["choiceId"], result["text"]), ("submit", "Approved maintenance"))
 
+                protected = {key: value for key, value in request.items() if key not in ("icon", "askText", "textRequired")}
+                protected["requireLocalAuthentication"] = True
+                self.api("POST", dialogs, 400, json=protected | {"askText": True})
+                expected = {"outcome": "submitted", "choiceId": "submit", "text": None, "respondedAt": stamp}
+                for extra, wanted in (({}, "failed"), ({"locallyAuthenticated": True, "password": "fixture"}, "failed"),
+                                      ({"locallyAuthenticated": True}, "completed")):
+                    job = self.api("POST", dialogs, 202, json=protected).json()
+                    command = next_message()
+                    self.assertTrue(command["payload"]["requireLocalAuthentication"])
+                    reply({"type": "result", "id": command["id"], "ok": True, "payload": expected | extra})
+                    finished = self.finished_job(job)
+                    self.assertEqual(finished["state"], wanted)
+                    if wanted == "completed":
+                        self.assertEqual(finished["result"], expected | {
+                            "locallyAuthenticated": True, "respondedAt": stamp.replace("Z", "+00:00")
+                        })
+                    else:
+                        self.assertEqual((finished["error"], finished["result"]), ("invalid_dialog_result", None))
+
                 notification = self.api("POST", notifications, 202, json={"title": "Maintenance", "message": "Starts at 18:00."}).json()
                 command = next_message()
                 self.assertEqual((command["kind"], command["id"]), ("interaction.notification", notification["id"]))
@@ -1112,6 +1217,57 @@ app.run()
                 completed = self.finished_job(pending)
                 self.assertEqual((completed["state"], completed["error"], completed["result"]),
                                  ("cancelled", "review_ended", None))
+
+    def test_dialog_helper_crash_and_timeout_preserve_connection(self):
+        helper = self.work / "dialog-helper"
+        pid_path = self.work / "dialog-helper.pid"
+        helper.write_text("""#!/usr/bin/env python3
+import json, os, signal, sys, time
+from pathlib import Path
+from datetime import datetime, timezone
+
+request = json.load(sys.stdin)
+if request["title"] == "Crash fixture":
+    os._exit(3)
+if request["title"] == "Timeout fixture":
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    Path(os.environ["FILESHARING_TEST_HELPER_PID"]).write_text(str(os.getpid()))
+    time.sleep(60)
+print(json.dumps({"payload": {"outcome": "submitted", "choiceId": "yes", "text": None,
+                             "respondedAt": datetime.now(timezone.utc).isoformat()}}))
+""")
+        helper.chmod(0o700)
+        self.env["FILESHARING_TEST_DIALOG_HELPER"] = str(helper)
+        self.env["FILESHARING_TEST_HELPER_PID"] = str(pid_path)
+        device = self.setup_device()
+        connection_id = device["connection"]["connectionId"]
+        route = self.device_api + "/interactions/dialogs"
+
+        def submit(title):
+            return self.api("POST", route, 202,
+                            json={"title": title, "message": "Local test", "timeoutSeconds": 10,
+                                  "choices": [{"id": "yes", "label": "Accept"}]}).json()
+
+        failed = self.finished_job(submit("Crash fixture"))
+        self.assertEqual((failed["state"], failed["error"]), ("failed", "dialog_presentation_failed"))
+        job = submit("Timeout fixture")
+        child_pid = int(self.wait(lambda: pid_path.read_text() if pid_path.exists() else None))
+        current = self.api("GET", self.device_api).json()["connection"]
+        stamp = current["lastCommunicationAt"]
+
+        def heartbeat():
+            reading = self.api("GET", self.device_api).json()["connection"]
+            self.assertEqual(reading["connectionId"], connection_id)
+            return reading["lastCommunicationAt"] > stamp
+
+        self.wait(heartbeat, seconds=9)
+        expired = self.finished_job(job)
+        self.assertEqual((expired["state"], expired["result"]["outcome"]), ("completed", "expired"))
+        with self.assertRaises(ProcessLookupError):
+            os.kill(child_pid, 0)
+        completed = self.finished_job(submit("Reply fixture"))
+        self.assertEqual(completed["result"]["choiceId"], "yes")
+        self.assertEqual(self.api("GET", self.device_api).json()["connection"]["connectionId"], connection_id)
 
     def test_diagnostic_outputs_stream_and_resume_on_wss_and_https(self):
         self.setup_device()
