@@ -3,6 +3,11 @@ import Darwin
 import Foundation
 
 final class Descriptor {
+    private struct VolumeAttributes {
+        var length: UInt32 = 0
+        var uuid: uuid_t = (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+    }
+
     let fd: Int32
     init(_ fd: Int32) throws {
         guard fd >= 0 else { throw ScopedFiles.failure() }
@@ -15,6 +20,19 @@ final class Descriptor {
         var data = stat()
         guard fstat(fd, &data) == 0 else { throw ScopedFiles.failure() }
         return data
+    }
+
+    var volumeUUID: UUID? {
+        var request = attrlist()
+        request.bitmapcount = UInt16(ATTR_BIT_MAP_COUNT)
+        request.volattr = UInt32(ATTR_VOL_INFO) | UInt32(ATTR_VOL_UUID)
+        var attributes = VolumeAttributes()
+        let result = withUnsafeMutableBytes(of: &attributes) {
+            fgetattrlist(fd, &request, $0.baseAddress!, $0.count, 0)
+        }
+        guard result == 0, attributes.length == MemoryLayout<VolumeAttributes>.size,
+              withUnsafeBytes(of: attributes.uuid, { $0.contains(where: { $0 != 0 }) }) else { return nil }
+        return UUID(uuid: attributes.uuid)
     }
 }
 
@@ -56,6 +74,7 @@ struct FileItem {
 struct DirectoryContents {
     let revision: String
     let entries: [FileItem]
+    let deviceNumber: Int32
 }
 
 final class ScopedFiles: @unchecked Sendable {
@@ -80,7 +99,8 @@ final class ScopedFiles: @unchecked Sendable {
 
     static func failure(_ code: Int32 = errno) -> AgentError {
         switch code {
-        case EACCES, EPERM, ELOOP, EXDEV: return AgentError("permission_denied")
+        case EACCES, EPERM: return AgentError("filesystem_access_denied")
+        case ELOOP, EXDEV: return AgentError("permission_denied")
         case ENOENT, ENOTDIR: return AgentError("not_found")
         case EEXIST: return AgentError("already_exists")
         case ENOTEMPTY: return AgentError("directory_not_empty")
@@ -129,7 +149,8 @@ final class ScopedFiles: @unchecked Sendable {
     private func openRoot(_ root: LocalRoot) throws -> Descriptor {
         let descriptor = try Descriptor(open(root.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC))
         let info = try descriptor.info()
-        guard info.st_dev == root.deviceNumber, info.st_ino == root.inode else { throw AgentError("permission_denied") }
+        let volumeMatches = root.volumeUUID.map { $0 == descriptor.volumeUUID } ?? (info.st_dev == root.deviceNumber)
+        guard volumeMatches, info.st_ino == root.inode else { throw AgentError("root_identity_changed") }
         return descriptor
     }
 
@@ -138,9 +159,10 @@ final class ScopedFiles: @unchecked Sendable {
             throw AgentError("permission_denied")
         }
         var directory = try openRoot(root)
+        let deviceNumber = try directory.info().st_dev
         for component in components {
             let next = try Descriptor(openat(directory.fd, component, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC))
-            guard try next.info().st_dev == root.deviceNumber else { throw AgentError("permission_denied") }
+            guard try next.info().st_dev == deviceNumber else { throw AgentError("permission_denied") }
             directory = next
         }
         return directory
@@ -229,7 +251,7 @@ final class ScopedFiles: @unchecked Sendable {
             digest.update(data: [0])
             digest.update(data: Data(entry.version.utf8))
         }
-        return DirectoryContents(revision: Data(digest.finalize()).base64URL, entries: entries)
+        return DirectoryContents(revision: Data(digest.finalize()).base64URL, entries: entries, deviceNumber: before.st_dev)
     }
 
     private func page(_ root: LocalRoot, _ path: String, _ input: JSON) throws -> JSON {
@@ -291,7 +313,7 @@ final class ScopedFiles: @unchecked Sendable {
         while let current = pending.popLast(), files + folders < 50_000 {
             let snapshot: DirectoryContents
             do { snapshot = try list(root: root, relative: current) }
-            catch let error as AgentError where error.code == "permission_denied" || error.code == "too_large" {
+            catch let error as AgentError where ["permission_denied", "filesystem_access_denied", "too_large"].contains(error.code) {
                 complete = false
                 continue
             }
@@ -300,7 +322,7 @@ final class ScopedFiles: @unchecked Sendable {
                     "foldersCount": .integer(folders), "complete": false] }
                 if child.kind == "directory" {
                     folders += 1
-                    if child.info.st_dev == root.deviceNumber { pending.append(child.relative) }
+                    if child.info.st_dev == snapshot.deviceNumber { pending.append(child.relative) }
                     else { complete = false }
                 } else {
                     files += 1
@@ -336,7 +358,7 @@ final class ScopedFiles: @unchecked Sendable {
         if mkdirat(rootDir.fd, Self.workName, 0o700) != 0 && errno != EEXIST { throw Self.failure() }
         let work = try Descriptor(openat(rootDir.fd, Self.workName, O_DIRECTORY | O_RDONLY | O_NOFOLLOW | O_CLOEXEC))
         let info = try work.info()
-        guard info.st_uid == getuid(), info.st_mode & 0o077 == 0, info.st_dev == root.deviceNumber
+        guard info.st_uid == getuid(), info.st_mode & 0o077 == 0, try info.st_dev == rootDir.info().st_dev
         else { throw AgentError("permission_denied") }
         return work
     }
@@ -453,8 +475,8 @@ final class ScopedFiles: @unchecked Sendable {
         if before.kind == "file" { try guardedRegular(before.info) }
         let target = try input.requireString("destination")
         let targetRoot = try self.root(input["destinationRoot"].string ?? root.rootKey, write: true)
-        guard targetRoot.deviceNumber == root.deviceNumber else { throw AgentError("cross_volume") }
         let (destination, targetName) = try parent(targetRoot, target, write: true)
+        guard try source.info().st_dev == destination.info().st_dev else { throw AgentError("cross_volume") }
         guard renameatx_np(source.fd, name, destination.fd, targetName, UInt32(RENAME_EXCL)) == 0 else { throw Self.failure() }
         return try item(targetRoot, destination, targetName, target).value
     }
@@ -467,7 +489,7 @@ final class ScopedFiles: @unchecked Sendable {
         if mkdirat(home.fd, ".Trash", 0o700) != 0 && errno != EEXIST { throw Self.failure() }
         let destination = try Descriptor(openat(home.fd, ".Trash", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC))
         let info = try destination.info()
-        guard info.st_dev == root.deviceNumber, info.st_uid == getuid(), info.st_mode & 0o077 == 0 else {
+        guard try info.st_dev == source.info().st_dev, info.st_uid == getuid(), info.st_mode & 0o077 == 0 else {
             throw AgentError("trash_unavailable")
         }
         var targetName = name
@@ -483,6 +505,8 @@ final class ScopedFiles: @unchecked Sendable {
         let (source, name) = try parent(root, path, write: true)
         let id = try fileID(input.requireString("recoveryId")) + ".delete"
         let staging = try work(root)
+        let deviceNumber = try source.info().st_dev
+        guard try staging.info().st_dev == deviceNumber else { throw AgentError("cross_volume") }
         var staged = stat()
         if fstatat(staging.fd, id, &staged, AT_SYMLINK_NOFOLLOW) != 0 {
             let entry = try item(root, source, name, path)
@@ -496,12 +520,12 @@ final class ScopedFiles: @unchecked Sendable {
                 return [:]
             }
             let opened = try Descriptor(openat(source.fd, name, O_DIRECTORY | O_RDONLY | O_NOFOLLOW | O_CLOEXEC))
-            guard try opened.info().st_dev == root.deviceNumber else { throw AgentError("permission_denied") }
-            try preflightPurge(opened, on: root.deviceNumber)
+            guard try opened.info().st_dev == deviceNumber else { throw AgentError("permission_denied") }
+            try preflightPurge(opened, on: deviceNumber)
             guard renameatx_np(source.fd, name, staging.fd, id, UInt32(RENAME_EXCL)) == 0 else { throw Self.failure() }
         }
         do {
-            try removeTree(staging, id, on: root.deviceNumber, depth: 0)
+            try removeTree(staging, id, on: deviceNumber, depth: 0)
         } catch {
             _ = renameatx_np(staging.fd, id, source.fd, name, UInt32(RENAME_EXCL))
             throw AgentError("delete_incomplete")

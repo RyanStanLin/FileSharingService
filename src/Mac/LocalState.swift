@@ -1,12 +1,13 @@
 import Foundation
 
-struct LocalRoot: Codable, Sendable {
+struct LocalRoot: Codable, Equatable, Sendable {
     let rootKey: String
     let label: String
     let path: String
     let writable: Bool
     let deviceNumber: Int32
     let inode: UInt64
+    let volumeUUID: UUID?
 
     var isHome: Bool { path == LocalState.home.path(percentEncoded: false).trimmingSuffixSlash }
     var announcement: JSON {
@@ -35,13 +36,21 @@ struct LocalRoot: Codable, Sendable {
         guard !scopedPath.split(separator: "/").contains(where: ScopedFiles.controlComponent) else {
             throw AgentError("unshareable_directory")
         }
-        let fd = open(absolute, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
-        guard fd >= 0 else { throw ScopedFiles.failure() }
-        defer { close(fd) }
-        var info = stat()
-        guard fstat(fd, &info) == 0 else { throw ScopedFiles.failure() }
+        let descriptor = try Descriptor(open(absolute, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC))
+        let info = try descriptor.info()
         return LocalRoot(rootKey: JSON.id(), label: approved.lastPathComponent, path: absolute, writable: write,
-                         deviceNumber: info.st_dev, inode: info.st_ino)
+                         deviceNumber: info.st_dev, inode: info.st_ino, volumeUUID: descriptor.volumeUUID)
+    }
+
+    func upgradingVolumeIdentity() -> LocalRoot {
+        guard volumeUUID == nil,
+              let descriptor = try? Descriptor(open(path, O_EVTONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)),
+              let info = try? descriptor.info(), info.st_ino == inode,
+              let uuid = descriptor.volumeUUID else { return self }
+        // Only the OS-selected home can recover from a changed legacy device number.
+        guard info.st_dev == deviceNumber || (isHome && info.st_uid == getuid()) else { return self }
+        return LocalRoot(rootKey: rootKey, label: label, path: path, writable: writable,
+                         deviceNumber: info.st_dev, inode: inode, volumeUUID: uuid)
     }
 }
 
@@ -80,27 +89,48 @@ struct LocalState {
               info.st_uid == getuid(), info.st_mode & 0o077 == 0 else { throw AgentError("unsafe_state_directory") }
     }
 
-    func enrollment() throws -> Enrollment {
+    private func enrollment() throws -> Enrollment {
         try JSONDecoder().decode(Enrollment.self, from: Data(contentsOf: directory.appendingPathComponent("enrollment.json")))
     }
 
     func loadOrCreate(homeWritable: Bool) throws -> Enrollment {
+        try withEnrollmentLock {
+            let stored: Enrollment
+            do {
+                stored = try enrollment()
+            } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
+                let home = try LocalRoot.authorize(path: Self.home.path(percentEncoded: false), write: homeWritable)
+                let local = Enrollment(deviceId: JSON.id(), roots: [home])
+                try save(local)
+                return local
+            }
+            let roots = stored.roots.map { $0.upgradingVolumeIdentity() }
+            if roots == stored.roots { return stored }
+            let upgraded = Enrollment(deviceId: stored.deviceId, roots: roots)
+            try save(upgraded)
+            return upgraded
+        }
+    }
+
+    func updateRoots(_ update: ([LocalRoot]) throws -> [LocalRoot]) throws -> Int {
+        try withEnrollmentLock {
+            let stored = try enrollment()
+            let roots = try update(stored.roots)
+            try save(Enrollment(deviceId: stored.deviceId, roots: roots))
+            return roots.count
+        }
+    }
+
+    private func withEnrollmentLock<T>(_ action: () throws -> T) throws -> T {
         let lock = directory.appendingPathComponent("enrollment.lock").path
         let fd = open(lock, O_CREAT | O_RDWR | O_NOFOLLOW | O_CLOEXEC, 0o600)
         guard fd >= 0 else { throw ScopedFiles.failure() }
         defer { close(fd) }
         guard flock(fd, LOCK_EX) == 0 else { throw ScopedFiles.failure() }
-        do {
-            return try enrollment()
-        } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
-            let home = try LocalRoot.authorize(path: Self.home.path(percentEncoded: false), write: homeWritable)
-            let local = Enrollment(deviceId: JSON.id(), roots: [home])
-            try save(local)
-            return local
-        }
+        return try action()
     }
 
-    func save(_ enrollment: Enrollment) throws {
+    private func save(_ enrollment: Enrollment) throws {
         let target = directory.appendingPathComponent("enrollment.json")
         try JSONEncoder().encode(enrollment).write(to: target, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: target.path)

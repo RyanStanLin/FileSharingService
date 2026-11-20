@@ -76,9 +76,9 @@ async function unlock() {
 | --- | --- |
 | 400 | `invalid_request`、`invalid_path`、`invalid_sort`、`invalid_directory_page`、`invalid_cursor`、`invalid_time_range`、`unsupported_permission` |
 | 401 | `authentication_required`，含会话锁定、WebAuthn 失败、challenge 已消费或密钥错误 |
-| 403 | `invalid_origin`、`invalid_host`、`root_access_denied`、`agent_connection_access_required`、`permission_denied` |
+| 403 | `invalid_origin`、`invalid_host`、`root_access_denied`、`agent_connection_access_required`、`permission_denied`、`filesystem_access_denied` |
 | 404 | `not_found`、`device_not_found`、`ftp_account_not_found`、`snapshot_unavailable`、`transfer_not_found` |
-| 409 | `revision_conflict`、`device_already_connected`、`agent_connection_changed`、`device_capacity`、`passkey_already_configured`、`passkey_configuration_changed`、`snapshot_changed`、`already_exists`、`directory_not_empty`、`cross_volume`、`delete_incomplete` |
+| 409 | `revision_conflict`、`device_already_connected`、`agent_connection_changed`、`device_capacity`、`passkey_already_configured`、`passkey_configuration_changed`、`snapshot_changed`、`already_exists`、`directory_not_empty`、`cross_volume`、`delete_incomplete`、`root_identity_changed` |
 | 410 | `resync_required`、`archive_expired`、`agent_connection_ended` |
 | 412 | `version_mismatch`，重新获取条目版本 |
 | 413 | `too_large`、`invalid_chunk_length`、`archive_size_limit`、`archive_entry_limit` |
@@ -131,6 +131,8 @@ Profile 为 `{id,name,settings,revision}`。采样周期以秒为单位，`0` �
 | `POST /devices/D/permissions/requests` | `{kind}` | `202 Job`，用同一端点重试 |
 
 Root 为 `{id,deviceId,rootKey,label,writable,enabled,revision}`。TCC 管理包含 `downloads`、`documents`、`desktop`、`inputMonitoring`、`pasteboard`。目录读写以服务器 Root、终端本地范围和 macOS 权限的交集为准。系统结果包括 `notDetermined`、`allowed`、`denied`、`requiresSystemSettings`、`unavailable` 或 `unknown`。phase 为 `idle`、`requesting`、`completed`。在权限作业完成前向用户展示 macOS 设备本机操作提示。
+
+`filesystem_access_denied` 表示 macOS 拒绝相应文件操作。`root_identity_changed` 表示本地共享根的卷 UUID 或目录 inode 校验失败，需要在 Mac 上确认路径并重新批准该根。Agent 会自动升级路径和 inode 仍匹配、仍归当前用户所有的旧 HOME 记录，保留原根标识及服务器授权。其他旧记录在装载编号一致时自动取得卷 UUID。已经换号、无法确认卷身份的旧外置共享根需要在 Mac 上重新选定。
 
 剪贴板请求返回系统报告的应用级设置。`requiresSystemSettings` 对应「每次询问」，单次系统许可后也可能保持这个状态。`allowed` 对应「始终允许」，`denied` 对应「始终拒绝」，`notDetermined` 表示系统尚未建立应用权限条目。剪贴板权限探测回报中只有权限状态和时间。 [Apple 剪贴板权限说明](https://developer.apple.com/documentation/appkit/nspasteboard/accessbehavior-swift.enum)
 

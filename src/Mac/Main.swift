@@ -69,19 +69,20 @@ struct FileSharingAgent {
     }
 
     private static func updateRoots(_ state: LocalState, arguments: [String]) throws {
-        let saved = try state.enrollment()
         guard arguments.count >= 2 else { throw AgentError("usage_roots_add_read_or_write_absolute_path_or_remove_uuid") }
-        var roots = saved.roots
-        switch arguments[0] {
-        case "add" where arguments.count == 3 && ["read", "write"].contains(arguments[1]):
-            let candidate = try LocalRoot.authorize(path: arguments[2], write: arguments[1] == "write")
-            guard roots.count < 24, !roots.contains(where: { $0.path == candidate.path }) else { throw AgentError("root_already_configured") }
-            roots.append(candidate)
-        case "remove" where arguments.count == 2:
-            roots.removeAll { $0.rootKey == arguments[1] }
-        default: throw AgentError("invalid_request")
+        let count = try state.updateRoots { stored in
+            var roots = stored
+            switch arguments[0] {
+            case "add" where arguments.count == 3 && ["read", "write"].contains(arguments[1]):
+                let candidate = try LocalRoot.authorize(path: arguments[2], write: arguments[1] == "write")
+                guard roots.count < 24, !roots.contains(where: { $0.path == candidate.path }) else { throw AgentError("root_already_configured") }
+                roots.append(candidate)
+            case "remove" where arguments.count == 2:
+                roots.removeAll { $0.rootKey == arguments[1] }
+            default: throw AgentError("invalid_request")
+            }
+            return roots
         }
-        try state.save(Enrollment(deviceId: saved.deviceId, roots: roots))
-        print("Saved \(roots.count) managed directories. Restart the agent to apply the change.")
+        print("Saved \(count) managed directories. Restart the agent to apply the change.")
     }
 }

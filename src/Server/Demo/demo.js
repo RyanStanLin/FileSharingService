@@ -18,7 +18,9 @@ const errors = { authentication_required: "请先解锁后台。",
     agent_connection_ended: "设备连接已中断，本次操作未返回结果。",
     device_unavailable: "设备连接已中断，本次操作未返回结果。",
     device_timeout: "设备未在规定时间内回报。",
-    permission_denied: "macOS 拒绝访问，请先申请相应目录权限。",
+    permission_denied: "设备的共享策略或文件系统拒绝了这次访问。",
+    filesystem_access_denied: "macOS 拒绝了目标路径的访问。请核对 FileSharingService 的系统目录权限。",
+    root_identity_changed: "共享目录的卷或目录身份已变化。请在 Mac 上确认目录并重新批准该共享根。",
     root_access_denied: "当前连接没有此目录授权。",
     not_found: "当前目录或文件不存在。",
     snapshot_unavailable: "设备状态正在同步。",
@@ -511,7 +513,7 @@ async function browse(append = false) {
             await browse()
             return
         }
-        if (!append) element("file-status").textContent = ""
+        if (!append) element("file-status").textContent = (view.query.get("path") || "HOME") + " · 读取失败"
         throw error
     } finally {
         if (directory === view) {

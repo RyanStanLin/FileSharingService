@@ -253,13 +253,7 @@ internal sealed class FtpSession(FtpGateway gateway, FtpSettings options, FtpAcc
         }
         catch (Fault fault)
         {
-            await Reply(fault.Status switch
-            {
-                400 => "501 Invalid argument",
-                401 => "530 Login required",
-                503 or 504 => "450 Resource temporarily unavailable",
-                _ => "550 Resource unavailable"
-            }, ct);
+            await Reply(ResourceFailure(fault), ct);
         }
         return true;
     }
@@ -361,8 +355,12 @@ internal sealed class FtpSession(FtpGateway gateway, FtpSettings options, FtpAcc
         {
             if (controlToken.IsCancellationRequested)
                 return;
-            var reply = error is Fault { Code: "source_changed" or "invalid_restart_marker" } && !started
-                ? "551 Restart rejected" : started ? "426 Transfer aborted" : "550 Resource unavailable";
+            var reply = error switch
+            {
+                Fault { Code: "source_changed" or "invalid_restart_marker" } when !started => "551 Restart rejected",
+                Fault fault => ResourceFailure(fault, started),
+                _ => started ? "426 Transfer aborted" : "550 Resource unavailable"
+            };
             try { await FinalTransferReply(reply, controlToken); }
             catch (Exception disconnected) when (disconnected is IOException or OperationCanceledException or SocketException) { }
         }
@@ -445,8 +443,32 @@ internal sealed class FtpSession(FtpGateway gateway, FtpSettings options, FtpAcc
         }
     }
 
-    private static string ListArgument(string verb, string argument) =>
-        verb == "LIST" && argument is "-a" or "-l" or "-la" or "-al" ? "" : argument;
+    private static string ResourceFailure(Fault fault, bool started = false)
+    {
+        var code = started ? "426" : "550";
+        return fault.Code switch
+        {
+            "root_identity_changed" => $"{code} Shared directory needs local reapproval",
+            "filesystem_access_denied" => $"{code} Filesystem access denied by macOS",
+            _ when started => "426 Transfer aborted",
+            _ => fault.Status switch
+            {
+                400 => "501 Invalid argument",
+                401 => "530 Login required",
+                503 or 504 => "450 Resource temporarily unavailable",
+                _ => "550 Resource unavailable"
+            }
+        };
+    }
+
+    private static string ListArgument(string verb, string argument)
+    {
+        if (verb != "LIST")
+            return argument;
+        var separator = argument.IndexOf(' ');
+        var option = separator < 0 ? argument : argument[..separator];
+        return option is "-a" or "-l" or "-la" or "-al" ? argument[(separator < 0 ? argument.Length : separator + 1)..] : argument;
+    }
     private static string Timestamp(FileEntry entry) => entry.ModifiedAt.ToUniversalTime().ToString("yyyyMMddHHmmss", CultureInfo.InvariantCulture);
     private static string Facts(FileEntry entry) => $"Type={(entry.Kind == "directory" ? "dir" : "file")};Size={entry.Size};Modify={Timestamp(entry)};";
     private static string UnixList(FileEntry entry)

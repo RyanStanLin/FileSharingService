@@ -362,10 +362,10 @@ internal sealed class AgentBroker(Database db, AgentRegistration registration, I
 
     private static Fault RemoteFault(string? code) => code switch
     {
-        "permission_denied" or "invalid_path" or "notification_permission_required" or "interactive_session_required" => Fault.Forbidden(code),
+        "permission_denied" or "filesystem_access_denied" or "invalid_path" or "notification_permission_required" or "interactive_session_required" => Fault.Forbidden(code),
         "not_found" => Fault.Missing(code),
         "version_mismatch" => new Fault(412, code),
-        "already_exists" or "invalid_offset" or "snapshot_changed" or "directory_not_empty" or "trash_unavailable" or "delete_incomplete" or "cross_volume" => Fault.Conflict(code),
+        "already_exists" or "invalid_offset" or "snapshot_changed" or "directory_not_empty" or "trash_unavailable" or "delete_incomplete" or "cross_volume" or "root_identity_changed" => Fault.Conflict(code),
         "too_large" => new Fault(413, code),
         "limit_reached" => new Fault(429, code),
         "diagnostic_launch_failed" => Fault.Unavailable(code),

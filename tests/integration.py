@@ -813,6 +813,67 @@ class Acceptance(unittest.TestCase):
         endpoint = next(item for item in self.api("GET", API + "/ftp/connection").json() if item["mode"] == "sftp")
         self.assertEqual(endpoint["hostKeyFingerprint"], fingerprint)
 
+    def test_home_volume_identity_recovers_directory_and_ftp_listings(self):
+        downloads = self.home / "Downloads"
+        downloads.mkdir()
+        (downloads / "sample.txt").write_text("shared contents")
+        registration = self.setup_device()
+        connection_id = registration["connection"]["connectionId"]
+        enrollment_file = self.agent_state / "enrollment.json"
+        original_root, = json.loads(enrollment_file.read_text())["roots"]
+        credential = self.api("POST", API + "/ftp/accounts", 201,
+                              json={"name": "volume-fixture", "mode": "ftp", "scope": "activeHomes"}).json()
+
+        def remount(metadata):
+            nonlocal connection_id
+            self.stop(self.agent)
+            registered = json.loads(enrollment_file.read_text())
+            root, = registered["roots"]
+            root["deviceNumber"] = os.stat(self.home).st_dev ^ 1
+            metadata(root)
+            enrollment_file.write_text(json.dumps(registered))
+            self.agent = self.spawn([str(APP), "run"], "agent.log", self.env)
+
+            def reconnected():
+                current = self.api("GET", self.device_api).json()["connection"]
+                return current if current["online"] and current["connectionId"] != connection_id else None
+
+            connection_id = self.wait(reconnected)["connectionId"]
+            self.wait(lambda: self.api("GET", self.device_api + "/file-roots/local").json())
+            self.set_access(connection_id, True)
+            self.assertEqual(self.api("GET", self.device_api + "/file-roots").json()["items"][0]["id"], self.root_id)
+            return json.loads(enrollment_file.read_text())["roots"][0]
+
+        def list_downloads():
+            page = self.api("GET", self.files_api + "/entries", params=self.params("Downloads")).json()
+            self.assertEqual([entry["name"] for entry in page["items"]], ["sample.txt"])
+
+        upgraded = remount(lambda root: root.pop("volumeUUID"))
+        self.assertEqual(upgraded["deviceNumber"], os.stat(self.home).st_dev)
+        self.assertEqual(upgraded["volumeUUID"], original_root["volumeUUID"])
+        list_downloads()
+        with self.open_ftp("plain", self.plain_port, credential) as client:
+            mount, = client.nlst("/")
+            self.assertIn("Downloads", client.nlst(f"/{mount}"))
+            client.cwd(f"/{mount}")
+            self.assertEqual(list(client.mlsd("Downloads"))[0][0], "sample.txt")
+            lines = []
+            client.retrlines("LIST -la Downloads", lines.append)
+            self.assertTrue(any(line.endswith(" sample.txt") for line in lines))
+
+        same_volume = remount(lambda root: None)
+        self.assertEqual(same_volume["volumeUUID"], upgraded["volumeUUID"])
+        self.assertNotEqual(same_volume["deviceNumber"], upgraded["deviceNumber"])
+        list_downloads()
+
+        remount(lambda root: root.update(volumeUUID=str(uuid.uuid4())))
+        error = self.api("GET", self.files_api + "/entries", 409, params=self.params()).json()
+        self.assertEqual(error["code"], "root_identity_changed")
+        with self.open_ftp("plain", self.plain_port, credential) as client:
+            mount, = client.nlst("/")
+            with self.assertRaisesRegex(ftplib.error_perm, "550 Shared directory needs local reapproval"):
+                client.cwd(f"/{mount}")
+
     def test_gateway_live_home_scope_connections_and_encrypted_password_reveal(self):
         registration = self.setup_device()
         self.api("PUT", self.device_api, json={"name": "Mac1", "profileId": "default", "revision": registration["revision"]})
