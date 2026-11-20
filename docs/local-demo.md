@@ -2,7 +2,7 @@
 
 运行 `scripts/demo-server.sh start`，然后访问 `http://localhost:8847/demo`。本机 DMG 的服务端地址为 `http://localhost:8847`。网页、FTP、FTPS 和 SFTP 均只监听回环地址。Agent 使用只读 HOME 和独立本机状态。演示脚本需要 .NET 10、Go 和 OpenSSL。
 
-1. 打开 `artifacts/FileSharingService-0.4.3.dmg`，把 `FileSharingService.app` 拖到 `Applications`。升级时替换同名 App。
+1. 打开 `artifacts/FileSharingService-0.4.4.dmg`，把 `FileSharingService.app` 拖到 `Applications`。升级时替换同名 App。
 2. 打开已拖装的 App，也可以在 DMG 里双击 `Open FileSharingService.command`。若 macOS 暂拦首次启动，从「系统设置 → 隐私与安全性」为此 App 选择「仍要打开」。[Apple 的首次打开说明](https://support.apple.com/en-us/102445)
 3. App 会注册内置后台服务。升级后首次打开会将旧注册更新到当前构建。系统要求批准时，在「登录项与扩展」允许 FileSharingService。状态窗口显示注册结果，在线状态在本机测试页确认。客户端或服务端重启后，在 Demo 里为新的设备连接授权。
 4. 首次使用网页时，打开仓库的 `.local/demo/.env`，把 `FILESHARING_BOOTSTRAP_SECRET` 等号后的值粘贴到部署密钥栏，注册 Passkey 并解锁。建议使用系统当前版本的 Safari 或 Chrome。

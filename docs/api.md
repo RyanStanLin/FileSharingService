@@ -255,9 +255,9 @@ SFTP 客户端首次连接时校验 `hostKeyFingerprint`，格式为 `SHA256:…
 {"title":"维护确认","message":"请选择是否允许进入维护窗口，并填写原因。","choices":[{"id":"allow","label":"同意"},{"id":"deny","label":"暂缓"}],"askText":true,"textRequired":true,"timeoutSeconds":60}
 ```
 
-应用使用独立进程在当前空间中置顶显示单个 260 pt 宽的原生面板。面板包含应用图标、标题、提示、可选说明框和按钮。首选项为默认按钮，可用 Escape 或关闭按钮取消。每台设备同时展示一个请求。作业的 `result` 为 `{outcome,choiceId,text,respondedAt}`，结果 `submitted` 携带选择与最多 1024 字符的说明，`dismissed` 和 `expired` 的选择与说明为空。已锁定、已注销或退出当前用户的 Mac 不能答复。取消管理会话、撤销远程授权或设备断线会结束进行中的显示。客户端会回收超时或出错的弹窗进程。
+Agent 0.4.4 起在独立进程中使用 AppKit `NSAlert` 在当前空间置顶显示应用图标、请求标题、提示、可选输入框及按钮。弹窗尺寸由 macOS 按内容布局。首选项为默认按钮，可用 Escape 或「取消」按钮取消。每台设备同时展示一个请求。作业的 `result` 为 `{outcome,choiceId,text,respondedAt}`，结果 `submitted` 携带选择与最多 1024 字符的输入，`dismissed` 和 `expired` 的选择与输入为空。已锁定、已注销或退出当前用户的 Mac 不能答复。取消管理会话、撤销远程授权或设备断线会结束进行中的显示。客户端会回收超时或出错的弹窗进程。 [Apple NSAlert.runModal](https://developer.apple.com/documentation/appkit/nsalert/runmodal())
 
-Agent 0.4.3 起支持遮蔽企业审批码。提交 `askText:true,maskText:true`，使用 `textRequired` 选择必填或选填。Mac 使用原生遮蔽控件，点击选项时按原样回传输入值。创建请求的管理员通过 `GET /jobs/{id}` 的 `result.text` 获取审批码。WebSocket 完成事件只包含作业标识、状态与种类。设备通道使用独立的 `interaction.dialog.masked` 命令，旧 Agent 会返回 `unsupported`。 [Apple NSSecureTextField](https://developer.apple.com/documentation/appkit/nssecuretextfield)
+Agent 0.4.3 起支持遮蔽企业审批码。提交 `askText:true,maskText:true`，使用 `textRequired` 选择必填或选填。Mac 使用 `NSSecureTextField`，点击选项时按原样回传输入值。创建请求的管理员通过 `GET /jobs/{id}` 的 `result.text` 获取审批码。WebSocket 完成事件只包含作业标识、状态与种类。设备通道使用独立的 `interaction.dialog.masked` 命令，旧 Agent 会返回 `unsupported`。 [Apple NSSecureTextField](https://developer.apple.com/documentation/appkit/nssecuretextfield)
 
 选项需要本机身份验证时，使用 `requireLocalAuthentication:true`，并省略 `askText` 和 `textRequired`。选择选项后，macOS 使用系统窗口验证设备所有者。密码与 Touch ID 均由系统处理。验证通过时，结果额外包含 `locallyAuthenticated:true`，`text` 为 `null`。 [Apple LocalAuthentication](https://developer.apple.com/documentation/LocalAuthentication/LAPolicy/deviceOwnerAuthentication)
 

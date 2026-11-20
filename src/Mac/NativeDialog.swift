@@ -6,20 +6,14 @@ import Foundation
 import LocalAuthentication
 
 @MainActor
-final class NativeDialog: NSObject, NSWindowDelegate, NSTextFieldDelegate {
-    private static let width: CGFloat = 260
-    private static let margin: CGFloat = 18
-    private static let column = width - 2 * margin
-
-    private let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: NativeDialog.width, height: 300),
-                                styleMask: [.titled, .closable], backing: .buffered, defer: false)
+final class NativeDialog: NSObject, NSTextFieldDelegate {
+    private let alert = NSAlert()
     private let options: [(id: String, label: String)]
     private let textRequired: Bool
     private let requireAuthentication: Bool
     private let inputField: NSTextField?
-    private var buttons = [NSButton]()
     private var authentication: LAContext?
-    private var completion: CheckedContinuation<JSON, Error>?
+    private var interruption: String?
 
     static func serve() async {
         let parent = getppid()
@@ -36,9 +30,7 @@ final class NativeDialog: NSObject, NSWindowDelegate, NSTextFieldDelegate {
     }
 
     static func present(_ input: JSON, parent: pid_t? = nil) async throws -> JSON {
-        let session = CGSessionCopyCurrentDictionary() as? [String: Any]
-        guard session?[kCGSessionOnConsoleKey as String] as? Bool == true,
-              session?["CGSSessionScreenIsLocked"] as? Bool != true else {
+        guard hasInteractiveSession else {
             throw AgentError("interactive_session_required")
         }
         let title = try input.requireString("title")
@@ -78,149 +70,95 @@ final class NativeDialog: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         }
         super.init()
 
-        panel.title = "FileSharingService"
-        panel.delegate = self
-        panel.isReleasedWhenClosed = false
-        panel.hidesOnDeactivate = false
-        panel.level = .modalPanel
-        panel.collectionBehavior = [.moveToActiveSpace, .canJoinAllApplications]
-
-        let icon = NSImageView(image: NSApplication.shared.applicationIconImage)
-        icon.setAccessibilityElement(false)
-        icon.imageScaling = .scaleProportionallyUpOrDown
-        icon.widthAnchor.constraint(equalToConstant: 52).isActive = true
-        icon.heightAnchor.constraint(equalToConstant: 52).isActive = true
-        let heading = Self.label(title, font: .boldSystemFont(ofSize: 15))
-        constrain(heading)
-        let body = Self.messageView(message)
-        constrain(body)
-        var content = [icon as NSView, heading, body]
+        alert.alertStyle = .informational
+        alert.messageText = title
+        alert.informativeText = message
+        alert.icon = NSApplication.shared.applicationIconImage
         if let inputField {
             inputField.delegate = self
             inputField.setAccessibilityLabel(maskText ? "企业审批码" : "说明")
-            constrain(inputField)
-            content.append(inputField)
+            inputField.sizeToFit()
+            inputField.frame.size.width = 212
+            alert.accessoryView = inputField
         }
         for (index, option) in options.enumerated() {
-            let button = makeButton(option.1, action: #selector(choose(_:)))
-            button.tag = index
-            buttons.append(button)
+            alert.addButton(withTitle: option.1).keyEquivalent = index == 0 ? "\r" : ""
         }
-        let cancel = makeButton("取消", action: #selector(cancel))
-        cancel.keyEquivalent = "\u{1b}"
-        content.append(contentsOf: buttons)
-        content.append(cancel)
-        let stack = NSStackView(views: content)
-        stack.orientation = .vertical
-        stack.alignment = .centerX
-        stack.spacing = 10
-        stack.edgeInsets = NSEdgeInsets(top: Self.margin, left: Self.margin, bottom: Self.margin, right: Self.margin)
-        panel.contentView = stack
-        panel.setContentSize(NSSize(width: Self.width, height: stack.fittingSize.height))
-        buttons[0].keyEquivalent = "\r"
-        panel.defaultButtonCell = buttons[0].cell as? NSButtonCell
-        panel.initialFirstResponder = inputField
+        alert.addButton(withTitle: "取消").keyEquivalent = "\u{1b}"
         updateButtons()
     }
 
-    private static func label(_ value: String, font: NSFont) -> NSTextField {
-        let label = NSTextField(wrappingLabelWithString: value)
-        label.font = font
-        label.lineBreakMode = .byCharWrapping
-        label.preferredMaxLayoutWidth = column
-        return label
+    private static var hasInteractiveSession: Bool {
+        let session = CGSessionCopyCurrentDictionary() as? [String: Any]
+        return session?[kCGSessionOnConsoleKey as String] as? Bool == true &&
+            session?["CGSSessionScreenIsLocked"] as? Bool != true
     }
 
-    private static func textHeight(_ value: String, font: NSFont, width: CGFloat) -> CGFloat {
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.lineBreakMode = .byCharWrapping
-        let framed = NSAttributedString(string: value, attributes: [.font: font, .paragraphStyle: paragraph])
-        return ceil(framed.boundingRect(with: NSSize(width: width, height: .greatestFiniteMagnitude),
-                                        options: [.usesLineFragmentOrigin, .usesFontLeading]).height)
-    }
-
-    private static func messageView(_ message: String) -> NSView {
-        let font = NSFont.systemFont(ofSize: 13)
-        if textHeight(message, font: font, width: column) <= 150 {
-            return label(message, font: font)
-        }
-        let scroll = NSScrollView()
-        scroll.hasVerticalScroller = true
-        scroll.autohidesScrollers = true
-        scroll.drawsBackground = false
-        let text = NSTextView(frame: NSRect(x: 0, y: 0, width: column, height: 150))
-        text.string = message
-        text.font = font
-        text.isEditable = false
-        text.isHorizontallyResizable = false
-        text.isVerticallyResizable = true
-        text.drawsBackground = false
-        text.autoresizingMask = [.width]
-        text.textContainer?.widthTracksTextView = true
-        scroll.documentView = text
-        scroll.heightAnchor.constraint(equalToConstant: 150).isActive = true
-        return scroll
-    }
-
-    private func constrain(_ control: NSView) {
-        control.widthAnchor.constraint(equalToConstant: Self.column).isActive = true
-    }
-
-    private func makeButton(_ title: String, action: Selector) -> NSButton {
-        let button = NSButton(title: title, target: self, action: action)
-        button.bezelStyle = .rounded
-        button.lineBreakMode = .byCharWrapping
-        button.cell?.wraps = true
-        constrain(button)
-        let height = Self.textHeight(title, font: button.font ?? .systemFont(ofSize: 13), width: Self.column - 24) + 12
-        button.heightAnchor.constraint(greaterThanOrEqualToConstant: max(28, height)).isActive = true
-        return button
+    private func runAlert() -> NSApplication.ModalResponse {
+        alert.layout()
+        let window = alert.window
+        window.hidesOnDeactivate = false
+        window.level = .modalPanel
+        window.collectionBehavior = [.moveToActiveSpace, .canJoinAllApplications]
+        if let inputField { window.initialFirstResponder = inputField }
+        defer { window.orderOut(nil) }
+        NSApplication.shared.activate()
+        window.makeKeyAndOrderFront(nil)
+        window.orderFrontRegardless()
+        return alert.runModal()
     }
 
     private func show(for duration: Duration, parent: pid_t?) async throws -> JSON {
         try Task.checkCancellation()
-        let workspace = NSWorkspace.shared.notificationCenter
-        let distributed = DistributedNotificationCenter.default()
-        let lock = distributed.addObserver(forName: .init("com.apple.screenIsLocked"), object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.cancel() }
-        }
-        let inactive = workspace.addObserver(forName: NSWorkspace.sessionDidResignActiveNotification,
-                                             object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.cancel() }
-        }
-        let timer = Task { [weak self] in
-            do {
-                try await Task.sleep(for: duration)
-                self?.finish(.success(DialogProcess.outcome("expired")))
-            } catch {}
-        }
-        let owner = parent.map { pid in
-            Task { [weak self] in
-                while !Task.isCancelled {
-                    if getppid() != pid { self?.cancel(); return }
-                    try? await Task.sleep(for: .seconds(1))
-                }
+        let deadline = ContinuousClock.now + duration
+        let timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.checkInterruption(deadline: deadline, parent: parent)
             }
         }
-        defer {
-            timer.cancel()
-            owner?.cancel()
-            workspace.removeObserver(inactive)
-            distributed.removeObserver(lock)
-        }
+        // NSAlert runs a nested loop in the helper. Keep timeout and session checks active in that loop.
+        RunLoop.main.add(timer, forMode: .modalPanel)
+        RunLoop.main.add(timer, forMode: .default)
+        defer { timer.invalidate() }
+
         return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
-                completion = continuation
-                guard !Task.isCancelled else { cancel(); return }
-                panel.center()
-                NSApplication.shared.activate()
-                panel.makeKeyAndOrderFront(nil)
-                panel.orderFrontRegardless()
-                if !panel.isVisible { finish(.failure(AgentError("dialog_presentation_failed"))) }
+            try Task.checkCancellation()
+            let response = runAlert()
+            checkInterruption(deadline: deadline, parent: parent)
+            if let interruption { return DialogProcess.outcome(interruption) }
+
+            let index = response.rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
+            guard options.indices.contains(index), isInputValid else { return DialogProcess.outcome("dismissed") }
+            let id = options[index].id
+            if !requireAuthentication {
+                return DialogProcess.outcome("submitted", choice: id, text: inputValue)
             }
+            let approved = try await authenticate()
+            checkInterruption(deadline: deadline, parent: parent)
+            if let interruption { return DialogProcess.outcome(interruption) }
+            return approved ? DialogProcess.outcome("submitted", choice: id, authenticated: true) : DialogProcess.outcome("dismissed")
         } onCancel: {
-            Task { @MainActor in self.cancel() }
+            RunLoop.main.perform(inModes: [.modalPanel, .default]) {
+                MainActor.assumeIsolated { self.interrupt("dismissed") }
+            }
         }
+    }
+
+    private func checkInterruption(deadline: ContinuousClock.Instant, parent: pid_t?) {
+        if Task.isCancelled {
+            interrupt("dismissed")
+        } else if ContinuousClock.now >= deadline {
+            interrupt("expired")
+        } else if parent.map({ getppid() != $0 }) == true || !Self.hasInteractiveSession {
+            interrupt("dismissed")
+        }
+    }
+
+    private func interrupt(_ outcome: String) {
+        guard interruption == nil else { return }
+        interruption = outcome
+        if NSApplication.shared.modalWindow === alert.window { NSApplication.shared.abortModal() }
+        authentication?.invalidate()
     }
 
     func controlTextDidChange(_ notification: Foundation.Notification) { updateButtons() }
@@ -231,54 +169,30 @@ final class NativeDialog: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         return inputField is NSSecureTextField ? value : value.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func updateButtons() {
+    private var isInputValid: Bool {
         let value = inputValue ?? ""
-        let valid = value.utf16.count <= 1024 && (!textRequired || !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) &&
+        return value.utf16.count <= 1024 && (!textRequired || !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) &&
             !value.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains)
-        for button in buttons { button.isEnabled = valid && authentication == nil }
     }
 
-    @objc private func choose(_ sender: NSButton) {
-        guard completion != nil, sender.isEnabled, options.indices.contains(sender.tag) else { return }
-        let id = options[sender.tag].id
-        if !requireAuthentication {
-            finish(.success(DialogProcess.outcome("submitted", choice: id, text: inputValue)))
-            return
-        }
+    private func updateButtons() {
+        let enabled = isInputValid
+        for button in alert.buttons.dropLast() { button.isEnabled = enabled }
+    }
+
+    private func authenticate() async throws -> Bool {
         let context = LAContext()
         context.localizedFallbackTitle = "使用密码"
         guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: nil) else {
-            finish(.failure(AgentError("local_authentication_unavailable")))
-            return
+            throw AgentError("local_authentication_unavailable")
         }
         authentication = context
-        updateButtons()
-        Task {
-            let approved = (try? await context.evaluatePolicy(.deviceOwnerAuthentication,
-                localizedReason: "确认这台 Mac 上的 FileSharingService 操作。")) == true
-            guard authentication === context else { return }
-            if approved {
-                finish(.success(DialogProcess.outcome("submitted", choice: id, authenticated: true)))
-            } else {
-                cancel()
-            }
+        defer {
+            context.invalidate()
+            authentication = nil
         }
-    }
-
-    func windowShouldClose(_ sender: NSWindow) -> Bool {
-        cancel()
-        return false
-    }
-
-    @objc private func cancel() { finish(.success(DialogProcess.outcome("dismissed"))) }
-
-    private func finish(_ result: Result<JSON, Error>) {
-        guard let continuation = completion else { return }
-        completion = nil
-        authentication?.invalidate()
-        authentication = nil
-        panel.orderOut(nil)
-        continuation.resume(with: result)
+        return (try? await context.evaluatePolicy(.deviceOwnerAuthentication,
+            localizedReason: "确认这台 Mac 上的 FileSharingService 操作。")) == true
     }
 }
 #endif

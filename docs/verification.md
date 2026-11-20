@@ -1,5 +1,11 @@
 # FileSharing 验收记录
 
+## Agent 0.4.4
+
+`tests/native_dialog_smoke.swift` 在已解锁的 Mac 上验证了独立的 AppKit `NSAlert`、当前空间置顶、应用图标和首选项默认按钮。短内容实测宽度为 260 pt。普通说明和 `NSSecureTextField` 遮蔽审批码均可提交，审批码保留前导零和空格。取消、Escape、请求撤销及超时后重新弹出均通过。
+
+`test_dialog_response_notification_and_session_cancellation` 和 `test_dialog_helper_crash_and_timeout_preserve_connection` 通过，覆盖 WebSocket、HTTPS 回退及弹窗进程回收。锁屏时，安装包中的弹窗进程在两种传输下均返回 `interactive_session_required`，同一连接继续更新心跳。双架构 DMG 通过签名和 SHA-256 校验，本机安装后 LaunchAgent 在同一进程和连接上稳定运行并持续更新心跳。
+
 ## Agent 0.4.3
 
 原生弹窗验收确认 260 pt 面板的审批码输入使用 `NSSecureTextField`，带前导零和空格的测试值按原样回传。设备 WebSocket 与 HTTP 回退的交互契约、弹窗进程恢复及 4 项浏览器回归通过。Demo 在收到审批码后默认遮蔽显示，并支持查看与重新遮蔽。
@@ -52,7 +58,7 @@
 | Linux 容器、HTTPS 与两侧 WSS、FTPS 和 SFTP | `test_nginx_https_wss_ftps_and_sftp` |
 | 历史库迁移后保留设备、账号及根授权 | `test_sqlite_upgrade_preserves_preexisting_device_and_grant` |
 
-在登录到 Aqua 的 Mac 上可以用以下命令验收 AppKit 对话框。测试程序检查单窗体、宽度、层级和应用图标，再填写测试说明、提交和关闭。
+在登录到 Aqua 的 Mac 上可以用以下命令验收 AppKit 对话框。测试程序检查独立弹窗、层级、应用图标、默认按钮及原生遮蔽输入，输出原生宽度，并验证提交、取消、超时及再次弹出。
 
 ```bash
 mkdir -p .local
