@@ -2,7 +2,7 @@
 
 运行 `scripts/demo-server.sh start`，然后访问 `http://localhost:8847/demo`。本机 DMG 的服务端地址为 `http://localhost:8847`。网页、FTP、FTPS 和 SFTP 均只监听回环地址。Agent 使用只读 HOME 和独立本机状态。演示脚本需要 .NET 10、Go 和 OpenSSL。
 
-1. 打开 `artifacts/FileSharingService-0.4.2.dmg`，把 `FileSharingService.app` 拖到 `Applications`。升级时替换同名 App。
+1. 打开 `artifacts/FileSharingService-0.4.3.dmg`，把 `FileSharingService.app` 拖到 `Applications`。升级时替换同名 App。
 2. 打开已拖装的 App，也可以在 DMG 里双击 `Open FileSharingService.command`。若 macOS 暂拦首次启动，从「系统设置 → 隐私与安全性」为此 App 选择「仍要打开」。[Apple 的首次打开说明](https://support.apple.com/en-us/102445)
 3. App 会注册内置后台服务。升级后首次打开会将旧注册更新到当前构建。系统要求批准时，在「登录项与扩展」允许 FileSharingService。状态窗口显示注册结果，在线状态在本机测试页确认。客户端或服务端重启后，在 Demo 里为新的设备连接授权。
 4. 首次使用网页时，打开仓库的 `.local/demo/.env`，把 `FILESHARING_BOOTSTRAP_SECRET` 等号后的值粘贴到部署密钥栏，注册 Passkey 并解锁。建议使用系统当前版本的 Safari 或 Chrome。
@@ -16,7 +16,7 @@
 | --- | --- |
 | 设备与电源 | 查询设备、CPU、内存、电池、网络、外接存储和开合盖。可修改每项采样间隔或请求即时采样，也可保存、恢复继承合盖保持唤醒策略。本机联调包的实际睡眠由 macOS 控制，页面显示 Mac 回报的有效状态。 |
 | 应用直播 | 查看运行中与已安装的应用清单，按名称、Bundle ID 或 PID 搜索。启动或退出一个测试 App，查看事件和清单变化。WebSocket 断线时，页面回退到 REST 并补读事件。 |
-| 诊断与交互 | 选择预设诊断或「自定义只读命令」，例如 `uname -m`，查看 STDOUT、STDERR 和退出码。弹窗使用应用图标。填写标题、提示文字及选项，再选择普通答复或「选项与系统身份验证」。该模式需要 Agent 0.4.2。 |
+| 诊断与交互 | 选择预设诊断或「自定义只读命令」，例如 `uname -m`，查看 STDOUT、STDERR 和退出码。发送弹窗时可选择「选项与遮蔽审批码」，并设置选填或必填。Mac 遮蔽键入的审批码，答复回传后点击「显示审批码」查看。该模式需要 Agent 0.4.3。 |
 | FTP / SFTP | 创建测试账号，可留空密码以随机生成。用独立客户端连接并回到页面查看会话。轮换密码会使旧连接失效。查看历史已签发的可查询密码时，页面会按需重新验证 Passkey。 |
 
 网关端口为 FTP 2121、显式 FTPS 2122、隐式 FTPS 2990 和 SFTP 2222。FTPS 客户端可校验或导入本机公共证书 `.local/demo/ftps-cert.pem`。SFTP 主机指纹显示在页面中。页面创建的账号会看到所有已授权在线 Mac 的主目录。

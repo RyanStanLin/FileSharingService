@@ -1,5 +1,9 @@
 # FileSharing 验收记录
 
+## Agent 0.4.3
+
+原生弹窗验收确认 260 pt 面板的审批码输入使用 `NSSecureTextField`，带前导零和空格的测试值按原样回传。设备 WebSocket 与 HTTP 回退的交互契约、弹窗进程恢复及 4 项浏览器回归通过。Demo 在收到审批码后默认遮蔽显示，并支持查看与重新遮蔽。
+
 ## Agent 0.4.2
 
 26 项集成测试及 4 项浏览器回归通过。.NET 的 Debug 和 Release 构建各报告 0 个警告和 0 个错误。

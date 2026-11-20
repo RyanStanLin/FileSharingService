@@ -577,7 +577,7 @@ actor AgentTransport {
             return
         }
         let input = command["payload"]
-        let managed = ["diagnostics.run", "interaction.dialog", "interaction.notification"].contains(kind)
+        let managed = ["diagnostics.run", "interaction.dialog", "interaction.dialog.masked", "interaction.notification"].contains(kind)
         if managed { managedOperations.insert(id) }
         operations[id] = Task {
             let response: JSON
@@ -629,8 +629,11 @@ actor AgentTransport {
             }
         case "permissions.request":
             return try await telemetry.permission(input.requireString("permission"))
-        case "interaction.dialog":
+        case "interaction.dialog", "interaction.dialog.masked":
             guard activeOrigin != nil else { throw AgentError("connection_unavailable") }
+            guard (kind == "interaction.dialog.masked") == (input["maskText"].bool == true) else {
+                throw AgentError("invalid_request")
+            }
             return try await DeviceInteractions.present(input)
         case "interaction.notification":
             guard let activeOrigin else { throw AgentError("connection_unavailable") }

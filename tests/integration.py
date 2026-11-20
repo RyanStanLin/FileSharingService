@@ -1183,6 +1183,20 @@ app.run()
                     result = self.finished_job(job)["result"]
                     self.assertEqual((result["choiceId"], result["text"]), ("submit", "Approved maintenance"))
 
+                    masked = request | {"maskText": True}
+                    self.api("POST", dialogs, 400, json=masked | {"askText": False, "textRequired": False})
+                    job = self.api("POST", dialogs, 202, json=masked).json()
+                    command = next_message()
+                    self.assertEqual((command["kind"], command["id"], command["payload"]),
+                                     ("interaction.dialog.masked", job["id"], masked))
+                    code = "  00-APP-42  "
+                    reply({"type": "result", "id": job["id"], "ok": True, "payload": answer | {"text": code}})
+                    event = self.receive(events, lambda value: value["type"] == "event"
+                                         and value["item"]["payload"]["id"] == job["id"])["item"]["payload"]
+                    self.assertEqual(event, {"id": job["id"], "state": "completed", "kind": "interaction.dialog"})
+                    self.assertEqual(self.finished_job(job)["result"]["text"], code)
+                    self.api("GET", f"{API}/jobs/{job['id']}", 401, session=self.client())
+
                 protected = {key: value for key, value in request.items() if key not in ("icon", "askText", "textRequired")}
                 protected["requireLocalAuthentication"] = True
                 self.api("POST", dialogs, 400, json=protected | {"askText": True})
@@ -1233,7 +1247,8 @@ if request["title"] == "Timeout fixture":
     signal.signal(signal.SIGTERM, signal.SIG_IGN)
     Path(os.environ["FILESHARING_TEST_HELPER_PID"]).write_text(str(os.getpid()))
     time.sleep(60)
-print(json.dumps({"payload": {"outcome": "submitted", "choiceId": "yes", "text": None,
+print(json.dumps({"payload": {"outcome": "submitted", "choiceId": "yes",
+                             "text": "00-APP-42" if request.get("maskText") else None,
                              "respondedAt": datetime.now(timezone.utc).isoformat()}}))
 """)
         helper.chmod(0o700)
@@ -1243,10 +1258,10 @@ print(json.dumps({"payload": {"outcome": "submitted", "choiceId": "yes", "text":
         connection_id = device["connection"]["connectionId"]
         route = self.device_api + "/interactions/dialogs"
 
-        def submit(title):
-            return self.api("POST", route, 202,
-                            json={"title": title, "message": "Local test", "timeoutSeconds": 10,
-                                  "choices": [{"id": "yes", "label": "Accept"}]}).json()
+        def submit(title, **fields):
+            request = {"title": title, "message": "Local test", "timeoutSeconds": 10,
+                       "choices": [{"id": "yes", "label": "Accept"}]}
+            return self.api("POST", route, 202, json=request | fields).json()
 
         failed = self.finished_job(submit("Crash fixture"))
         self.assertEqual((failed["state"], failed["error"]), ("failed", "dialog_presentation_failed"))
@@ -1265,8 +1280,8 @@ print(json.dumps({"payload": {"outcome": "submitted", "choiceId": "yes", "text":
         self.assertEqual((expired["state"], expired["result"]["outcome"]), ("completed", "expired"))
         with self.assertRaises(ProcessLookupError):
             os.kill(child_pid, 0)
-        completed = self.finished_job(submit("Reply fixture"))
-        self.assertEqual(completed["result"]["choiceId"], "yes")
+        completed = self.finished_job(submit("Reply fixture", askText=True, textRequired=True, maskText=True))
+        self.assertEqual((completed["result"]["choiceId"], completed["result"]["text"]), ("yes", "00-APP-42"))
         self.assertEqual(self.api("GET", self.device_api).json()["connection"]["connectionId"], connection_id)
 
     def test_diagnostic_outputs_stream_and_resume_on_wss_and_https(self):

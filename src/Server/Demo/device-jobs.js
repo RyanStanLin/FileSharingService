@@ -6,6 +6,21 @@ const results = {submitted: "Mac 用户已提交", dismissed: "Mac 用户已取�
 
 export function deviceJobs({call, perform, errorText, collectCompleted}) {
     let current
+    const approvalValue = element("dialog-approval-value")
+    const approvalToggle = element("dialog-approval-toggle")
+
+    function showApprovalValue(revealed) {
+        approvalValue.type = revealed ? "text" : "password"
+        approvalToggle.textContent = revealed ? "遮蔽审批码" : "显示审批码"
+    }
+
+    approvalToggle.addEventListener("click", () => showApprovalValue(approvalValue.type === "password"))
+
+    function renderApprovalCode(value) {
+        showApprovalValue(false)
+        approvalValue.value = value ?? ""
+        element("dialog-approval").hidden = !value
+    }
 
     function bind(device) {
         if (current?.id !== device?.id) {
@@ -17,6 +32,7 @@ export function deviceJobs({call, perform, errorText, collectCompleted}) {
             element("diagnostic-stdout").textContent = ""
             element("diagnostic-stderr").textContent = ""
             facts("dialog-result", [])
+            renderApprovalCode(null)
         }
         if (current) current.allowed = Boolean(device.connection.online && device.connection.accessGranted)
         renderControls()
@@ -32,10 +48,13 @@ export function deviceJobs({call, perform, errorText, collectCompleted}) {
     async function submit(kind, suffix, body) {
         const state = current
         if (!state?.allowed || (state.runs[kind] && !state.runs[kind].finished)) return
-        const run = {kind, choices: body.choices, parts: new Map(), cursor: 0}
+        const run = {kind, choices: body.choices, maskText: body.maskText === true, parts: new Map(), cursor: 0}
         state.runs[kind] = run
         status(ledgers[kind], "正在发送到 Mac…")
-        if (kind === "dialog") facts("dialog-result", [])
+        if (kind === "dialog") {
+            facts("dialog-result", [])
+            renderApprovalCode(null)
+        }
         if (kind === "diagnostic") renderOutput(run)
         renderControls()
         try {
@@ -122,11 +141,11 @@ export function deviceJobs({call, perform, errorText, collectCompleted}) {
         } else if (run.kind === "dialog") {
             const result = job.result
             status("dialog-status", results[result.outcome] ?? result.outcome)
-            facts("dialog-result", [
-                ["所选选项", run.choices.find(choice => choice.id === result.choiceId)?.label],
-                ["用户说明", result.text], ["本机身份验证", result.locallyAuthenticated ? "已通过" : null],
-                ["答复时间", dateText(result.respondedAt)]
-            ])
+            const details = [["所选选项", run.choices.find(choice => choice.id === result.choiceId)?.label]]
+            if (!run.maskText) details.push(["用户说明", result.text])
+            details.push(["答复时间", dateText(result.respondedAt)])
+            facts("dialog-result", details)
+            if (run.maskText) renderApprovalCode(result.text)
         } else {
             status("collect-status", "设备已回传最新采样。")
             await collectCompleted()
@@ -173,8 +192,8 @@ export function deviceJobs({call, perform, errorText, collectCompleted}) {
         }
         return submit("dialog", "/interactions/dialogs", {
             title: element("dialog-title").value.trim(), message: element("dialog-message").value.trim(),
-            choices, askText: mode === "optional" || mode === "required", textRequired: mode === "required",
-            requireLocalAuthentication: mode === "authenticate",
+            choices, askText: mode !== "none", textRequired: mode === "required" || mode === "maskedRequired",
+            maskText: mode === "maskedOptional" || mode === "maskedRequired",
             timeoutSeconds: element("dialog-timeout").valueAsNumber
         })
     }))

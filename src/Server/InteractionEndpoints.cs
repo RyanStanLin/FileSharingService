@@ -6,10 +6,11 @@ namespace FileSharing;
 /// <summary>A device-local choice with a stable ID for the response.</summary>
 internal sealed record DialogChoice(string Id, string Label);
 
-/// <summary>Content and deadline for an attributed macOS dialog with optional reason entry.</summary>
+/// <summary>Content and deadline for an attributed macOS dialog with optional text entry.</summary>
 internal sealed record DialogRequest(string Title, string Message, string? Icon, IReadOnlyList<DialogChoice> Choices,
     bool AskText = false, bool TextRequired = false, int TimeoutSeconds = 90,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool RequireLocalAuthentication = false);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool RequireLocalAuthentication = false,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool MaskText = false);
 
 /// <summary>Content for one local macOS notification.</summary>
 internal sealed record LocalNotificationRequest(string Title, string Message, bool Sound = false);
@@ -17,13 +18,14 @@ internal sealed record LocalNotificationRequest(string Title, string Message, bo
 internal static class InteractionEndpoints
 {
     internal const string Dialog = "interaction.dialog";
+    internal const string MaskedDialog = "interaction.dialog.masked";
     internal const string Notification = "interaction.notification";
 
     public static void Map(RouteGroupBuilder devices)
     {
         var interactions = devices.MapGroup("/interactions").WithTags("Device interactions");
         interactions.MapPost("/dialogs", Present)
-            .WithSummary("Ask the active Mac user to make a choice, submit a reason, or authenticate locally");
+            .WithSummary("Ask the active Mac user to make a choice or submit text, with optional masking");
         interactions.MapPost("/notifications", Notify).WithSummary("Schedule a local notification in macOS Notification Center");
     }
 
@@ -34,7 +36,7 @@ internal static class InteractionEndpoints
         await devices.Require(id, ct);
         if (body.Icon is not (null or "info" or "warning" or "question" or "stop") ||
             body.TimeoutSeconds is < 10 or > 120 || body.Choices is not { Count: >= 1 and <= 3 } ||
-            body.TextRequired && !body.AskText || body.RequireLocalAuthentication && body.AskText)
+            (body.TextRequired || body.MaskText) && !body.AskText || body.RequireLocalAuthentication && body.AskText)
             throw Fault.Bad("invalid_dialog");
         var choices = body.Choices.Select(choice =>
         {

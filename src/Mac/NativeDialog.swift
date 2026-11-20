@@ -16,7 +16,7 @@ final class NativeDialog: NSObject, NSWindowDelegate, NSTextFieldDelegate {
     private let options: [(id: String, label: String)]
     private let textRequired: Bool
     private let requireAuthentication: Bool
-    private let explanation: NSTextField?
+    private let inputField: NSTextField?
     private var buttons = [NSButton]()
     private var authentication: LAContext?
     private var completion: CheckedContinuation<JSON, Error>?
@@ -44,12 +44,13 @@ final class NativeDialog: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         let title = try input.requireString("title")
         let message = try input.requireString("message")
         let askText = input["askText"].bool == true
+        let maskText = input["maskText"].bool == true
         let textRequired = input["textRequired"].bool == true
         let requireAuthentication = input["requireLocalAuthentication"].bool == true
         guard (1...100).contains(title.utf16.count), (1...1000).contains(message.utf16.count),
               let choices = input["choices"].array, (1...3).contains(choices.count),
               let seconds = input["timeoutSeconds"].int, (10...120).contains(seconds),
-              (!textRequired || askText), !(askText && requireAuthentication) else {
+              (!(textRequired || maskText) || askText), !(askText && requireAuthentication) else {
             throw AgentError("invalid_request")
         }
         let options = try choices.map { choice in
@@ -60,17 +61,21 @@ final class NativeDialog: NSObject, NSWindowDelegate, NSTextFieldDelegate {
             }
             return (id, label)
         }
-        return try await NativeDialog(title: title, message: message, options: options, askText: askText,
+        return try await NativeDialog(title: title, message: message, options: options, askText: askText, maskText: maskText,
                                       textRequired: textRequired, requireAuthentication: requireAuthentication)
             .show(for: .seconds(seconds), parent: parent)
     }
 
-    private init(title: String, message: String, options: [(String, String)], askText: Bool, textRequired: Bool,
+    private init(title: String, message: String, options: [(String, String)], askText: Bool, maskText: Bool, textRequired: Bool,
                  requireAuthentication: Bool) {
         self.options = options
         self.textRequired = textRequired
         self.requireAuthentication = requireAuthentication
-        self.explanation = askText ? NSTextField(string: "") : nil
+        if maskText {
+            self.inputField = NSSecureTextField(string: "")
+        } else {
+            self.inputField = askText ? NSTextField(string: "") : nil
+        }
         super.init()
 
         panel.title = "FileSharingService"
@@ -90,11 +95,11 @@ final class NativeDialog: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         let body = Self.messageView(message)
         constrain(body)
         var content = [icon as NSView, heading, body]
-        if let explanation {
-            explanation.delegate = self
-            explanation.setAccessibilityLabel("说明")
-            constrain(explanation)
-            content.append(explanation)
+        if let inputField {
+            inputField.delegate = self
+            inputField.setAccessibilityLabel(maskText ? "企业审批码" : "说明")
+            constrain(inputField)
+            content.append(inputField)
         }
         for (index, option) in options.enumerated() {
             let button = makeButton(option.1, action: #selector(choose(_:)))
@@ -114,7 +119,7 @@ final class NativeDialog: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         panel.setContentSize(NSSize(width: Self.width, height: stack.fittingSize.height))
         buttons[0].keyEquivalent = "\r"
         panel.defaultButtonCell = buttons[0].cell as? NSButtonCell
-        panel.initialFirstResponder = explanation
+        panel.initialFirstResponder = inputField
         updateButtons()
     }
 
@@ -220,11 +225,15 @@ final class NativeDialog: NSObject, NSWindowDelegate, NSTextFieldDelegate {
 
     func controlTextDidChange(_ notification: Foundation.Notification) { updateButtons() }
 
-    private var reason: String? { explanation?.stringValue.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var inputValue: String? {
+        guard let inputField else { return nil }
+        let value = inputField.stringValue
+        return inputField is NSSecureTextField ? value : value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 
     private func updateButtons() {
-        let value = reason ?? ""
-        let valid = value.utf16.count <= 1024 && (!textRequired || !value.isEmpty) &&
+        let value = inputValue ?? ""
+        let valid = value.utf16.count <= 1024 && (!textRequired || !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) &&
             !value.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains)
         for button in buttons { button.isEnabled = valid && authentication == nil }
     }
@@ -233,7 +242,7 @@ final class NativeDialog: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         guard completion != nil, sender.isEnabled, options.indices.contains(sender.tag) else { return }
         let id = options[sender.tag].id
         if !requireAuthentication {
-            finish(.success(DialogProcess.outcome("submitted", choice: id, text: reason)))
+            finish(.success(DialogProcess.outcome("submitted", choice: id, text: inputValue)))
             return
         }
         let context = LAContext()

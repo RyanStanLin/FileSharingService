@@ -357,16 +357,22 @@ class LocalDemoBrowser(unittest.TestCase):
         self.assertFalse(browser.evaluate("Boolean(document.querySelector('#dialog-result b'))"))
 
         browser.evaluate("""
-            document.querySelector('#dialog-input').value = 'authenticate';
+            document.querySelector('#dialog-input').value = 'maskedRequired';
             document.querySelector('#dialog-form').requestSubmit()
         """)
-        protected = command("interaction.dialog")
-        self.assertTrue(protected["payload"]["requireLocalAuthentication"])
-        self.assertFalse(protected["payload"]["askText"])
-        send({"type": "result", "id": protected["id"], "ok": True,
-              "payload": {"outcome": "submitted", "choiceId": "choice-1", "text": None,
-                          "locallyAuthenticated": True, "respondedAt": stamp()}})
-        browser.wait("document.querySelector('#dialog-result').textContent.includes('已通过')")
+        masked = command("interaction.dialog.masked")
+        self.assertTrue(all(masked["payload"][key] for key in ("askText", "textRequired", "maskText")))
+        self.assertNotIn("requireLocalAuthentication", masked["payload"])
+        send({"type": "result", "id": masked["id"], "ok": True,
+              "payload": {"outcome": "submitted", "choiceId": "choice-1", "text": "00-APP-42", "respondedAt": stamp()}})
+        browser.wait("!document.querySelector('#dialog-approval').hidden")
+        self.assertEqual(browser.evaluate("document.querySelector('#dialog-approval-value').type"), "password")
+        self.assertEqual(browser.evaluate("document.querySelector('#dialog-approval-value').value"), "00-APP-42")
+        self.assertNotIn("00-APP-42", browser.evaluate("document.querySelector('#dialog-result').textContent"))
+        browser.evaluate("document.querySelector('#dialog-approval-toggle').click()")
+        self.assertEqual(browser.evaluate("document.querySelector('#dialog-approval-value').type"), "text")
+        browser.evaluate("document.querySelector('#dialog-approval-toggle').click()")
+        self.assertEqual(browser.evaluate("document.querySelector('#dialog-approval-value').type"), "password")
 
         browser.evaluate("document.querySelector('#diagnostic-form').requestSubmit()")
         diagnostic = command("diagnostics.run")

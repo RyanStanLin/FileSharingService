@@ -191,12 +191,20 @@
         </section>
         <section aria-labelledby="dialog-heading">
           <h2 id="dialog-heading">远程原生对话框</h2>
-          <p class="muted">请求会显示在所选 Mac 的已解锁用户会话中。系统身份验证需要 Agent 0.4.2 或更新版本。</p>
+          <p class="muted">请求会显示在所选 Mac 的已解锁用户会话中。遮蔽审批码需要 Agent 0.4.3 或更新版本。</p>
           <form id="dialog-form">
             <fieldset id="dialog-fields" disabled>
               <div class="form-grid">
                 <label>标题<input id="dialog-title" maxlength="100" required value="维护确认"></label>
-                <label>答复方式<select id="dialog-input"><option value="none">只选选项</option><option value="optional">选项与选填说明</option><option value="required">选项与必填说明</option><option value="authenticate">选项与系统身份验证</option></select></label>
+                <label>答复方式
+                  <select id="dialog-input">
+                    <option value="none">只选选项</option>
+                    <option value="optional">选项与选填说明</option>
+                    <option value="required">选项与必填说明</option>
+                    <option value="maskedOptional">选项与遮蔽审批码（选填）</option>
+                    <option value="maskedRequired">选项与遮蔽审批码（必填）</option>
+                  </select>
+                </label>
                 <label>等待时间（秒）<input id="dialog-timeout" type="number" min="10" max="120" step="1" value="60" required></label>
               </div>
               <label class="form-label">提示文字<textarea id="dialog-message" rows="3" maxlength="1000" required>请选择是否同意本次维护。</textarea></label>
@@ -210,6 +218,11 @@
           </form>
           <p id="dialog-status" class="muted" role="status"></p>
           <dl id="dialog-result" class="facts"></dl>
+          <div id="dialog-approval" class="row" hidden>
+            <label for="dialog-approval-value">审批码</label>
+            <input id="dialog-approval-value" type="password" autocomplete="off" readonly>
+            <button id="dialog-approval-toggle" type="button" aria-controls="dialog-approval-value">显示审批码</button>
+          </div>
         </section>
       </div>
       <div id="panel-gateway" role="tabpanel" aria-labelledby="tab-gateway" tabindex="0" hidden>

@@ -23,7 +23,7 @@ struct NativeDialogSmoke {
                 let fields = controls.compactMap { $0 as? NSTextField }
                 guard Set(fields.filter { !$0.isEditable }.map(\.stringValue)) ==
                     ["Local smoke test", "Enter a fixture explanation."] else { throw AgentError("unexpected_dialog_copy") }
-                guard let input = fields.first(where: \.isEditable), input.placeholderString == nil,
+                guard let input = fields.first(where: \.isEditable), !(input is NSSecureTextField), input.placeholderString == nil,
                       let button = controls.compactMap({ $0 as? NSButton }).first(where: { $0.title == "Submit fixture" }),
                       button.keyEquivalent == "\r", panel.defaultButtonCell === button.cell,
                       !button.isEnabled else { throw AgentError("missing_reason_validation") }
@@ -48,6 +48,29 @@ struct NativeDialogSmoke {
                     throw AgentError("native_response_mismatch")
                 }
                 guard !app.windows.contains(where: \.isVisible) else { throw AgentError("window_left_after_submission") }
+                let approval = "  00-APP-42  "
+                guard case .object(var maskedRequest) = request else { throw AgentError("invalid_fixture") }
+                maskedRequest["maskText"] = true
+                maskedRequest["message"] = "Enter the test approval code."
+                let maskedClick = Task {
+                    try await Task.sleep(for: .milliseconds(550))
+                    guard let window = app.windows.first(where: \.isVisible), let view = window.contentView else {
+                        throw AgentError("approval_panel_missing")
+                    }
+                    let controls = flattened(view)
+                    guard let field = controls.compactMap({ $0 as? NSSecureTextField }).first,
+                          field.placeholderString == nil, (field.cell as? NSSecureTextFieldCell)?.echosBullets == true,
+                          let editor = field.currentEditor() as? NSTextView,
+                          let button = controls.compactMap({ $0 as? NSButton }).first(where: { $0.title == "Submit fixture" }),
+                          !button.isEnabled else { throw AgentError("approval_control_not_masked") }
+                    editor.insertText(approval, replacementRange: NSRange(location: NSNotFound, length: 0))
+                    guard button.isEnabled else { throw AgentError("cannot_submit_approval") }
+                    button.performClick(nil)
+                }
+                let masked = try await NativeDialog.present(.object(maskedRequest))
+                try await maskedClick.value
+                guard masked["outcome"].string == "submitted", masked["text"].string == approval,
+                      masked["locallyAuthenticated"] == .null else { throw AgentError("approval_response_mismatch") }
                 let dismiss = Task {
                     try await Task.sleep(for: .milliseconds(500))
                     guard let panel = app.windows.first(where: \.isVisible) else { throw AgentError("second_panel_missing") }
@@ -58,7 +81,7 @@ struct NativeDialogSmoke {
                 guard second["outcome"].string == "dismissed", !app.windows.contains(where: \.isVisible) else {
                     throw AgentError("window_left_after_dismissal")
                 }
-                print("Single 260 pt AppKit panel displayed, submitted, and closed without a parent window.")
+                print("Single 260 pt AppKit panel displayed and submitted plain and masked input.")
                 exit(EXIT_SUCCESS)
             } catch {
                 click.cancel()
