@@ -686,6 +686,57 @@ class Acceptance(unittest.TestCase):
             client.prot_p()
         return client
 
+    def test_loopback_ftp_active_listing_and_protected_download(self):
+        self.setup_device()
+        content = b"FTP active data fixture\n"
+        (self.home / "active.txt").write_bytes(content)
+        route = API + "/ftp/accounts"
+        plain = self.api("POST", route, 201, json={"mode": "ftp", "name": "active-fixture", "scope": "activeHomes"}).json()
+        secure = self.api("POST", route, 201, json={"mode": "ftps", "name": "active-secure-fixture", "scope": "activeHomes"}).json()
+
+        with ftplib.FTP() as anonymous:
+            anonymous.connect("127.0.0.1", self.plain_port, timeout=8)
+            with self.assertRaisesRegex(ftplib.error_perm, "^530 "):
+                anonymous.sendcmd("EPRT |1|127.0.0.1|49152|")
+
+        with self.open_ftp("plain", self.plain_port, plain) as client:
+            client.set_pasv(False)
+            mount, = client.nlst("/")
+            client.cwd(f"/{mount}")
+            lines = []
+            client.retrlines("LIST", lines.append)
+            self.assertTrue(any(line.endswith(" active.txt") for line in lines))
+            self.assertEqual(dict(client.mlsd())["active.txt"]["size"], str(len(content)))
+
+            with socket.create_server(("127.0.0.1", 0)) as listener:
+                listener.settimeout(8)
+                host, port = listener.getsockname()
+                self.assertTrue(client.sendeprt(host, port).startswith("200 "))
+                self.assertTrue(client.sendcmd("NLST").startswith("150 "))
+                data, address = listener.accept()
+                self.assertEqual(address[0], host)
+                with data, data.makefile("rb") as names:
+                    self.assertEqual(names.read(), b"active.txt\r\n")
+                self.assertTrue(client.voidresp().startswith("226 "))
+                for invalid in (f"EPRT |1|127.0.0.2|{port}|", "PORT 127,0,0,1,0,21", "PORT 127,0,0,1,256,0"):
+                    with self.assertRaisesRegex(ftplib.error_perm, "^501 "):
+                        client.sendcmd(invalid)
+            with self.assertRaisesRegex(ftplib.error_temp, "^425 "):
+                client.sendcmd("NLST")
+            client.set_pasv(True)
+            self.assertEqual(client.nlst(), ["active.txt"])
+            self.assertTrue(client.sendcmd("EPSV ALL").startswith("200 "))
+            with self.assertRaisesRegex(ftplib.error_perm, "^501 "):
+                client.sendcmd("PASV")
+            self.assertTrue(client.sendcmd("EPSV").startswith("229 "))
+
+        for mode, port in (("explicitTls", self.ftps_port), ("implicitTls", self.implicit_port)):
+            with self.subTest(mode=mode), self.open_ftp(mode, port, secure) as client:
+                client.set_pasv(False)
+                received = io.BytesIO()
+                client.retrbinary(f"RETR /{mount}/active.txt", received.write)
+                self.assertEqual(received.getvalue(), content)
+
     def test_ftp_ftps_locked_sessions_and_password_rotation(self):
         self.setup_device()
         content = b"File transfer fixture" * 2500

@@ -262,6 +262,7 @@ class LocalDemoBrowser(unittest.TestCase):
 
         browser.evaluate("document.querySelector('#tab-gateway').click()")
         browser.wait("!document.querySelector('#gateway-create-fields').disabled")
+        self.assertIn("包含 ftp:// 和端口", browser.evaluate("document.querySelector('#gateway-status').textContent"))
         browser.evaluate("""
             document.querySelector('#gateway-mode').value = 'ftp';
             document.querySelector('#gateway-name').value = 'demo-ftp-fixture';

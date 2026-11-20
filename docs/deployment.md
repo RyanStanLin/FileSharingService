@@ -25,6 +25,8 @@ DNS/证书续期由部署环境维护。生产反向代理覆盖 `Host`、`X-For
 
 将 FTP/FTPS 控制端口与整个被动端口范围逐端口做 TCP 映射，被动端口必须一一对应并从同一客户端 IP 可达。显式 FTPS 使用 `AUTH TLS` 与 `PROT P`。传统 FTP 数据及账号密码是明文，部署在专用网络入口和受限 CIDR。优先采用保留来源 IP 的 DNAT。代理重写来源 IP 时将实际访问控制落实在入口防火墙。部署配置示例为 [compose.yaml](../deploy/compose.yaml) 和 [nginx.conf.template](../deploy/nginx.conf.template)。标准见 [RFC 4217](https://www.rfc-editor.org/info/rfc4217/) 与 [RFC 3659](https://www.rfc-editor.org/info/rfc3659/)。
 
+回环监听器同时支持主动模式 `PORT` 和 `EPRT`。主动数据连接只使用已认证的控制连接对端 IP 及非特权端口。其他监听地址使用 `PASV` 或 `EPSV`。 [RFC 2428](https://www.rfc-editor.org/info/rfc2428/) · [RFC 2577](https://www.rfc-editor.org/info/rfc2577/)
+
 SFTP 使用独立的 SSH TCP 入口，只需发布一个端口。Compose 在服务容器内运行 SFTP 工作进程，ASP.NET Core 启停并监测该进程。内部文件 RPC 由回环地址和进程级随机密钥保护。反向代理拒绝内部路径的请求。容器首次启动将 SSH 主机私钥写入 `/data/sftp-host-key`，文件权限为 `0600`。在管理 API 读取指纹后通过可信渠道核对客户端首次连接。备份并恢复主机密钥可维持客户端的信任记录。
 
 裸机运行时，使用 Go 1.26 或更新工具链从 `src/Sftp` 构建 `filesharing-sftp`，将可执行文件放在服务程序集旁或设置 `FileSharing__Sftp__Binary`。设置 `FileSharing__Sftp__Port` 开启监听，`FileSharing__Sftp__BridgePort` 指向 Kestrel 的本机 HTTP 端口，默认 8080。配置为 0 的 SFTP 端口停用该入口。启用后 `/health/ready` 同时检查 SFTP 工作进程是否就绪。

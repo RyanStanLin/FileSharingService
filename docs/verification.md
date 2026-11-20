@@ -1,5 +1,9 @@
 # FileSharing 验收记录
 
+## 本机 FTP 客户端兼容性
+
+`test_loopback_ftp_active_listing_and_protected_download` 验证 `PORT` 和 `EPRT` 列表、显式及隐式 FTPS 主动下载，拒绝与控制连接不同的目标 IP 和特权端口，并验证被动模式与 `EPSV ALL`。22 项集成测试和 Demo 网关浏览器回归通过。在 macOS 27.0 上用系统 `mount_ftp` 和隔离测试账号挂载 `localhost`、`127.0.0.1` 上的 FTP 根并读取同一文件。没有已授权设备时，同一地址依然可挂载，目录为空。
+
 ## Agent 0.4.1
 
 21 项集成测试和 4 项浏览器回归通过。原生 AppKit 测试在已登录的 macOS 图形会话验证窗口层级、当前空间、默认按钮、必填说明及回传。本机已安装的 0.4.1 从 LaunchAgent 上线，同一进程及连接连续运行 30 秒。安装前的 HOME 记录保存了旧装载编号，升级后迁移出卷 UUID，原有根标识继续匹配服务器授权。双架构 DMG 通过签名和 SHA-256 校验。

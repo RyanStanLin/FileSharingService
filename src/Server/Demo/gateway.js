@@ -74,7 +74,9 @@ export function gatewayPanel({call, perform, authenticate}) {
             return item
         })
         element("gateway-endpoints").replaceChildren(...rows)
-        status("gateway-status", order.length ? "使用 FTP 客户端连接对应协议和端口。" : "当前服务未启用文件网关。")
+        const hint = available.has("ftp") ? "在 Finder 的「连接服务器」中输入上方 FTP 地址，包含 ftp:// 和端口。Finder 以只读方式挂载。" :
+            order.length ? "使用文件传输客户端连接对应协议和端口。" : "当前服务未启用文件网关。"
+        status("gateway-status", hint)
     }
 
     function renderAccounts(state) {

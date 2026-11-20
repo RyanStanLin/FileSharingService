@@ -14,12 +14,14 @@ internal sealed class FtpSession(FtpGateway gateway, FtpSettings options, FtpAcc
     private Stream control = socket.GetStream();
     private SslStream? secureControl;
     private TcpListener? passive;
+    private IPEndPoint? activeEndpoint;
     private string? username;
     private FtpIdentity? identity;
     private GatewaySessions.Session? session;
     private string directory = "/";
     private bool protectedData;
     private bool negotiated;
+    private bool epsvOnly;
     private bool binary;
     private long restart;
     private CancellationTokenSource? transferStop;
@@ -60,7 +62,7 @@ internal sealed class FtpSession(FtpGateway gateway, FtpSettings options, FtpAcc
             if (transfer is not null)
                 await transfer;
             transferStop?.Dispose();
-            passive?.Stop();
+            ClearDataChannel();
             if (secureControl is not null)
                 await secureControl.DisposeAsync();
             replies.Dispose();
@@ -102,7 +104,8 @@ internal sealed class FtpSession(FtpGateway gateway, FtpSettings options, FtpAcc
                 case "QUIT": await Reply("221 Goodbye", ct); return false;
                 case "FEAT":
                     var tls = mode == "plain" ? "" : " AUTH TLS\r\n PBSZ\r\n PROT\r\n";
-                    await Reply("211-Features\r\n" + tls +
+                    var active = AllowsActiveData ? " EPRT\r\n" : "";
+                    await Reply("211-Features\r\n" + tls + active +
                         " UTF8\r\n EPSV\r\n PASV\r\n MDTM\r\n SIZE\r\n REST STREAM\r\n MLST Type*;Size*;Modify*;\r\n211 End", ct);
                     return true;
                 case "SYST": await Reply("215 UNIX Type: L8", ct); return true;
@@ -142,8 +145,7 @@ internal sealed class FtpSession(FtpGateway gateway, FtpSettings options, FtpAcc
                     username = null;
                     directory = "/";
                     restart = 0;
-                    passive?.Stop();
-                    passive = null;
+                    ClearDataChannel();
                     if (mode != "plain" && secureControl is null)
                         await Reply("534 TLS required for login", ct);
                     else
@@ -176,6 +178,7 @@ internal sealed class FtpSession(FtpGateway gateway, FtpSettings options, FtpAcc
                 sessions.End(session);
                 session = null;
                 identity = null;
+                ClearDataChannel();
                 await Reply("530 Login required", ct);
                 return true;
             }
@@ -196,8 +199,7 @@ internal sealed class FtpSession(FtpGateway gateway, FtpSettings options, FtpAcc
                     await Reply("200 OK", ct);
                     break;
                 case "ABOR":
-                    passive?.Stop();
-                    passive = null;
+                    ClearDataChannel();
                     restart = 0;
                     await Reply("225 No transfer in progress", ct);
                     break;
@@ -211,7 +213,9 @@ internal sealed class FtpSession(FtpGateway gateway, FtpSettings options, FtpAcc
                     break;
                 case "PASV":
                 case "EPSV":
-                    await Passive(verb, argument, ct);
+                case "PORT":
+                case "EPRT":
+                    await SelectDataChannel(verb, argument, ct);
                     break;
                 case "REST":
                     if (!binary || !long.TryParse(argument, NumberStyles.None, CultureInfo.InvariantCulture, out restart))
@@ -258,53 +262,151 @@ internal sealed class FtpSession(FtpGateway gateway, FtpSettings options, FtpAcc
         return true;
     }
 
-    private async Task Passive(string verb, string argument, CancellationToken ct)
+    private IPAddress LocalAddress
     {
-        var local = ((IPEndPoint)socket.Client.LocalEndPoint!).Address;
-        var address = options.PassiveAddress ?? (local.IsIPv4MappedToIPv6 ? local.MapToIPv4() : local);
-        if (verb == "PASV" && address.AddressFamily != AddressFamily.InterNetwork)
+        get
         {
-            await Reply("522 Use EPSV", ct);
-            return;
+            var address = ((IPEndPoint)socket.Client.LocalEndPoint!).Address;
+            return address.IsIPv4MappedToIPv6 ? address.MapToIPv4() : address;
         }
+    }
+
+    private bool AllowsActiveData => IPAddress.IsLoopback(options.Bind) && IPAddress.IsLoopback(peer);
+    private string NetworkProtocol => LocalAddress.AddressFamily == AddressFamily.InterNetworkV6 ? "2" : "1";
+
+    private void ClearDataChannel()
+    {
+        passive?.Stop();
+        passive = null;
+        activeEndpoint = null;
+    }
+
+    private async Task SelectDataChannel(string verb, string argument, CancellationToken ct)
+    {
+        ClearDataChannel();
         if (mode != "plain" && !protectedData)
         {
             await Reply("534 PROT P required", ct);
             return;
         }
-
-        var ipv6 = local.AddressFamily == AddressFamily.InterNetworkV6 && !local.IsIPv4MappedToIPv6;
-        if (verb == "EPSV" && argument.Length > 0 && argument != (ipv6 ? "2" : "1"))
+        if (epsvOnly && verb != "EPSV")
         {
-            await Reply($"522 Use network protocol {(ipv6 ? "2" : "1")}", ct);
+            await Reply("501 EPSV ALL is in effect", ct);
             return;
         }
-        passive?.Stop();
-        passive = null;
+        if (verb is "PASV" or "EPSV")
+            await Passive(verb, argument, ct);
+        else
+            await Active(verb, argument, ct);
+    }
+
+    private async Task Passive(string verb, string argument, CancellationToken ct)
+    {
+        var address = options.PassiveAddress ?? LocalAddress;
+        if (verb == "PASV" && address.AddressFamily != AddressFamily.InterNetwork)
+        {
+            await Reply("522 Use EPSV", ct);
+            return;
+        }
+        if (verb == "EPSV")
+        {
+            if (argument.Equals("ALL", StringComparison.OrdinalIgnoreCase))
+            {
+                epsvOnly = true;
+                await Reply("200 EPSV ALL accepted", ct);
+                return;
+            }
+            if (argument.Length != 0 && argument != NetworkProtocol)
+            {
+                await Reply($"522 Use network protocol ({NetworkProtocol})", ct);
+                return;
+            }
+        }
         passive = gateway.OpenPassive();
         var port = ((IPEndPoint)passive.LocalEndpoint).Port;
         await Reply(verb == "EPSV" ? $"229 Entering Extended Passive Mode (|||{port}|)" :
             $"227 Entering Passive Mode ({string.Join(',', address.GetAddressBytes())},{port / 256},{port % 256})", ct);
     }
 
+    private async Task Active(string verb, string argument, CancellationToken ct)
+    {
+        if (!AllowsActiveData)
+        {
+            await Reply("504 Active data connections unavailable on this listener. Use PASV or EPSV", ct);
+            return;
+        }
+
+        IPEndPoint? target;
+        if (verb == "PORT")
+        {
+            if (NetworkProtocol != "1")
+            {
+                await Reply("522 Use EPRT with network protocol (2)", ct);
+                return;
+            }
+            target = ParsePort(argument);
+        }
+        else
+        {
+            var fields = argument.Length > 0 && argument[0] is >= '!' and <= '~' ? argument.Split(argument[0]) : [];
+            if (fields is not ["", var protocol, var address, var port, ""] ||
+                !int.TryParse(protocol, NumberStyles.None, CultureInfo.InvariantCulture, out _))
+            {
+                await Reply("501 Invalid EPRT argument", ct);
+                return;
+            }
+            if (protocol != NetworkProtocol)
+            {
+                await Reply($"522 Use network protocol ({NetworkProtocol})", ct);
+                return;
+            }
+            target = IPAddress.TryParse(address, out var ip) && ip.AddressFamily == LocalAddress.AddressFamily &&
+                     ushort.TryParse(port, NumberStyles.None, CultureInfo.InvariantCulture, out var number)
+                ? new IPEndPoint(ip, number) : null;
+        }
+
+        if (target is null || !target.Address.Equals(peer) || target.Port < 1024)
+        {
+            await Reply("501 Active data requires the control peer address and an unprivileged port", ct);
+            return;
+        }
+        activeEndpoint = target;
+        await Reply("200 Active data endpoint accepted", ct);
+    }
+
+    private static IPEndPoint? ParsePort(string argument)
+    {
+        var parts = argument.Split(',');
+        Span<byte> values = stackalloc byte[6];
+        if (parts.Length != values.Length)
+            return null;
+        for (var i = 0; i < values.Length; i++)
+            if (!byte.TryParse(parts[i], NumberStyles.None, CultureInfo.InvariantCulture, out values[i]))
+                return null;
+        return new IPEndPoint(new IPAddress(values[..4]), values[4] * 256 + values[5]);
+    }
+
     private async Task StartTransfer(FtpIdentity user, string verb, string path, CancellationToken ct)
     {
         var offset = restart;
         restart = 0;
-        if (passive is not { } listener)
+        var listener = passive;
+        var destination = activeEndpoint;
+        if (listener is null && destination is null)
         {
-            await Reply("425 Use PASV or EPSV first", ct);
+            await Reply("425 Negotiate a data connection first", ct);
             return;
         }
         passive = null;
+        activeEndpoint = null;
         transferStop?.Dispose();
         transferStop = CancellationTokenSource.CreateLinkedTokenSource(ct);
         transferStop.CancelAfter(TimeSpan.FromHours(2));
         transferFinalizing = false;
-        transfer = SendData(user, listener, verb, path, offset, transferStop.Token, ct);
+        transfer = SendData(user, listener, destination, verb, path, offset, transferStop.Token, ct);
     }
 
-    private async Task SendData(FtpIdentity user, TcpListener listener, string verb, string path, long offset,
+    private async Task SendData(FtpIdentity user, TcpListener? listener, IPEndPoint? destination, string verb, string path, long offset,
         CancellationToken transferToken, CancellationToken controlToken)
     {
         var started = false;
@@ -327,8 +429,8 @@ internal sealed class FtpSession(FtpGateway gateway, FtpSettings options, FtpAcc
             started = true;
             using var setup = CancellationTokenSource.CreateLinkedTokenSource(transferToken);
             setup.CancelAfter(TimeSpan.FromSeconds(12));
-            using var client = await AcceptData(listener, setup.Token);
-            listener.Stop();
+            using var client = listener is not null ? await AcceptData(listener, setup.Token) : await ConnectData(destination!, setup.Token);
+            listener?.Stop();
             var transport = client.GetStream();
             await using var tls = mode == "plain" ? null : await gateway.Secure(transport, setup.Token);
             Stream output = tls is null ? transport : tls;
@@ -366,7 +468,7 @@ internal sealed class FtpSession(FtpGateway gateway, FtpSettings options, FtpAcc
         }
         finally
         {
-            listener.Stop();
+            listener?.Stop();
         }
     }
 
@@ -384,6 +486,21 @@ internal sealed class FtpSession(FtpGateway gateway, FtpSettings options, FtpAcc
             if (FtpGateway.Peer(candidate).Equals(peer))
                 return candidate;
             candidate.Dispose();
+        }
+    }
+
+    private async Task<TcpClient> ConnectData(IPEndPoint endpoint, CancellationToken ct)
+    {
+        var client = new TcpClient(new IPEndPoint(LocalAddress, 0));
+        try
+        {
+            await client.ConnectAsync(endpoint, ct);
+            return client;
+        }
+        catch
+        {
+            client.Dispose();
+            throw;
         }
     }
 
