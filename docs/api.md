@@ -245,7 +245,7 @@ SFTP 客户端首次连接时校验 `hostKeyFingerprint`，格式为 `SHA256:…
 {"title":"维护确认","message":"请选择是否允许进入维护窗口，并填写原因。","icon":"warning","choices":[{"id":"allow","label":"同意"},{"id":"deny","label":"暂缓"}],"askText":true,"textRequired":true,"timeoutSeconds":60}
 ```
 
-应用使用原生 NSAlert，始终展示 FileSharingService 与当前服务器地址。用户可以取消，每台设备同时展示一个请求。作业的 `result` 为 `{outcome,choiceId,text,respondedAt}`，结果 `submitted` 携带选择与最多 1024 字符的说明，`dismissed` 和 `expired` 的选择与说明为空。已锁定、已注销或退出当前用户的 Mac 不能答复。取消管理会话、撤销远程授权或设备断线会结束进行中的显示。答复作为作业结果保存，设备端自行运行的其他操作与此作业独立。
+应用在当前空间中以原生 NSAlert 置顶显示请求。窗口标题栏标明 FileSharingService，正文直接显示请求的标题、提示、可选说明框和按钮。第一个选项为默认按钮，用户也可以按 Escape 取消。每台设备同时展示一个请求。作业的 `result` 为 `{outcome,choiceId,text,respondedAt}`，结果 `submitted` 携带选择与最多 1024 字符的说明，`dismissed` 和 `expired` 的选择与说明为空。已锁定、已注销或退出当前用户的 Mac 不能答复。取消管理会话、撤销远程授权或设备断线会结束进行中的显示。答复作为作业结果保存，设备端自行运行的其他操作与此作业独立。
 
 向 `POST /devices/D/interactions/notifications` 提交 `{"title":"维护提醒","message":"18:00 开始维护。","sound":false}`。标题最多 100 字符，正文最多 500 字符，声音默认关闭。用户先在已安装 App 选择「启用本地通知」。成功的 `result` 为 `{status:"scheduled",scheduledAt}`，表示系统接受本地通知，展示行为遵从 macOS 设置。未获授权时作业失败并给出 `notification_permission_required`。
 

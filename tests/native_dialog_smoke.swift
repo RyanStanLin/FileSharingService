@@ -9,13 +9,19 @@ struct NativeDialogSmoke {
         Task {
             let click = Task {
                 try await Task.sleep(for: .milliseconds(1200))
-                guard let sheet = app.windows.compactMap(\.attachedSheet).first, let view = sheet.contentView else {
+                guard let parent = app.windows.first(where: { $0.attachedSheet != nil }), let sheet = parent.attachedSheet,
+                      let view = sheet.contentView, sheet.isVisible, sheet.isOnActiveSpace else {
                     throw AgentError("native_sheet_missing")
                 }
+                guard parent.title == "FileSharingService", parent.level == .modalPanel, sheet.level == parent.level,
+                      parent.collectionBehavior.contains(.canJoinAllApplications) else { throw AgentError("dialog_not_floating") }
                 let controls = flattened(view)
-                guard let input = controls.compactMap({ $0 as? NSTextField }).first(where: \.isEditable),
+                let fields = controls.compactMap { $0 as? NSTextField }
+                guard Set(fields.filter { !$0.isEditable }.map(\.stringValue)) ==
+                    ["Local smoke test", "Enter a fixture explanation."] else { throw AgentError("unexpected_dialog_copy") }
+                guard let input = fields.first(where: \.isEditable), input.placeholderString == nil,
                       let button = controls.compactMap({ $0 as? NSButton }).first(where: { $0.title == "Submit fixture" }),
-                      !button.isEnabled else { throw AgentError("missing_reason_validation") }
+                      button.keyEquivalent == "\r", !button.isEnabled else { throw AgentError("missing_reason_validation") }
                 input.stringValue = "Fixture verification"
                 input.delegate?.controlTextDidChange?(.init(name: NSControl.textDidChangeNotification, object: input))
                 guard button.isEnabled else { throw AgentError("cannot_submit_reason") }
@@ -24,15 +30,14 @@ struct NativeDialogSmoke {
             do {
                 let request: JSON = [
                     "title": "Local smoke test",
-                    "message": "This test window will close automatically.",
+                    "message": "Enter a fixture explanation.",
                     "icon": "warning",
                     "choices": [["id": "submit", "label": "Submit fixture"]],
                     "askText": true,
                     "textRequired": true,
                     "timeoutSeconds": 10
                 ]
-                let origin = URL(string: "http://localhost:8847")!
-                let result = try await DeviceInteractions().present(request, from: origin)
+                let result = try await DeviceInteractions().present(request)
                 try await click.value
                 guard result["outcome"].string == "submitted", result["choiceId"].string == "submit",
                       result["text"].string == "Fixture verification" else {

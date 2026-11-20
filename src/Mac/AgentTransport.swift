@@ -522,8 +522,8 @@ final class AgentTransport {
         case "permissions.request":
             return try await telemetry.permission(input.requireString("permission"))
         case "interaction.dialog":
-            guard let activeOrigin else { throw AgentError("connection_unavailable") }
-            return try await interactions.present(input, from: activeOrigin)
+            guard activeOrigin != nil else { throw AgentError("connection_unavailable") }
+            return try await interactions.present(input)
         case "interaction.notification":
             guard let activeOrigin else { throw AgentError("connection_unavailable") }
             return try await interactions.notify(input, id: id, from: activeOrigin)

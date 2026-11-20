@@ -12,7 +12,7 @@ final class DeviceInteractions: NSObject, UNUserNotificationCenterDelegate {
     private var dialogInProgress = false
     private var lastNotification: ContinuousClock.Instant?
 
-    func present(_ input: JSON, from origin: URL) async throws -> JSON {
+    func present(_ input: JSON) async throws -> JSON {
         #if FILESHARING_APP
         let session = CGSessionCopyCurrentDictionary() as? [String: Any]
         guard session?[kCGSessionOnConsoleKey as String] as? Bool == true,
@@ -36,7 +36,7 @@ final class DeviceInteractions: NSObject, UNUserNotificationCenterDelegate {
             }
             return (id, label)
         }
-        let presentation = ManagedDialog(title: title, message: message, symbol: symbol, origin: origin,
+        let presentation = ManagedDialog(title: title, message: message, symbol: symbol,
                                          options: options, askText: input["askText"].bool == true,
                                          textRequired: input["textRequired"].bool == true)
         dialogInProgress = true
@@ -88,7 +88,7 @@ final class DeviceInteractions: NSObject, UNUserNotificationCenterDelegate {
 #if FILESHARING_APP
 @MainActor
 private final class ManagedDialog: NSObject, NSTextFieldDelegate {
-    private let parent = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 100),
+    private let parent = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 440, height: 32),
                                   styleMask: [.titled], backing: .buffered, defer: false)
     private let alert = NSAlert()
     private let options: [(id: String, label: String)]
@@ -96,21 +96,26 @@ private final class ManagedDialog: NSObject, NSTextFieldDelegate {
     private var explanation: NSTextField?
     private var outcome = "dismissed"
 
-    init(title: String, message: String, symbol: String, origin: URL,
+    init(title: String, message: String, symbol: String,
          options: [(String, String)], askText: Bool, textRequired: Bool) {
         self.options = options
         self.textRequired = textRequired
         super.init()
         parent.title = "FileSharingService"
         parent.isReleasedWhenClosed = false
-        alert.messageText = "FileSharingService 管理请求"
-        alert.informativeText = "管理服务：\(origin.absoluteString)\n\n\(title)\n\(message)\n\n回复将发送到此管理服务。请勿输入密码或验证码。"
-        alert.icon = NSImage(systemSymbolName: symbol, accessibilityDescription: "管理请求")
-        for option in options { alert.addButton(withTitle: option.1).keyEquivalent = "" }
+        parent.level = .modalPanel
+        parent.hidesOnDeactivate = false
+        parent.collectionBehavior = [.moveToActiveSpace, .canJoinAllApplications]
+        alert.messageText = title
+        alert.informativeText = message
+        alert.icon = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+        for (index, option) in options.enumerated() {
+            alert.addButton(withTitle: option.1).keyEquivalent = index == 0 ? "\r" : ""
+        }
         alert.addButton(withTitle: "取消").keyEquivalent = "\u{1b}"
         if askText {
             let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 340, height: 26))
-            field.placeholderString = "原因或说明"
+            field.setAccessibilityLabel("说明")
             field.delegate = self
             alert.accessoryView = field
             explanation = field
@@ -141,10 +146,18 @@ private final class ManagedDialog: NSObject, NSTextFieldDelegate {
             parent.orderOut(nil)
         }
         parent.center()
-        parent.makeKeyAndOrderFront(nil)
+        parent.orderFrontRegardless()
         NSApplication.shared.activate()
         let result = await withTaskCancellationHandler {
-            await alert.beginSheetModal(for: parent)
+            await withCheckedContinuation { continuation in
+                parent.makeKeyAndOrderFront(nil)
+                alert.beginSheetModal(for: parent) { continuation.resume(returning: $0) }
+                let window = alert.window
+                window.level = parent.level
+                window.hidesOnDeactivate = false
+                window.orderFrontRegardless()
+                if let explanation { window.makeFirstResponder(explanation) }
+            }
         } onCancel: {
             Task { @MainActor in self.dismiss(as: "dismissed") }
         }
