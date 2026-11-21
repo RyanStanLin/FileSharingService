@@ -49,11 +49,14 @@ internal sealed class FtpAccounts(Database db, FtpSettings settings, SftpRuntime
                 """, new { row.Id, row.Revision, now = Clock.Now }, ct);
             return null;
         }
-        var cleared = await db.Mutate("""
-            UPDATE FtpAccounts SET Failed=0,LockUntil=0 WHERE Id=@Id AND Revision=@Revision AND Disabled=0 AND LockUntil<=@now
-            """, new { row.Id, row.Revision, now = Clock.Now }, row.Id, null, "ftp.login", new { mode }, ct);
-        return cleared ? new(row.Id, mode, row.Revision, row.Scope) : null;
+        var identity = new FtpIdentity(row.Id, mode, row.Revision, row.Scope);
+        return await ConfirmLogin(identity, ct) ? identity : null;
     }
+
+    internal Task<bool> ConfirmLogin(FtpIdentity identity, CancellationToken ct) =>
+        db.Mutate("""
+            UPDATE FtpAccounts SET Failed=0,LockUntil=0 WHERE Id=@Id AND Revision=@Revision AND Disabled=0 AND LockUntil<=@now
+            """, new { identity.Id, identity.Revision, now = Clock.Now }, identity.Id, null, "ftp.login", new { mode = identity.Mode }, ct);
 
     public async Task<bool> Active(FtpIdentity id, CancellationToken ct) =>
         await db.One<int>("SELECT EXISTS(SELECT 1 FROM FtpAccounts WHERE Id=@Id AND Revision=@Revision AND Mode=@Mode AND Scope=@Scope AND Disabled=0)", id, ct) == 1;

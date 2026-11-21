@@ -823,6 +823,53 @@ class Acceptance(unittest.TestCase):
                 client.retrbinary(f"RETR /{mount}/active.txt", received.write)
                 self.assertEqual(received.getvalue(), content)
 
+    def test_ftp_repeated_valid_logins_preserve_ip_limit(self):
+        self.register()
+        self.unlock()
+        credential = self.api("POST", API + "/ftp/accounts", 201,
+                              json={"mode": "ftp", "name": "repeat-fixture", "scope": "activeHomes"}).json()
+        for _ in range(24):
+            with self.open_ftp("plain", self.plain_port, credential) as client:
+                self.assertEqual(client.pwd(), "/")
+                client.quit()
+
+        with ftplib.FTP() as invalid:
+            invalid.connect("127.0.0.1", self.plain_port, timeout=8)
+            for _ in range(17):
+                with self.assertRaisesRegex(ftplib.error_perm, "^530 "):
+                    invalid.login("missing-fixture", "incorrect-fixture")
+            with self.assertRaisesRegex(ftplib.error_temp, "^421 "):
+                invalid.login("missing-fixture", "incorrect-fixture")
+        with self.open_ftp("plain", self.plain_port, credential) as client:
+            self.assertEqual(client.pwd(), "/")
+
+    def test_ftp_cached_login_respects_account_lock_and_password_rotation(self):
+        self.register()
+        self.unlock()
+        route = API + "/ftp/accounts"
+        original = self.api("POST", route, 201,
+                            json={"mode": "ftp", "name": "rotation-fixture", "scope": "activeHomes"}).json()
+        with self.open_ftp("plain", self.plain_port, original) as client:
+            self.assertEqual(client.pwd(), "/")
+            client.quit()
+        account = original["account"]
+        rotated = self.api("PUT", route + f"/{account['id']}/password", json={"revision": account["revision"]}).json()
+        with ftplib.FTP() as invalid:
+            invalid.connect("127.0.0.1", self.plain_port, timeout=8)
+            with self.assertRaisesRegex(ftplib.error_perm, "^530 "):
+                invalid.login(account["name"], original["password"])
+
+        with self.open_ftp("plain", self.plain_port, rotated) as client:
+            self.assertEqual(client.pwd(), "/")
+            client.quit()
+        with ftplib.FTP() as invalid:
+            invalid.connect("127.0.0.1", self.plain_port, timeout=8)
+            for _ in range(5):
+                with self.assertRaisesRegex(ftplib.error_perm, "^530 "):
+                    invalid.login(account["name"], "incorrect-fixture")
+            with self.assertRaisesRegex(ftplib.error_perm, "^530 "):
+                invalid.login(account["name"], rotated["password"])
+
     def test_ftp_ftps_locked_sessions_and_password_rotation(self):
         self.setup_device()
         content = b"File transfer fixture" * 2500

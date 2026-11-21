@@ -157,14 +157,15 @@ internal sealed class FtpSession(FtpGateway gateway, FtpSettings options, FtpAcc
                 case "PASS":
                     if (username is null)
                         await Reply("503 Send USER first", ct);
-                    else if (!gateway.PermitLogin(peer))
-                    {
-                        await Reply("421 Too many login attempts", ct);
-                        return false;
-                    }
                     else
                     {
-                        identity = await accounts.Login(username, argument, mode == "plain" ? "ftp" : "ftps", ct);
+                        var (authenticated, rateLimited) = await gateway.Login(username, argument, mode == "plain" ? "ftp" : "ftps", peer, ct);
+                        if (rateLimited)
+                        {
+                            await Reply("421 Too many login attempts", ct);
+                            return false;
+                        }
+                        identity = authenticated;
                         if (identity is not null)
                             session = sessions.Start(identity, mode == "plain" ? "ftp" : "ftps", peer);
                         username = null;

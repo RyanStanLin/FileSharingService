@@ -5,7 +5,9 @@ using System.Net.Sockets;
 using System.Security.Authentication;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using System.Text;
 using System.Threading.RateLimiting;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace FileSharing;
 
@@ -15,6 +17,8 @@ internal sealed class FtpGateway(FtpSettings options, FtpAccounts accounts, FtpF
     private readonly List<(TcpListener Listener, string Mode)> listeners = [];
     private readonly ConcurrentDictionary<long, Task> connections = new();
     private readonly SemaphoreSlim slots = new(64);
+    private readonly MemoryCache verifiedLogins = new(new MemoryCacheOptions { SizeLimit = 512 });
+    private readonly byte[] loginProofKey = RandomNumberGenerator.GetBytes(32);
     private readonly PartitionedRateLimiter<IPAddress> attempts = PartitionedRateLimiter.Create<IPAddress, IPAddress>(
         ip => RateLimitPartition.GetFixedWindowLimiter(ip, _ => new FixedWindowRateLimiterOptions
         {
@@ -132,10 +136,26 @@ internal sealed class FtpGateway(FtpSettings options, FtpAccounts accounts, FtpF
         }
     }
 
-    internal bool PermitLogin(IPAddress ip)
+    internal async Task<(FtpIdentity? Identity, bool RateLimited)> Login(string name, string password, string mode, IPAddress peer,
+        CancellationToken ct)
     {
-        using var lease = attempts.AttemptAcquire(ip);
-        return lease.IsAcquired;
+        // A mounted FTP volume can authenticate on a new connection for every file it opens.
+        var proof = Convert.ToHexString(HMACSHA256.HashData(loginProofKey, Encoding.UTF8.GetBytes(password)));
+        var key = (peer, name, mode, proof);
+        if (verifiedLogins.TryGetValue(key, out FtpIdentity? cached) && cached is not null)
+        {
+            if (await accounts.ConfirmLogin(cached, ct))
+                return (cached, false);
+            verifiedLogins.Remove(key);
+        }
+
+        using var lease = attempts.AttemptAcquire(peer);
+        if (!lease.IsAcquired)
+            return (null, true);
+        var identity = await accounts.Login(name, password, mode, ct);
+        if (identity is not null)
+            verifiedLogins.Set(key, identity, new MemoryCacheEntryOptions { Size = 1, AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(2) });
+        return (identity, false);
     }
 
     internal TcpListener OpenPassive()
@@ -191,6 +211,7 @@ internal sealed class FtpGateway(FtpSettings options, FtpAccounts accounts, FtpF
     {
         base.Dispose();
         certificate?.Dispose();
+        verifiedLogins.Dispose();
         attempts.Dispose();
     }
 }

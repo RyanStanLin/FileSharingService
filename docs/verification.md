@@ -36,6 +36,8 @@
 
 `test_loopback_ftp_active_listing_and_protected_download` 验证 `PORT` 和 `EPRT` 列表、显式及隐式 FTPS 主动下载，拒绝与控制连接不同的目标 IP 和特权端口，并验证被动模式与 `EPSV ALL`。22 项集成测试和 Demo 网关浏览器回归通过。在 macOS 27.0 上用系统 `mount_ftp` 和隔离测试账号挂载 `localhost`、`127.0.0.1` 上的 FTP 根并读取同一文件。没有已授权设备时，同一地址依然可挂载，目录为空。
 
+连续读取时，macOS 可能为每个文件建立新的 FTP 控制连接。修复前，原生挂载连续复制 14 个文件后因登录限额出现 I/O 错误。修复后，分别通过 `localhost` 和 `127.0.0.1` 成功复制 24 个文件，并逐字节核对内容，包含以 `#` 开头的 SVG。写入测试返回 `EROFS`。`test_ftp_repeated_valid_logins_preserve_ip_limit` 验证重复合法登录和未知凭证限流。`test_ftp_cached_login_respects_account_lock_and_password_rotation` 验证账号锁定和密码轮换。
+
 ## Agent 0.4.1
 
 21 项集成测试和 4 项浏览器回归通过。原生 AppKit 测试在已登录的 macOS 图形会话验证窗口层级、当前空间、默认按钮、必填说明及回传。本机已安装的 0.4.1 从 LaunchAgent 上线，同一进程及连接连续运行 30 秒。安装前的 HOME 记录保存了旧装载编号，升级后迁移出卷 UUID，原有根标识继续匹配服务器授权。双架构 DMG 通过签名和 SHA-256 校验。

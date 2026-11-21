@@ -21,7 +21,7 @@
 
 网关端口为 FTP 2121、显式 FTPS 2122、隐式 FTPS 2990 和 SFTP 2222。FTPS 客户端可校验或导入本机公共证书 `.local/demo/ftps-cert.pem`。SFTP 主机指纹显示在页面中。页面创建的账号会看到所有已授权在线 Mac 的主目录。
 
-在 Finder 选择「前往 → 连接服务器」，完整输入 `ftp://localhost:2121/`，用 Demo 中的 FTP 账号登录。也可用 `ftp://127.0.0.1:2121/`。Finder 只读挂载。在 Royal TSX 这类独立客户端选择 FTP，主机填写 `localhost`，端口填写 `2121`，主动和被动传输均可使用。登录后先列 `/`，进入当前 Mac 的设备目录，再进入 `Downloads` 等子目录。
+在 Finder 选择「前往 → 连接服务器」，完整输入 `ftp://localhost:2121/`，用 Demo 中的 FTP 账号登录。也可用 `ftp://127.0.0.1:2121/`。macOS 将 FTP 挂载为只读卷，可把文件复制到本机。需要写入时，通过上传 API 写入已启用写权限的共享目录。Royal TSX 等独立客户端可使用端口 2121 的主动或被动 FTP 下载。登录后先列 `/`，进入当前 Mac 的设备目录，再进入 `Downloads` 等子目录。[Apple 的 Finder FTP 说明](https://support.apple.com/guide/mac-help/servers-shared-computers-connect-mac-mchlp3015/mac)
 
 升级 Agent 后，历史 HOME 共享记录会迁移到稳定的卷 UUID，已有设备与目录标识可继续使用。若新版返回 `root_identity_changed`，请在 Mac 上核对共享根的实际位置和卷，再重新批准该目录。
 
