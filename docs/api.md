@@ -245,6 +245,12 @@ SFTP 客户端首次连接时校验 `hostKeyFingerprint`，格式为 `SHA256:…
 
 启动前订阅 `jobs.output` 和 `jobs.changed`。输出事件的 `payload` 形如 `{jobId,index,stream,data}`。编号从 1 递增，`stream` 是 `stdout` 或 `stderr`，`data` 是 Base64 编码的原始字节。分别增量解码两个流的 UTF-8 数据，按 `jobId,index` 去重。丢失 WS 或遇到编号间隙时用 `/jobs/{id}/output?after=...` 读取已保存的分片。诊断的 `jobs.changed` 完成事件附带 `exitCode`。可继续读取 `/jobs/{id}`，结果有 `stdout,stderr,exitCode,data,truncated,timedOut`。`completed` 表示设备返回了退出码，程序成功与否由 `exitCode` 判断。连接失效导致的 `failed` 保留已收到的分片。
 
+### 添加只读诊断命令
+
+以添加无参数的 `arch` 为例。服务端在 `ParseDiagnostic` 的 `executable switch` 增加 `"arch" => arguments.Length == 0,`。Mac 端在 `customCommand` 的 `switch executable` 增加 `case "arch" where args.isEmpty:`，并设置 `path = "/usr/bin/arch"`。两个版本都需要部署。其他命令也应使用固定系统程序路径，并在两端列出相同的允许参数组合。[服务端校验](../src/Server/DataEndpoints.cs#L259) · [Mac 执行前校验](../src/Mac/DiagnosticRunner.swift#L62)
+
+更新后在 Demo 执行 `arch` 并核对架构输出和退出码。再提交带额外参数的 `arch -x`，核对 `400 invalid_diagnostic_command`。
+
 ## 原生对话框和本地通知
 
 两个接口都要求 Passkey 会话和已授权的在线设备连接，并返回 `202 Job` 与作业位置。订阅 `jobs.changed` 接收完成提示，再读取 `GET /jobs/{id}`。WebSocket 不可用时轮询这个作业 API。
