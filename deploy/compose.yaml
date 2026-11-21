@@ -10,7 +10,6 @@ services:
       FileSharing__KnownProxies: ${FILESHARING_NETWORK_PREFIX:-172.30.253}.10
       FileSharing__DataDirectory: /data
       FileSharing__MaxDevices: ${FILESHARING_MAX_DEVICES:-100}
-      FileSharing__Diagnostics__BlockedCommands: ${FILESHARING_DIAGNOSTICS_BLOCKED_COMMANDS:-}
       FileSharing__BootstrapSecret: ${FILESHARING_BOOTSTRAP_SECRET:?}
       FileSharing__GatewayCredentialKey: ${FILESHARING_GATEWAY_KEY:-}
       FileSharing__Ftp__Bind: 0.0.0.0

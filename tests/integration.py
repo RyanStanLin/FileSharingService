@@ -1284,31 +1284,6 @@ print(json.dumps({"payload": {"outcome": "submitted", "choiceId": "yes",
         self.assertEqual((completed["result"]["choiceId"], completed["result"]["text"]), ("yes", "00-APP-42"))
         self.assertEqual(self.api("GET", self.device_api).json()["connection"]["connectionId"], connection_id)
 
-    def test_diagnostic_blocklist_applies_defaults_and_configured_wildcards(self):
-        self.stop(self.server)
-        self.env["FileSharing__Diagnostics__BlockedCommands"] = " WhoAm?, DF, SW_* "
-        self.start_server()
-        self.setup_device()
-        route = self.device_api + "/diagnostics"
-
-        for command in ("rm", "installer", "open", "launchctl", "whoami", "df -h", "sw_vers -productVersion"):
-            with self.subTest(command=command):
-                response = self.api("POST", route, 403, json={"kind": "custom", "command": command})
-                self.assertEqual(response.json()["code"], "diagnostic_command_blocked")
-        for kind in ("diskSpace", "osVersion"):
-            with self.subTest(kind=kind):
-                response = self.api("POST", route, 403, json={"kind": kind})
-                self.assertEqual(response.json()["code"], "diagnostic_command_blocked")
-
-        unsupported = self.api("POST", route, 400, json={"kind": "custom", "command": "hostname"})
-        self.assertEqual(unsupported.json()["code"], "invalid_diagnostic_command")
-        self.assertEqual(self.api("GET", API + "/jobs").json()["items"], [])
-
-        allowed = self.api("POST", route, 202, json={"kind": "custom", "command": "uname -m"}).json()
-        completed = self.finished_job(allowed)
-        self.assertEqual((completed["state"], completed["result"]["exitCode"]), ("completed", 0))
-        self.assertEqual(completed["result"]["stdout"].strip(), os.uname().machine)
-
     def test_diagnostic_outputs_stream_and_resume_on_wss_and_https(self):
         self.setup_device()
         for protocol in ("wss", "https"):

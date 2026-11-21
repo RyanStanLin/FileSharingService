@@ -7,21 +7,12 @@ namespace FileSharing;
 
 internal sealed class Settings
 {
-    private static readonly string[] DefaultBlockedDiagnosticCommands =
-    [
-        "rm", "rmdir", "unlink",
-        "install*", "softwareupdate", "brew",
-        "open", "start", "launchctl", "osascript", "kill", "killall", "shutdown", "reboot",
-        "sudo", "su", "sh", "bash", "zsh"
-    ];
-
     public required Uri Origin { get; init; }
     public required string DataDirectory { get; init; }
     public required IPAddress[] Proxies { get; init; }
     public required byte[] BootstrapHash { get; init; }
     public required bool LoopbackDevelopment { get; init; }
     public required int MaxDevices { get; init; }
-    public required string[] BlockedDiagnosticCommands { get; init; }
 
     public static Settings Read(IConfiguration config, IHostEnvironment environment)
     {
@@ -41,22 +32,11 @@ internal sealed class Settings
             Origin = origin,
             LoopbackDevelopment = loopback,
             MaxDevices = maxDevices,
-            BlockedDiagnosticCommands = ReadBlockedDiagnosticCommands(config),
             DataDirectory = Path.GetFullPath(config["FileSharing:DataDirectory"] ?? ".local/data"),
             Proxies = (config["FileSharing:KnownProxies"] ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                 .Select(IPAddress.Parse).ToArray(),
             BootstrapHash = Secrets.HashBytes(bootstrap)
         };
-    }
-
-    private static string[] ReadBlockedDiagnosticCommands(IConfiguration config)
-    {
-        var section = config.GetSection("FileSharing:Diagnostics:BlockedCommands");
-        var configured = (section.Value ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        if (section.GetChildren().Any() || configured.Any(pattern => pattern.Length > 64 ||
-            pattern.Any(c => !char.IsAsciiLetterOrDigit(c) && c is not ('.' or '_' or '-' or '*' or '?'))))
-            throw new InvalidOperationException("FileSharing:Diagnostics:BlockedCommands must be a comma-separated string of command-name patterns.");
-        return [.. DefaultBlockedDiagnosticCommands, .. configured];
     }
 
     public string OriginValue => Origin.GetLeftPart(UriPartial.Authority);

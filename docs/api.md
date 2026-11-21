@@ -76,7 +76,7 @@ async function unlock() {
 | --- | --- |
 | 400 | `invalid_request`、`invalid_path`、`invalid_sort`、`invalid_directory_page`、`invalid_cursor`、`invalid_time_range`、`unsupported_permission`、`invalid_diagnostic_command` |
 | 401 | `authentication_required`，含会话锁定、WebAuthn 失败、challenge 已消费或密钥错误 |
-| 403 | `invalid_origin`、`invalid_host`、`root_access_denied`、`agent_connection_access_required`、`permission_denied`、`filesystem_access_denied`、`diagnostic_command_blocked` |
+| 403 | `invalid_origin`、`invalid_host`、`root_access_denied`、`agent_connection_access_required`、`permission_denied`、`filesystem_access_denied` |
 | 404 | `not_found`、`device_not_found`、`ftp_account_not_found`、`snapshot_unavailable`、`transfer_not_found` |
 | 409 | `revision_conflict`、`device_already_connected`、`agent_connection_changed`、`device_capacity`、`passkey_already_configured`、`passkey_configuration_changed`、`snapshot_changed`、`already_exists`、`directory_not_empty`、`cross_volume`、`delete_incomplete`、`root_identity_changed` |
 | 410 | `resync_required`、`archive_expired`、`agent_connection_ended` |
@@ -232,8 +232,6 @@ SFTP 客户端首次连接时校验 `hostKeyFingerprint`，格式为 `SHA256:…
 ```
 
 预设诊断对应 `/usr/bin/sw_vers`、`/usr/bin/uptime`、`/bin/df -k -l` 与 Agent 健康检查。Agent 0.4.1 起支持 `{"kind":"custom","command":"sysctl -n hw.model"}`，用空格或 Tab 分隔程序名和参数。命令最多 160 个字符、8 个参数。服务端和设备端分别校验，设备直接启动对应的系统程序。每台设备同时执行一项，使用当前用户身份。外部进程时限约 10 秒，每个输出流最多 16 KiB。自定义命令的结果 `data` 为 `null`，输出与退出码使用同一协议。
-
-服务端会在创建作业前检查禁用清单。规则支持匹配程序名的 `*` 和 `?`，命中时返回 `403 diagnostic_command_blocked`。预设与自定义诊断使用同一个程序名匹配，例如禁用 `df` 同时禁用 `diskSpace` 和 `df -h`。以下只读命令及参数由服务端和 Agent 校验。[配置方法](deployment.md#诊断命令策略)
 
 | 程序 | 可用参数 |
 | --- | --- |
