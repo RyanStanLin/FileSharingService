@@ -84,7 +84,6 @@ final class NativeDialog: NSObject, NSTextFieldDelegate {
         for (index, option) in options.enumerated() {
             alert.addButton(withTitle: option.1).keyEquivalent = index == 0 ? "\r" : ""
         }
-        if options.count > 1 { alert.addButton(withTitle: "取消").keyEquivalent = "\u{1b}" }
         updateButtons()
     }
 
@@ -107,11 +106,11 @@ final class NativeDialog: NSObject, NSTextFieldDelegate {
             let frame = window.frame
             window.setFrameOrigin(NSPoint(x: screen.frame.midX - frame.width / 2, y: screen.frame.midY - frame.height / 2))
         }
-        let escapeMonitor = options.count == 1 ? NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+        let escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             guard event.charactersIgnoringModifiers == "\u{1b}", event.window === window, app.modalWindow === window else { return event }
             app.stopModal(withCode: .cancel)
             return nil
-        } : nil
+        }
         defer {
             if let escapeMonitor { NSEvent.removeMonitor(escapeMonitor) }
             window.orderOut(nil)
@@ -191,7 +190,7 @@ final class NativeDialog: NSObject, NSTextFieldDelegate {
 
     private func updateButtons() {
         let enabled = isInputValid
-        for button in alert.buttons.prefix(options.count) { button.isEnabled = enabled }
+        for button in alert.buttons { button.isEnabled = enabled }
     }
 
     private func authenticate() async throws -> Bool {

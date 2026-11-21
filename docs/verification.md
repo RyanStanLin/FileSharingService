@@ -1,5 +1,9 @@
 # FileSharing 验收记录
 
+## Agent 0.4.6
+
+`submitsPlainTextAndSelectedOption` 在 macOS 27.0 上核对只有「同意」「暂缓」两个按钮，两者同一行，默认按钮位于右侧。单选、遮蔽输入、Escape、超时及重开也通过原生 AppKit 回归。
+
 ## Agent 0.4.5
 
 原生 AppKit 测试核对弹窗与屏幕的水平和垂直中心，再通过 `submitsOnlyVisibleChoice` 验证单选请求只有一个可见按钮且能提交。`dismissesWithEscapeWhileEditing` 验证单选弹窗里的遮蔽输入可使用 Escape 关闭。短内容样例实测宽度仍为 260 pt。

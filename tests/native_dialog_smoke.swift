@@ -11,11 +11,10 @@ struct NativeDialogSmoke {
                 try await submitsPlainTextAndSelectedOption()
                 try await submitsMaskedApprovalCode()
                 try await submitsOnlyVisibleChoice()
-                try await dismissesWithCancelButton()
                 try await dismissesWithEscapeWhileEditing()
                 try await expiresAndReopens()
                 try await dismissesOnTaskCancellation()
-                print("Native NSAlert smoke passed: screen centering, one-button layout, input, cancellation, timeout, and reopening.")
+                print("Native NSAlert smoke passed: screen centering, one button, two side-by-side buttons, input, Escape, timeout, and reopening.")
                 exit(EXIT_SUCCESS)
             } catch {
                 fail(error)
@@ -25,8 +24,8 @@ struct NativeDialogSmoke {
     }
 
     private static func request(message: String, askText: Bool = true, maskText: Bool = false, singleChoice: Bool = false) -> JSON {
-        var choices: [JSON] = [["id": "submit", "label": "Submit fixture"]]
-        if !singleChoice { choices.append(["id": "review", "label": "Review fixture"]) }
+        var choices: [JSON] = [["id": "submit", "label": "同意"]]
+        if !singleChoice { choices.append(["id": "review", "label": "暂缓"]) }
         return ["title": "Local smoke test",
          "message": .string(message),
          "choices": .array(choices),
@@ -38,7 +37,7 @@ struct NativeDialogSmoke {
         let input = request(message: "Confirm this fixture.", askText: false, singleChoice: true)
         let result = try await interact(with: input) { window, controls in
             let buttons = controls.compactMap { $0 as? NSButton }.filter { !$0.isHiddenOrHasHiddenAncestor }
-            guard buttons.count == 1, let primary = buttons.first, primary.title == "Submit fixture",
+            guard buttons.count == 1, let primary = buttons.first, primary.title == "同意",
                   window.defaultButtonCell === primary.cell else { throw AgentError("expected_one_visible_default_button") }
             primary.performClick(nil)
         }
@@ -60,13 +59,19 @@ struct NativeDialogSmoke {
             let fields = controls.compactMap { $0 as? NSTextField }
             let labels = Set(fields.filter { !$0.isEditable }.map(\.stringValue))
             guard labels == ["Local smoke test", message] else { throw AgentError("unexpected_dialog_copy") }
-            let buttons = controls.compactMap { $0 as? NSButton }
+            let buttons = controls.compactMap { $0 as? NSButton }.filter { !$0.isHiddenOrHasHiddenAncestor }
             guard let field = fields.first(where: \.isEditable), !(field is NSSecureTextField), field.placeholderString == nil,
                   let editor = field.currentEditor() as? NSTextView,
-                  let primary = buttons.first(where: { $0.title == "Submit fixture" }),
-                  let review = buttons.first(where: { $0.title == "Review fixture" }),
+                  buttons.count == 2,
+                  let primary = buttons.first(where: { $0.title == "同意" }),
+                  let review = buttons.first(where: { $0.title == "暂缓" }),
                   window.defaultButtonCell === primary.cell,
                   !primary.isEnabled, !review.isEnabled else { throw AgentError("invalid_plain_input_or_default_button") }
+            let primaryFrame = primary.convert(primary.bounds, to: nil)
+            let reviewFrame = review.convert(review.bounds, to: nil)
+            guard abs(primaryFrame.midY - reviewFrame.midY) <= 1, primaryFrame.minX >= reviewFrame.maxX else {
+                throw AgentError("expected_two_horizontal_choices_with_primary_on_right")
+            }
             editor.insertText("Fixture verification", replacementRange: NSRange(location: NSNotFound, length: 0))
             guard primary.isEnabled, review.isEnabled else { throw AgentError("cannot_submit_reason") }
             print("Stock NSAlert frame with a short title, message, and input: \(Int(window.frame.width)) pt.")
@@ -83,7 +88,7 @@ struct NativeDialogSmoke {
             guard let field = controls.compactMap({ $0 as? NSSecureTextField }).first,
                   field.placeholderString == nil, (field.cell as? NSSecureTextFieldCell)?.echosBullets == true,
                   let editor = field.currentEditor() as? NSTextView,
-                  let primary = controls.compactMap({ $0 as? NSButton }).first(where: { $0.title == "Submit fixture" }),
+                  let primary = controls.compactMap({ $0 as? NSButton }).first(where: { $0.title == "同意" }),
                   !primary.isEnabled else { throw AgentError("approval_control_not_masked") }
             editor.insertText(approval, replacementRange: NSRange(location: NSNotFound, length: 0))
             guard primary.isEnabled else { throw AgentError("cannot_submit_approval") }
@@ -97,22 +102,15 @@ struct NativeDialogSmoke {
 
     @MainActor
     private static func dismissesWithEscapeWhileEditing() async throws {
-        let input = request(message: "Dismiss this fixture with Escape.", maskText: true, singleChoice: true)
-        let result = try await interact(with: input) { window, _ in
-            try postKey("\u{1b}", code: 53, to: window)
+        for singleChoice in [true, false] {
+            let input = request(message: "Dismiss this fixture with Escape.", maskText: true, singleChoice: singleChoice)
+            let result = try await interact(with: input) { window, _ in
+                try postKey("\u{1b}", code: 53, to: window)
+            }
+            guard result["outcome"].string == "dismissed", result["choiceId"] == .null, result["text"] == .null else {
+                throw AgentError("escape_did_not_dismiss")
+            }
         }
-        guard result["outcome"].string == "dismissed", result["text"] == .null else { throw AgentError("escape_did_not_dismiss") }
-    }
-
-    @MainActor
-    private static func dismissesWithCancelButton() async throws {
-        let result = try await interact(with: request(message: "Dismiss this fixture.", askText: false)) { _, controls in
-            guard !controls.compactMap({ $0 as? NSTextField }).contains(where: \.isEditable),
-                  let cancel = controls.compactMap({ $0 as? NSButton }).first(where: { $0.title == "取消" }),
-                  cancel.isEnabled, cancel.keyEquivalent == "\u{1b}" else { throw AgentError("missing_cancel_button") }
-            cancel.performClick(nil)
-        }
-        guard result["outcome"].string == "dismissed", result["text"] == .null else { throw AgentError("cancel_response_mismatch") }
     }
 
     @MainActor
@@ -121,7 +119,7 @@ struct NativeDialogSmoke {
         let result = try await interact(with: request(message: "This fixture expires after 10 seconds.", askText: false)) { _, _ in }
         guard result["outcome"].string == "expired", result["choiceId"] == .null, result["text"] == .null,
               start.duration(to: .now) < .seconds(13) else { throw AgentError("native_modal_did_not_expire") }
-        try await dismissesWithCancelButton()
+        try await submitsOnlyVisibleChoice()
     }
 
     @MainActor
