@@ -29,6 +29,8 @@
 
 Agent 独立处理连接与界面。HTTP 轮询遇到短暂错误时重试当前通道，实际断线后自动重连。后台进程异常退出由 launchd 自动启动。连续约 25 个清醒运行秒内主线程或连接执行器停止推进时，Agent 会退出并交由 launchd 恢复。
 
+本机可在停止 Demo 后，通过 `FileSharing__Diagnostics__BlockedCommands='whoam?,df' scripts/demo-server.sh start` 验证诊断禁用规则。`df -h` 和磁盘空间预设会显示「服务端策略已禁用此诊断」。[诊断命令策略](deployment.md#诊断命令策略)
+
 ## 构建和验收
 
 打开 `FileSharingService.xcodeproj` 即可管理 App 与 Agent 源码。运行脚本重新构建 DMG 和 SHA-256 校验文件。

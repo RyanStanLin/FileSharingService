@@ -1,3 +1,4 @@
+using System.IO.Enumeration;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Dapper;
@@ -148,7 +149,6 @@ internal static class DataEndpoints
 {
     private static readonly string[] StatusTopics = ["identity", "cpu", "memory", "disk", "battery", "power", "system", "displays", "locale", "network", "agent", "lid"];
     private static readonly string[] Permissions = ["downloads", "documents", "desktop", "inputMonitoring", "pasteboard"];
-    private static readonly string[] Diagnostics = ["osVersion", "uptime", "diskSpace", "agentHealth"];
 
     public static void Map(RouteGroupBuilder api)
     {
@@ -167,7 +167,8 @@ internal static class DataEndpoints
             await Snapshot(id, "permissions", ctx, db, devices, reviews, broker, ct)).WithSummary("Get device permission states");
         devices.MapPost("/permissions/requests", RequestPermission).WithSummary("Ask macOS to evaluate or prompt for a supported permission");
         devices.MapPost("/diagnostics", RunDiagnostic).WithSummary("Run a predefined or custom read-only diagnostic")
-            .ProducesProblem(400);
+            .WithDescription("The server can disable diagnostics with command-name patterns. A blocked request returns diagnostic_command_blocked.")
+            .ProducesProblem(400).ProducesProblem(403);
         api.MapGet("/jobs", ListJobs).WithTags("Jobs").WithSummary("List asynchronous jobs");
         api.MapGet("/jobs/{id}", GetJob).WithTags("Jobs").WithSummary("Get a job result");
         api.MapGet("/jobs/{id}/output", GetOutput).WithTags("Jobs")
@@ -243,20 +244,32 @@ internal static class DataEndpoints
     }
 
     private static async Task<Accepted<JobView>> RunDiagnostic(string id, DiagnosticRequest body, HttpContext ctx, DeviceService devices,
-        ReviewService reviews, JobService jobs, CancellationToken ct)
+        ReviewService reviews, JobService jobs, Settings settings, CancellationToken ct)
     {
         var review = await reviews.Require(ctx, ct);
         await devices.Require(id, ct);
-        if (body.Kind != "custom" && !Diagnostics.Contains(body.Kind))
-            throw Fault.Bad("unsupported_diagnostic");
-        if (body.Kind != "custom" && body.Command is not null)
-            throw Fault.Bad("invalid_diagnostic_command");
-        var payload = body.Kind == "custom" ? ParseDiagnostic(body.Command) : new { diagnostic = body.Kind };
+        var payload = body.Kind == "custom" ? ParseDiagnostic(body.Command, settings) : PresetDiagnostic(body, settings);
         var job = await jobs.Start(review, id, "diagnostics.run", payload, ct);
         return TypedResults.Accepted($"/api/v1/jobs/{job.Id}", job);
     }
 
-    private static object ParseDiagnostic(string? line)
+    private static object PresetDiagnostic(DiagnosticRequest body, Settings settings)
+    {
+        var executable = body.Kind switch
+        {
+            "osVersion" => "sw_vers",
+            "uptime" => "uptime",
+            "diskSpace" => "df",
+            "agentHealth" => "agentHealth",
+            _ => throw Fault.Bad("unsupported_diagnostic")
+        };
+        if (body.Command is not null)
+            throw Fault.Bad("invalid_diagnostic_command");
+        RequireDiagnosticEnabled(executable, settings);
+        return new { diagnostic = body.Kind };
+    }
+
+    private static object ParseDiagnostic(string? line, Settings settings)
     {
         if (line is null || line.Length > 160)
             throw Fault.Bad("invalid_diagnostic_command");
@@ -264,6 +277,7 @@ internal static class DataEndpoints
         if (tokens.Length is < 1 or > 9)
             throw Fault.Bad("invalid_diagnostic_command");
         var executable = tokens[0];
+        RequireDiagnosticEnabled(executable, settings);
         var arguments = tokens[1..];
         var safe = executable switch
         {
@@ -279,6 +293,12 @@ internal static class DataEndpoints
         if (!safe)
             throw Fault.Bad("invalid_diagnostic_command");
         return new { diagnostic = "custom", executable, arguments };
+    }
+
+    private static void RequireDiagnosticEnabled(string command, Settings settings)
+    {
+        if (settings.BlockedDiagnosticCommands.Any(pattern => FileSystemName.MatchesSimpleExpression(pattern, command, ignoreCase: true)))
+            throw Fault.Forbidden("diagnostic_command_blocked");
     }
 
     private static bool DiagnosticFlags(string argument, string allowed) =>

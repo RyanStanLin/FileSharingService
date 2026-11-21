@@ -13,6 +13,7 @@
 | `FILESHARING_HTTPS_IP`、`FILESHARING_HTTPS_PORT` | HTTPS 的发布地址和端口。公网部署可以绑定主机公网 IP 或 `0.0.0.0`。常规站点使用端口 443。 |
 | `FILESHARING_NETWORK_PREFIX` | Compose 专用 IPv4 子网前三段。代理固定在 `.10`，服务固定在 `.20`。 |
 | `FILESHARING_MAX_DEVICES` | 活跃登记设备数上限，默认 100。 |
+| `FILESHARING_DIAGNOSTICS_BLOCKED_COMMANDS` | 逗号分隔的追加禁用规则，支持 `*` 和 `?`。启动服务时读取，适用于预设及自定义诊断。 |
 | `FILESHARING_FTP_IP`、`FILESHARING_FTP_HOST` | TCP 入口内网 IP 和对客户端公布的名字。 |
 | `FILESHARING_FTP_PLAIN_PORT`、`FILESHARING_FTP_EXPLICIT_PORT`、`FILESHARING_FTP_IMPLICIT_PORT` | 明文 FTP、显式 FTPS 和隐式 FTPS，示例为 2121、2122、2990。 |
 | `FILESHARING_SFTP_PORT` | SFTP 独立 TCP 端口，Compose 默认 2222，以同一个内网 `FILESHARING_FTP_IP` 发布。 |
@@ -30,6 +31,18 @@ DNS/证书续期由部署环境维护。生产反向代理覆盖 `Host`、`X-For
 SFTP 使用独立的 SSH TCP 入口，只需发布一个端口。Compose 在服务容器内运行 SFTP 工作进程，ASP.NET Core 启停并监测该进程。内部文件 RPC 由回环地址和进程级随机密钥保护。反向代理拒绝内部路径的请求。容器首次启动将 SSH 主机私钥写入 `/data/sftp-host-key`，文件权限为 `0600`。在管理 API 读取指纹后通过可信渠道核对客户端首次连接。备份并恢复主机密钥可维持客户端的信任记录。
 
 裸机运行时，使用 Go 1.26 或更新工具链从 `src/Sftp` 构建 `filesharing-sftp`，将可执行文件放在服务程序集旁或设置 `FileSharing__Sftp__Binary`。设置 `FileSharing__Sftp__Port` 开启监听，`FileSharing__Sftp__BridgePort` 指向 Kestrel 的本机 HTTP 端口，默认 8080。配置为 0 的 SFTP 端口停用该入口。启用后 `/health/ready` 同时检查 SFTP 工作进程是否就绪。
+
+## 诊断命令策略
+
+服务端和 Agent 检查只读诊断允许的程序及参数。默认禁用规则包括 `rm`、`rmdir`、`install*`、`softwareupdate`、`open`、`launchctl`、`shutdown` 和 Shell 解释器。用以下服务器配置追加禁用规则。
+
+```json
+{"FileSharing":{"Diagnostics":{"BlockedCommands":"whoam?,df,sw_*"}}}
+```
+
+裸机也可设置 `FileSharing__Diagnostics__BlockedCommands='whoam?,df,sw_*'`。使用 Compose 部署时，在 `deploy/.env` 设置 `FILESHARING_DIAGNOSTICS_BLOCKED_COMMANDS=whoam?,df,sw_*`。重启服务或重建容器应用策略。
+
+规则以逗号分隔，按完整程序名匹配，大小写不敏感。`*` 匹配零个或多个字符，`?` 匹配单个字符。`sw_*`、`uptime`、`df` 分别影响 `osVersion`、`uptime`、`diskSpace` 预设。`agentHealth` 匹配 Agent 健康检查预设。可设 `*` 禁用全部诊断。[诊断接口](api.md#遥测诊断和审计)
 
 ## macOS 拖装 DMG
 

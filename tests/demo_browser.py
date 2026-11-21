@@ -387,6 +387,14 @@ class LocalDemoBrowser(unittest.TestCase):
         send({"type": "result", "id": diagnostic["id"], "ok": True,
               "payload": {"stdout": "运行中\n", "stderr": "warning\n", "exitCode": 4, "data": None}})
         browser.wait("document.querySelector('#diagnostic-status').textContent === '退出码 4'")
+        browser.evaluate("""
+            const kind = document.querySelector('#diagnostic-kind');
+            kind.value = 'custom';
+            kind.dispatchEvent(new Event('change'));
+            document.querySelector('#diagnostic-command').value = 'installer';
+            document.querySelector('#diagnostic-form').requestSubmit();
+        """)
+        browser.wait("document.querySelector('#diagnostic-status').textContent === '服务端策略已禁用此诊断。'")
 
 
 if __name__ == "__main__":
