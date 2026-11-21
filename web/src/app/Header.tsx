@@ -17,10 +17,11 @@ interface Props {
   select: (device: Device) => void
   toggle: (checked: boolean) => void
   shares: () => void
+  openPath?: () => void
   revoke: () => void
 }
 
-function DeviceMenu({devices, device, select, unlocked, shares, revoke}: Props) {
+function DeviceMenu({devices, device, select, unlocked, shares, openPath, revoke}: Props) {
   const {t, locale, setLocale} = useLanguage()
   const {contrast, setContrast} = useAppearance()
   return (
@@ -41,6 +42,9 @@ function DeviceMenu({devices, device, select, unlocked, shares, revoke}: Props) 
           </ActionList.Group>}
           {unlocked && device?.connection.accessGranted && <>
             <ActionList.Divider />
+            {openPath && <ActionList.Item onSelect={openPath} aria-keyshortcuts="Meta+Shift+G">
+              {t('goTo')}…<ActionList.Description variant="inline">⌘⇧G</ActionList.Description>
+            </ActionList.Item>}
             <ActionList.Item onSelect={shares}>{t('sharedFolders')}</ActionList.Item>
             <ActionList.Item onSelect={revoke}>{t('connectionRevoke')}</ActionList.Item>
           </>}

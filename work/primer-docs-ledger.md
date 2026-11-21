@@ -33,7 +33,7 @@
 | **ActionList** | 已取回 | 已取回 | 已取回 | 已取回 |
 | **ActionMenu** | 已取回 | 已取回 | 已取回 | 已取回 |
 | AnchoredOverlay | 已取回 | 已取回 | 未发布独立页 | 工具返回无效 |
-| Autocomplete | 已取回 | 已取回 | 已取回 | 未发布独立页 |
+| **Autocomplete** | 已取回 | 已取回 | 已取回 | 以 WAI-ARIA Combobox 指南核对 |
 | Avatar | 已取回 | 已取回 | 未发布独立页 | 未发布独立页 |
 | AvatarStack | 已取回 | 已取回 | 未发布独立页 | 未发布独立页 |
 | Banner | 已取回 | 已取回 | 已取回 | 已取回 |
@@ -109,7 +109,7 @@
 ## Figma 和实现映射
 
 - [FileSystem-Folder](https://www.figma.com/design/l9hmusc9x5sSYw59WQygO4/PrimerPlus?node-id=7880-24518) 的 MCP 返回 1280 × 950 框架与子节点几何。达到 Starter 配额后从 Figma 画布补看目录列表、隔行底色、列头、文件类型和菜单。画布约 70% 的缩放仅供位置和外观参照。
-- [FileSystem-File](https://www.figma.com/design/l9hmusc9x5sSYw59WQygO4/PrimerPlus?node-id=7882-36694) 和 [FileSystemLocked](https://www.figma.com/design/l9hmusc9x5sSYw59WQygO4/PrimerPlus?node-id=7882-35968) 有完整设计上下文以及 1024 × 760 的渲染图。文件详情中的文档图标使用该设计提供的 PNG。浏览器以 Agent 返回的图片或 PDF 首屏显示真实预览。
+- FileSystem-File 和 FileSystemLocked 有完整设计上下文以及 1024 × 760 的渲染图。文件图标和预览使用 Agent 返回的逐文件 PNG。 [FileSystem-File](https://www.figma.com/design/l9hmusc9x5sSYw59WQygO4/PrimerPlus?node-id=7882-36694) · [FileSystemLocked](https://www.figma.com/design/l9hmusc9x5sSYw59WQygO4/PrimerPlus?node-id=7882-35968)
 - 桌面顶栏目标 108 px，目录树默认 233 px，可在 176–480 px 内调整，右侧概要 129 px，路径栏 41 px。侧栏标题用 1 px 分隔线，隐藏项按钮填满选项区域。窄屏用 Primer Dialog 打开同一棵目录树，宽表可以横向滚动。
 - Header 使用 Stack、UnderlineNav、ActionMenu 和 ToggleSwitch。SplitPageLayout 放置 TreeView 和内容区。右侧按 Figma 自定义语义表格，排序、复选、标签和菜单沿用 Primer 控件。操作用 ActionMenu 和 Dialog，路径用 Breadcrumbs。安装版 UnderlineNav 会为辅助技术附加英文的 navigation 后缀。
 - Commands、Data、Window Activity 和 FTP 凭据处于后续里程碑。目录菜单提供当前选择或文件夹的下载。Date Created 对应后端的 `createdAt`。
@@ -125,16 +125,24 @@
 
 - Agent 的文件 I/O 使用串行队列，Agent 与 Broker 都限制未完成指令数。前端先请求列表，目录树复用当前目录数据，轻量元数据在后台读取。只有在「查看信息」主动触发时才递归扫描目录。订阅回执及相同快照版本会被跳过，实际目录变更合并为一次刷新。
 - 同一页面按设备排队执行列表和轻量元数据读取，优先处理当前操作。读取受限时依照 `Retry-After` 和短退避重试，设备短时超时可自动恢复一次。滚动到列表底部时加载后续页。遇到快照冲突会从首屏刷新，连续失败可以手动重试，已读取项目保留在列表中。
+- 可见文件按版本获取缩略图，同一设备连接内的树、列表和详情复用内存缓存。缩略图优先级低于路径、列表和元数据请求。图片和 PDF 优先渲染内容，其他类型由 Agent 提供 macOS 文件类型图标。
+
+## 选择和路径跳转
+
+- 自定义文件表格保留 Primer Checkbox 作为可访问的选择控件。整行支持单击、⌘ 切换单项、Shift 范围和按住拖动框选。选择状态使用 `bgColor-accent-muted`，选框使用语义边框颜色，位置和尺寸随指针变化。⌘A 作用于当前目录快照，尚未加载的行无需提前请求，取消选择的项目从该快照排除。 [Apple 的选择操作说明](https://support.apple.com/guide/mac-help/select-items-mchlp1378/mac)
+- 「前往」按 Navigation 和 Search 的模式组合 Dialog、FormControl 和 Autocomplete。目标验证复用文件元数据，候选通过已授权目录的分页列表获取。输入支持方向键、Tab、Enter 和 IME，菜单保留快捷键入口。 [Primer Autocomplete](https://primer.style/product/components/autocomplete/guidelines/) · [WAI-ARIA Combobox](https://www.w3.org/WAI/ARIA/apg/patterns/combobox/) · [Apple 的路径补全说明](https://support.apple.com/en-gb/guide/mac-help/-mchlp1236/mac)
 
 ## 验收
 
 - `npm --prefix web run build` 完成严格 TypeScript 检查与 Vite 生产构建。Vite 报告 Primer 的客户端指令和包体积提示。
-- 本轮通过四条隔离 Chromium、ASP.NET Core 和 Swift Agent 浏览器验收。文件操作回归覆盖虚拟 Passkey、目录权限、隐藏项、服务端排序、建目录、上传、改名、移动、下载、删除、PDF 预览、语言持久化和窄屏焦点。双设备回归覆盖各自连接授权、ZIP 和废纸篓中的文件字节。
+- 七条隔离 Chromium、ASP.NET Core 和 Swift Agent 浏览器验收通过。原有四条覆盖虚拟 Passkey、权限、隐藏项、排序、建目录、上传、改名、移动、下载、删除、PDF 预览、语言持久化、窄屏焦点和双设备授权。
+- 本轮新增场景确认列表和树合计只下载八个可见文件的八份原生 PNG。鼠标单击、⌘ 加选与取消、Shift 范围、按住拖动、空白清空和双击打开均通过。83 项目录首屏只加载 80 项时，⌘A 计数为 83，逐项取消的状态保留到分页完成。
+- 路径对话框验证了快捷键打开和输入聚焦、Tab 补全、Enter 提交、相对与绝对路径、超过首个 200 项分段的候选、菜单入口、Escape 和共享范围外反馈。
 - 验证了标准和高对比度跟随系统亮暗并保存偏好。桌面分隔线可用鼠标与键盘操作，刷新后保留宽度。浏览器测得 28 px 列头、36 px 文件行、1 px 侧栏标题分隔线、选中栏从 0 展开到 65 px 再收起。已检查隔行颜色与按钮填充宽度。
 - 83 项目录先显示 80 项，滚到底自动追加至 83 项。首屏只有一次列表和一次随后完成的轻量 stat。测试模拟带 `Retry-After` 的 429、设备超时和分页快照冲突，均自动恢复。外部新增文件通过目录订阅触发一次列表刷新。连续切换 12 个目录期间，设备读取并发上限为一，真实 Agent 未返回 429。
 - 浏览器在 1280 × 950 下截图核对三个状态。顶栏分隔线与下方内容位于 y107–108，概要分隔线与下方内容位于 y236–237，路径栏分隔线位于 y909。原尺寸的目录页样本、字体渲染和实时文件内容存在差异。锁定、目录、行菜单、PDF 预览和窄屏截图保存在本机 `.local/frontend-check`。
 - 窄屏检查覆盖 320、375 和 768 CSS px。375 px 下可从内容区打开目录树，页面无横向溢出。
-- 本轮对五个变更的 CSS 模块调用了 `primerdoc.lint_css`。服务对这些样式及只含两个官方变量的对照样式都返回「Errors without autofix remaining」，诊断正文为空。独立 PostCSS 检查成功解析全部六份 CSS 模块，并核对了四套主题下的 128 处变量引用。48 个手写前端文件均少于 200 行。
+- 对五个变更的 CSS 模块调用了 `primerdoc.lint_css`。服务对这些样式和此前只含两个官方变量的对照样式都返回「Errors without autofix remaining」，诊断正文为空。独立 PostCSS 检查成功解析全部八份 CSS 模块，并核对了四套主题下的 143 处变量引用。57 个手写前端文件均少于 200 行。
 - 浏览器验收使用隔离 HOME 的权限样本和虚拟验证器。生产硬件 Passkey 与真实受保护目录上的 macOS 弹窗需另行实机核对。
 - 当第二台设备上线时保留当前设备，直到操作者从菜单切换或当前设备从清单移除。此行为已纳入双设备验收。
 - Alt 文本工具需要当前连接未启用的 sampling。人工核对使用空 alt 的装饰文件图标，以及使用实际文件名的内容预览。

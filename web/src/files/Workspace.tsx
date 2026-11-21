@@ -9,6 +9,8 @@ import {useLanguage} from '../i18n'
 import {Modal} from '../ui/Modal'
 import {Loading, Retry, State} from '../ui/Feedback'
 import {useRefresh, useResource} from '../ui/async'
+import {ThumbnailProvider} from './EntryIcon'
+import {GoToDialog} from './GoToDialog'
 import {LocationView} from './LocationView'
 import {basename, homeLocation, permissionFor, useLocation} from './navigation'
 import {PathBar} from './PathBar'
@@ -26,9 +28,11 @@ interface Props {
   refreshDevice: () => void
   shareManager: boolean
   setShareManager: (show: boolean) => void
+  goTo: boolean
+  closeGoTo: () => void
 }
 
-export function Workspace({device, refreshDevice, shareManager, setShareManager}: Props) {
+export function Workspace({device, refreshDevice, shareManager, setShareManager, goTo, closeGoTo}: Props) {
   const {t} = useLanguage()
   const shares = useResource(device.id, signal => readShares(device.id, signal))
   const permissions = useResource(device.id, signal => readPermissions(device.id, signal))
@@ -106,7 +110,7 @@ export function Workspace({device, refreshDevice, shareManager, setShareManager}
   ) : null
 
   return (
-    <>
+    <ThumbnailProvider>
       <SplitPageLayout className={styles.workspace}>
         {!narrow && sidebarContent && <SplitPageLayout.Sidebar padding="none" divider="line" width={sidebarSize}
           resizable aria-label={t('folderTree')} widthStorageKey="filesharing.sidebar-width" className={styles.sidePane}>
@@ -130,6 +134,8 @@ export function Workspace({device, refreshDevice, shareManager, setShareManager}
       )}
       {shareManager && shares.data && <ShareManager device={device.id} local={shares.data.local}
         roots={shares.data.roots} refresh={shares.refresh} close={() => setShareManager(false)} />}
-    </>
+      {goTo && location && shares.data && <GoToDialog device={device.id} shares={shares.data.shares}
+        location={location} rootEntry={rootInfo.data} hidden={hidden} close={closeGoTo} />}
+    </ThumbnailProvider>
   )
 }

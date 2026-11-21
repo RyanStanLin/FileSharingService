@@ -18,7 +18,8 @@ export function useExplorer(deviceId: string, location: Location | undefined, hi
   const [visible, setVisible] = useState<ColumnKey[]>(initialColumns)
   const [sort, setSort] = useState<SortKey>(visible.includes('createdAt') ? 'createdAt' : 'name')
   const [direction, setDirection] = useState<Direction>('asc')
-  const view = useDirectory(deviceId, location, {hidden, sort, direction})
+  const listing = {hidden, sort, direction}
+  const view = useDirectory(deviceId, location, listing)
 
   function toggleColumn(column: ColumnKey) {
     const next = visible.includes(column) ? visible.filter(item => item !== column) : [...visible, column]
@@ -35,7 +36,7 @@ export function useExplorer(deviceId: string, location: Location | undefined, hi
     setDirection(order)
   }
 
-  return {view, visible, sort, direction, toggleColumn, changeSort}
+  return {view, visible, sort, direction, listing, toggleColumn, changeSort}
 }
 
 export type Explorer = ReturnType<typeof useExplorer>

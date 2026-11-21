@@ -5,18 +5,18 @@ import type {Entry, Location, Share, SortKey} from '../api/types'
 import {useLanguage} from '../i18n'
 import type {OpenAction} from './actions'
 import {optionalColumns, valueFor, type ColumnKey} from './columns'
+import {ListEntryIcon} from './EntryIcon'
 import {EntryMenu} from './EntryMenu'
-import {EntryIcon} from './Metadata'
 import {href, locationOf} from './navigation'
+import type {FileSelection} from './useFileSelection'
 import styles from './table.module.css'
 
 interface Props {
   titleId: string
   location: Location
   share: Share
-  entries: Entry[]
-  selected: ReadonlySet<string>
-  setSelected: (selection: Set<string>) => void
+  device: string
+  selection: FileSelection
   visible: ColumnKey[]
   sort: SortKey
   direction: Direction
@@ -42,20 +42,13 @@ function SortHeading({field, label, sort, direction, onSort}: {
   )
 }
 
-export function FileTable({titleId, entries, selected, setSelected, visible, location, share, sort, direction, onSort,
+export function FileTable({titleId, device, selection, visible, location, share, sort, direction, onSort,
   onAction, onDownload}: Props) {
   const {t, locale} = useLanguage()
   const columns = optionalColumns.filter(column => visible.includes(column.key))
-  const all = entries.length > 0 && entries.every(entry => selected.has(entry.path))
-  const some = entries.some(entry => selected.has(entry.path))
+  const {entries, count, total} = selection
+  const all = count > 0 && count === total
   const sortProps = {sort, direction, onSort}
-
-  function select(path: string, checked: boolean) {
-    const next = new Set(selected)
-    if (checked) next.add(path)
-    else next.delete(path)
-    setSelected(next)
-  }
 
   return (
     <table aria-labelledby={titleId} className={styles.table}>
@@ -69,8 +62,8 @@ export function FileTable({titleId, entries, selected, setSelected, visible, loc
       <thead>
         <tr>
           <th scope="col" className={styles.checkCell}>
-            <Checkbox aria-label={t('selectAll')} checked={all} indeterminate={some && !all} disabled={!entries.length}
-              onChange={event => setSelected(new Set(event.target.checked ? entries.map(entry => entry.path) : []))} />
+            <Checkbox aria-label={t('selectAll')} checked={all} indeterminate={count > 0 && !all} disabled={!total}
+              onChange={event => event.target.checked ? selection.selectAll() : selection.clear()} />
           </th>
           <th scope="col" aria-hidden="true" />
           <SortHeading field="name" label={t('name')} {...sortProps} />
@@ -79,15 +72,16 @@ export function FileTable({titleId, entries, selected, setSelected, visible, loc
         </tr>
       </thead>
       <tbody>
-        {entries.map(entry => (
-          <tr key={entry.path}>
+        {entries.map((entry, index) => (
+          <tr key={entry.path} data-file-row="" data-selected={selection.includes(entry.path)}>
             <td className={styles.checkCell}>
-              <Checkbox aria-label={t('selectEntry', {name: entry.name})} checked={selected.has(entry.path)}
-                onChange={event => select(entry.path, event.target.checked)} />
+              <Checkbox aria-label={t('selectEntry', {name: entry.name})} checked={selection.includes(entry.path)}
+                onChange={() => selection.select(index, {toggle: true})} />
             </td>
-            <td aria-hidden="true" className={styles.iconCell}><EntryIcon entry={entry} /></td>
+            <td aria-hidden="true" className={styles.iconCell}><ListEntryIcon device={device} rootId={share.id} entry={entry} /></td>
             <th scope="row">
-              <Link className={styles.entryName} href={href(locationOf(location.rootId, entry))} title={entry.name}>{entry.name}</Link>
+              <Link className={styles.entryName} href={href(locationOf(location.rootId, entry))} title={entry.name}
+                data-file-link="" draggable={false}>{entry.name}</Link>
             </th>
             {columns.map(({key}) => {
               const value = valueFor(entry, key, locale, t)

@@ -3,7 +3,7 @@ import {download} from '../api/transfers'
 import type {Device, Entry, Location, Share} from '../api/types'
 import {ErrorText} from '../ui/Feedback'
 import {useTask} from '../ui/async'
-import type {FileAction} from './actions'
+import type {DownloadSelection, FileAction} from './actions'
 import {FileDialog} from './FileDialog'
 import {FilePanel} from './FilePanel'
 import {FolderPanel} from './FolderPanel'
@@ -26,8 +26,12 @@ export function LocationView({device, share, location, visibleRoots, hidden, rev
   const [action, setAction] = useState<FileAction>()
   const task = useTask()
 
-  function onDownload(entries: Entry[]) {
-    void task.run(signal => download(device.id, location, entries, signal))
+  const onDownload: DownloadSelection = selection => {
+    void task.run(async signal => {
+      const entries = typeof selection === 'function' ? await selection(signal) : selection
+      if (typeof selection === 'function' && !entries.length) return
+      await download(device.id, location, entries, signal)
+    })
   }
 
   function changed(updated?: Entry) {

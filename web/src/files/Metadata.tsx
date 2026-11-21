@@ -1,24 +1,16 @@
 import {Heading, Spinner, Stack} from '@primer/react'
 import {useMemo, type ReactNode} from 'react'
-import {FileDirectoryFillIcon, FileIcon, FileSymlinkFileIcon} from '@primer/octicons-react'
 import type {Entry} from '../api/types'
 import {useLanguage, type Message} from '../i18n'
 import {bytes, date, entryKind, number} from '../i18n/format'
-import fileImage from '../assets/file.png'
+import {EntryIcon} from './EntryIcon'
+import iconStyles from './entryIcon.module.css'
 import styles from './workspace.module.css'
 
-export function EntryIcon({entry, detail = false}: {entry: Entry; detail?: boolean}) {
-  if (entry.kind === 'file') {
-    return <img src={fileImage} className={detail ? styles.largeFileIcon : styles.fileIcon} alt="" />
-  }
-  const Icon = entry.kind === 'directory' ? FileDirectoryFillIcon : entry.kind === 'symlink' ? FileSymlinkFileIcon : FileIcon
-  return <Icon className={entry.kind === 'directory' ? styles.folderIcon : undefined} size={detail ? 32 : 16} />
-}
-
-export function FileTitle({id, title, detail, entry}: {id?: string; title: string; detail?: string; entry?: Entry}) {
+export function FileTitle({id, title, detail, entry, thumbnail}: {id?: string; title: string; detail?: string; entry?: Entry; thumbnail?: string}) {
   return (
     <Stack direction="horizontal" align="center" gap="normal">
-      {entry && <span className={styles.thumbnail}><EntryIcon entry={entry} detail /></span>}
+      {entry && <span className={iconStyles.thumbnail}><EntryIcon entry={entry} url={thumbnail} detail /></span>}
       <Stack.Item grow className={styles.titleArea}>
         <Heading as="h1" id={id} className={styles.title}>{title}</Heading>
         {detail && <div className={styles.caption}>{detail}</div>}

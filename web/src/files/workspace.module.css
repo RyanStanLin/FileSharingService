@@ -59,37 +59,17 @@
   font-weight: var(--base-text-weight-semibold);
 }
 
-.thumbnail {
-  display: grid;
-  place-items: center;
-  inline-size: var(--base-size-36);
-  block-size: var(--base-size-36);
-  flex: none;
-}
-
-.fileIcon {
-  inline-size: var(--base-size-20);
-  block-size: var(--base-size-20);
-  object-fit: contain;
-}
-
-.largeFileIcon {
-  inline-size: var(--base-size-32);
-  block-size: var(--base-size-32);
-  object-fit: contain;
-}
-
-.folderIcon {
-  color: var(--treeViewItem-leadingVisual-iconColor-rest);
-}
-
 .preview strong {
   font-weight: var(--base-text-weight-semibold);
 }
 
+.folderArea,
 .explorer {
   flex: 1;
   min-block-size: 0;
+}
+
+.explorer {
   overflow: auto;
 }
 

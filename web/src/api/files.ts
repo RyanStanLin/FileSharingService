@@ -1,4 +1,4 @@
-import {apiPrefix, query, request, send} from './client'
+import {query, request, response, send} from './client'
 import {deviceRoute} from './devices'
 import {readFile, type FileReadPriority} from './fileReads'
 import type {DirectoryPage, Entry, Location, SortKey} from './types'
@@ -29,8 +29,9 @@ export function stat(device: string, location: Location, signal: AbortSignal, su
   return summary ? request<Entry>(route, {signal}) : readFile(device, priority, signal, () => request<Entry>(route, {signal}))
 }
 
-export function thumbnail(device: string, rootId: string, entry: Entry) {
-  return apiPrefix + query(fileRoute(device) + '/thumbnail', {rootId, path: entry.path, version: entry.version})
+export async function thumbnail(device: string, rootId: string, entry: Entry, signal: AbortSignal) {
+  const route = query(fileRoute(device) + '/thumbnail', {rootId, path: entry.path, version: entry.version})
+  return (await response(route, {signal})).blob()
 }
 
 export function mkdir(device: string, location: Location, path: string, signal: AbortSignal) {

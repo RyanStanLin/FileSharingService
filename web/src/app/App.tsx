@@ -3,6 +3,7 @@ import {Button, Stack} from '@primer/react'
 import {readDevices, setAccess} from '../api/devices'
 import {useDeviceEvents} from '../api/events'
 import type {Device} from '../api/types'
+import {primaryModifier} from '../files/explorerInput'
 import {Workspace} from '../files/Workspace'
 import {useLanguage} from '../i18n'
 import {Loading, Retry, State} from '../ui/Feedback'
@@ -22,6 +23,7 @@ export function App() {
   const devices = useResource(unlocked ? 'devices' : null, readDevices)
   const [deviceId, setDeviceId] = useState(() => sessionStorage.getItem(selectedDevice))
   const [shareManager, setShareManager] = useState(false)
+  const [goTo, setGoTo] = useState(false)
   const connectionTask = useTask()
   const accessRef = useRef<HTMLButtonElement>(null)
   const lastDevice = useRef<Device>(undefined)
@@ -41,6 +43,7 @@ export function App() {
 
   function select(item: Device) {
     setShareManager(false)
+    setGoTo(false)
     setDeviceId(item.id)
     sessionStorage.setItem(selectedDevice, item.id)
     window.history.replaceState(null, '', window.location.pathname + window.location.search)
@@ -79,14 +82,29 @@ export function App() {
   }
 
   const workspace = unlocked && device?.connection.online && device.connection.accessGranted
+  useEffect(() => {
+    if (!workspace) {
+      setGoTo(false)
+      return
+    }
+    function openPath(event: KeyboardEvent) {
+      if (event.defaultPrevented || event.isComposing || event.repeat || !primaryModifier(event) || !event.shiftKey ||
+        event.altKey || event.key.toLowerCase() !== 'g' || document.querySelector('[role="dialog"], [role="alertdialog"]')) return
+      event.preventDefault()
+      setGoTo(true)
+    }
+    document.addEventListener('keydown', openPath)
+    return () => document.removeEventListener('keydown', openPath)
+  }, [workspace])
   return (
     <Stack gap="none" className={styles.app}>
       <Header devices={items} device={device ?? (!unlocked ? lastDevice.current : undefined)} unlocked={unlocked}
         ready={Boolean(session.current)} busy={session.task.busy} toggle={session.change} select={select}
-        shares={() => setShareManager(true)} revoke={() => authorize(false)} accessRef={accessRef} />
+        shares={() => setShareManager(true)} revoke={() => authorize(false)} accessRef={accessRef}
+        openPath={workspace ? () => setGoTo(true) : undefined} />
       {workspace
         ? <Workspace key={device.id + device.connection.connectionId} device={device} refreshDevice={devices.refresh}
-            shareManager={shareManager} setShareManager={setShareManager} />
+            shareManager={shareManager} setShareManager={setShareManager} goTo={goTo} closeGoTo={() => setGoTo(false)} />
         : <Stack as="main" gap="none" className={styles.main}>{content}</Stack>}
       {session.setup && <SetupDialog submit={session.initialize} close={session.closeSetup}
         busy={session.task.busy} error={session.task.error} returnFocusRef={accessRef} />}

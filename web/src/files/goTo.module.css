@@ -1,0 +1,14 @@
+.suggestions {
+  max-block-size: var(--overlay-height-small);
+  overflow-y: auto;
+}
+
+.suggestions [role='listbox'] {
+  inline-size: 100%;
+  overflow-wrap: anywhere;
+}
+
+.status {
+  color: var(--fgColor-muted);
+  font: var(--text-body-shorthand-small);
+}

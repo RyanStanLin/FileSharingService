@@ -1,0 +1,40 @@
+.thumbnail {
+  display: grid;
+  place-items: center;
+  inline-size: var(--base-size-36);
+  block-size: var(--base-size-36);
+  flex: none;
+}
+
+.entryThumbnail {
+  display: inline-grid;
+  place-items: center;
+  inline-size: var(--base-size-20);
+  block-size: var(--base-size-20);
+  vertical-align: middle;
+}
+
+.entryThumbnail[data-compact='true'] {
+  inline-size: var(--base-size-16);
+  block-size: var(--base-size-16);
+}
+
+.fileIcon,
+.largeFileIcon {
+  display: block;
+  object-fit: contain;
+}
+
+.fileIcon {
+  inline-size: 100%;
+  block-size: 100%;
+}
+
+.largeFileIcon {
+  inline-size: var(--base-size-32);
+  block-size: var(--base-size-32);
+}
+
+.folderIcon {
+  color: var(--treeViewItem-leadingVisual-iconColor-rest);
+}

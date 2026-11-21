@@ -1,9 +1,10 @@
 import {useEffect, useRef, useState, type ReactNode} from 'react'
 import {Button, Heading, Stack, TreeView} from '@primer/react'
-import {EyeClosedIcon, EyeIcon, FileDirectoryFillIcon, FileDirectoryOpenFillIcon, FileIcon, ShieldCheckIcon, ShieldIcon, ShieldXIcon} from '@primer/octicons-react'
+import {EyeClosedIcon, EyeIcon, FileDirectoryFillIcon, FileDirectoryOpenFillIcon, ShieldCheckIcon, ShieldIcon, ShieldXIcon} from '@primer/octicons-react'
 import type {Entry, Location, Permission, Permissions, Share} from '../api/types'
 import {useLanguage, type Translate} from '../i18n'
 import {useRefreshSignal} from '../ui/async'
+import {ListEntryIcon} from './EntryIcon'
 import {homeLocation, locationOf, navigate, permissionFor} from './navigation'
 import {useAutoPage} from './useAutoPage'
 import {useDirectory, type DirectoryView} from './useDirectory'
@@ -65,7 +66,7 @@ function BranchItem({entry, marker, ...props}: BranchProps & {entry: Entry; mark
         {isFolder ? ({isExpanded}) => isExpanded
           ? <FileDirectoryOpenFillIcon className={styles.folderIcon} size={16} />
           : <FileDirectoryFillIcon className={styles.folderIcon} size={16} />
-          : <FileIcon size={16} />}
+          : <ListEntryIcon device={props.deviceId} rootId={scope.id} entry={entry} compact />}
       </TreeView.LeadingVisual>
       <span title={entry.name}>{entry.name}{marker}</span>
       {kind && target.path.indexOf('/') === -1 && permissionIcon(permission, t)}

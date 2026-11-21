@@ -1,4 +1,5 @@
 .table {
+  background: var(--bgColor-default);
   border-spacing: 0;
   inline-size: 100%;
   min-inline-size: var(--filesharing-table-min-width);
@@ -42,6 +43,19 @@
 
 .table tbody tr:nth-of-type(even) > :is(td, th) {
   background: var(--bgColor-muted);
+}
+
+.table tbody tr[data-selected='true'] > :is(td, th) {
+  background: var(--bgColor-accent-muted);
+}
+
+.table tbody [data-file-row] {
+  cursor: default;
+  user-select: none;
+}
+
+.table [data-file-link] {
+  cursor: inherit;
 }
 
 .table .checkCell {

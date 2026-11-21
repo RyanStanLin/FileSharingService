@@ -1,7 +1,7 @@
 import {useEffect, useRef, useState, type ReactNode} from 'react'
 import {ActionList, ActionMenu, Button, ButtonGroup, IconButton, Stack} from '@primer/react'
 import {ChevronDownIcon, DesktopDownloadIcon} from '@primer/octicons-react'
-import type {Device, Entry, Location, Share} from '../api/types'
+import type {Device, Location, Share} from '../api/types'
 import {useLanguage} from '../i18n'
 import {number} from '../i18n/format'
 import type {OpenAction} from './actions'
@@ -53,31 +53,31 @@ export function FolderHeader({device, location, titleId, share, overview, open, 
   )
 }
 
-export function SelectionBar({selected, busy, onDownload}: {
-  selected: Entry[]
+export function SelectionBar({count, busy, onDownloadSelected, onDownloadFolder}: {
+  count: number
   busy: boolean
-  onDownload: (entries: Entry[]) => void
+  onDownloadSelected: () => void
+  onDownloadFolder: () => void
 }) {
   const {t, locale} = useLanguage()
-  const active = selected.length > 0
-  const previous = useRef(selected)
+  const active = count > 0
+  const previous = useRef(count)
   const [menuOpen, setMenuOpen] = useState(false)
   useEffect(() => {
-    if (active) previous.current = selected
+    if (active) previous.current = count
     else setMenuOpen(false)
-  }, [active, selected])
+  }, [active, count])
 
-  const files = active ? selected : previous.current
-  const count = files.length
+  const shown = active ? count : previous.current
   return (
     <div className={selection.frame} data-active={active} inert={!active} aria-hidden={!active}>
       <div className={selection.clip}>
         <Stack direction="horizontal" align="center" justify="space-between" gap="condensed" padding="normal"
           className={selection.bar}>
-          <strong role="status">{count ? t(count === 1 ? 'selectedOne' : 'selectedMany', {count: number(count, locale)}) : null}</strong>
+          <strong role="status">{shown ? t(shown === 1 ? 'selectedOne' : 'selectedMany', {count: number(shown, locale)}) : null}</strong>
           <ButtonGroup>
             <Button size="medium" variant="primary" leadingVisual={DesktopDownloadIcon} loading={busy}
-              aria-label={t('downloadSelected')} onClick={() => onDownload(files)}>
+              aria-label={t('downloadSelected')} onClick={onDownloadSelected}>
               {t(busy ? 'preparingDownload' : 'file')}
             </Button>
             <ActionMenu open={active && menuOpen} onOpenChange={setMenuOpen}>
@@ -86,10 +86,10 @@ export function SelectionBar({selected, busy, onDownload}: {
               </ActionMenu.Anchor>
               <ActionMenu.Overlay align="end" width="small">
                 <ActionList>
-                  <ActionList.Item onSelect={() => onDownload(files)}>
+                  <ActionList.Item onSelect={onDownloadSelected}>
                     <ActionList.LeadingVisual><DesktopDownloadIcon /></ActionList.LeadingVisual>{t('downloadSelected')}
                   </ActionList.Item>
-                  <ActionList.Item onSelect={() => onDownload([])}>
+                  <ActionList.Item onSelect={onDownloadFolder}>
                     <ActionList.LeadingVisual><DesktopDownloadIcon /></ActionList.LeadingVisual>{t('downloadFolder')}
                   </ActionList.Item>
                 </ActionList>

@@ -1,6 +1,6 @@
 import {ApiError, wait} from './client'
 
-export type FileReadPriority = 'interactive' | 'background'
+export type FileReadPriority = 'interactive' | 'background' | 'thumbnail'
 
 interface QueuedRead {
   priority: FileReadPriority
@@ -28,7 +28,8 @@ function drain(device: string, lane: DeviceReads) {
     return
   }
   const interactive = lane.pending.findIndex(item => item.priority === 'interactive')
-  const [next] = lane.pending.splice(Math.max(0, interactive), 1)
+  const preferred = interactive < 0 ? lane.pending.findIndex(item => item.priority === 'background') : interactive
+  const [next] = lane.pending.splice(Math.max(0, preferred), 1)
   if (!next) {
     lanes.delete(device)
     return
