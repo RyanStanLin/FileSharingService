@@ -1,0 +1,36 @@
+.table {
+  min-inline-size: var(--filesharing-table-min-width);
+  font: var(--text-body-shorthand-small);
+}
+
+.table tbody > tr:nth-of-type(even) > :is(td, th) {
+  background: var(--bgColor-muted);
+}
+
+.table thead > tr > th {
+  background: var(--bgColor-default);
+}
+
+.table tbody > tr > :last-child {
+  padding-block: var(--base-size-2);
+}
+
+.table :is(th, td) {
+  border-radius: 0;
+}
+
+.entryMenu {
+  max-inline-size: var(--filesharing-row-menu-width);
+}
+
+.entryName {
+  color: var(--fgColor-default);
+  font-weight: var(--base-text-weight-semibold);
+}
+
+.entryName,
+.cell {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

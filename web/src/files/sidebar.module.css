@@ -1,0 +1,53 @@
+.sidebar {
+  block-size: 100%;
+  min-block-size: 0;
+}
+
+.title {
+  padding: var(--base-size-16) var(--base-size-16) var(--base-size-8);
+}
+
+.heading {
+  font: var(--text-title-shorthand-small);
+}
+
+.path {
+  font: var(--text-body-shorthand-small);
+  color: var(--fgColor-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tree {
+  padding: var(--base-size-8) var(--base-size-16) var(--base-size-16);
+  overflow: auto;
+  flex: 1;
+}
+
+.roots {
+  padding: var(--base-size-8) var(--base-size-16);
+  border-block-start: var(--borderWidth-thin) solid var(--borderColor-default);
+}
+
+.folderIcon {
+  color: var(--treeViewItem-leadingVisual-iconColor-rest);
+}
+
+.options {
+  border-block-start: var(--borderWidth-thin) solid var(--borderColor-default);
+  padding: var(--base-size-12) var(--base-size-16) var(--base-size-8);
+}
+
+.hiddenToggle {
+  justify-self: start;
+  align-self: start;
+  padding-inline: 0;
+  font-weight: var(--text-body-weight);
+}
+
+@media (width < 48rem) {
+  .tree {
+    max-block-size: 40dvh;
+  }
+}

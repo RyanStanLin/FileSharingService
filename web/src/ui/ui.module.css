@@ -1,0 +1,50 @@
+.dialogHeader {
+  border-block-end: var(--borderWidth-thin) solid var(--borderColor-muted);
+}
+
+.dialogTitle {
+  font: var(--text-title-shorthand-small);
+}
+
+.caption {
+  color: var(--fgColor-muted);
+  font: var(--text-body-shorthand-small);
+  margin: 0;
+}
+
+.error {
+  color: var(--fgColor-danger);
+  margin: 0;
+}
+
+.loading {
+  color: var(--fgColor-muted);
+}
+
+.state,
+.locked {
+  flex: 1;
+  min-block-size: min-content;
+  text-align: center;
+}
+
+.locked {
+  background: var(--bgColor-disabled);
+}
+
+.stateTitle {
+  font: var(--text-title-shorthand-large);
+  margin: 0;
+}
+
+.stateDescription {
+  font: var(--text-body-shorthand-large);
+  font-weight: var(--base-text-weight-semibold);
+  margin: 0;
+}
+
+.stateAction,
+.state .error,
+.locked .error {
+  margin-block-start: var(--base-size-12);
+}

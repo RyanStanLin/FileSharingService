@@ -6,6 +6,7 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 state="$root/.local/demo"
 assembly="$root/src/Server/bin/Release/net10.0/FileSharing.Server.dll"
 origin=http://localhost:8847
+web_origin="${FILESHARING_DEMO_WEB_ORIGIN:-$origin}"
 mkdir -p "$state"
 chmod 700 "$state"
 pidfile="$state/server.pid"
@@ -29,8 +30,20 @@ healthy() {
     curl --noproxy '*' -fsS --max-time 2 "$origin/health/ready" >/dev/null 2>&1
 }
 
+registered_origin() {
+    local pid process value
+    pid="$(registered_pid)" || return 1
+    process="$(ps -ww -p "$pid" -o command= 2>/dev/null)" || return 1
+    if [[ "$process" == *" --FileSharing:Origin="* ]]; then
+        value="${process#* --FileSharing:Origin=}"
+        printf '%s\n' "${value%% *}"
+    else
+        printf '%s\n' "$origin"
+    fi
+}
+
 describe() {
-    printf 'Demo: %s/demo\nDeployment secret: %s\n' "$origin" "$configuration"
+    printf 'Demo: %s/demo\nDeployment secret: %s\n' "$(registered_origin)" "$configuration"
 }
 
 case "${1:-start}" in
@@ -52,7 +65,14 @@ case "${1:-start}" in
         rm -f "$pidfile"
         ;;
     start)
-        if registered_pid >/dev/null && healthy; then describe; exit 0; fi
+        if registered_pid >/dev/null && healthy; then
+            if [ -n "${FILESHARING_DEMO_WEB_ORIGIN:-}" ] && [ "$(registered_origin)" != "$web_origin" ]; then
+                printf 'The demo already uses %s. Stop it before changing its web origin.\n' "$(registered_origin)" >&2
+                exit 1
+            fi
+            describe
+            exit 0
+        fi
         if registered_pid >/dev/null; then
             printf '%s\n' 'The demo process is running but has not become ready.' >&2
             exit 1
@@ -95,7 +115,6 @@ case "${1:-start}" in
         pid="$(
             ASPNETCORE_ENVIRONMENT=Development \
             ASPNETCORE_URLS=http://127.0.0.1:8847 \
-            FileSharing__Origin="$origin" \
             FileSharing__BootstrapSecret="$secret" \
             FileSharing__GatewayCredentialKey="$gateway_key" \
             FileSharing__EnableDemo=true \
@@ -113,15 +132,16 @@ case "${1:-start}" in
             FileSharing__Sftp__Port=2222 \
             FileSharing__Sftp__BridgePort=8847 \
             FileSharing__Sftp__Binary="$state/filesharing-sftp" \
-            python3 - "$dotnetExecutable" "$assembly" "$state" <<'PROCESS'
+            python3 - "$dotnetExecutable" "$assembly" "$state" "$web_origin" <<'PROCESS'
 from pathlib import Path
 import subprocess
 import sys
 
-dotnet, assembly, state = sys.argv[1:]
+dotnet, assembly, state, origin = sys.argv[1:]
 directory = Path(state)
 with (directory / "server.log").open("ab") as log:
-    process = subprocess.Popen([dotnet, assembly, f"--FileSharing:DataDirectory={directory / 'data'}"],
+    process = subprocess.Popen([dotnet, assembly, f"--FileSharing:DataDirectory={directory / 'data'}",
+                                f"--FileSharing:Origin={origin}"],
                                cwd=directory, stdin=subprocess.DEVNULL, stdout=log, stderr=log,
                                start_new_session=True)
 print(process.pid)

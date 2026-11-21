@@ -9,6 +9,7 @@ Agent 的网络配置只需服务端 HTTPS 地址。公网客户端首次连上�
 | 交付物 | 入口 |
 | --- | --- |
 | 架构与协议 | [docs/architecture.md](docs/architecture.md) |
+| File System Web（Milestone 1） | [web/README.md](web/README.md) |
 | 前端 API 与 WebSocket | [docs/api.md](docs/api.md) · [FileSharing.http](FileSharing.http) |
 | ASP.NET Core 服务端 | [src/Server/Program.cs](src/Server/Program.cs) |
 | macOS Agent 与电源服务 | [src/Mac/Main.swift](src/Mac/Main.swift) · [src/Power/Main.swift](src/Power/Main.swift) |

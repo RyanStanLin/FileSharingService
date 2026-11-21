@@ -1,0 +1,115 @@
+:global(html),
+:global(body),
+:global(#root) {
+  margin: 0;
+  min-block-size: 100%;
+}
+
+.base {
+  font: var(--text-body-shorthand-medium);
+  color: var(--fgColor-default);
+  background: var(--bgColor-default);
+}
+
+.app {
+  min-block-size: 100dvh;
+}
+
+.main {
+  flex: 1;
+}
+
+.header {
+  flex: none;
+  background: var(--bgColor-muted);
+}
+
+.context {
+  min-inline-size: 0;
+}
+
+.identity {
+  white-space: nowrap;
+}
+
+.slash,
+.deviceStatus {
+  color: var(--fgColor-muted);
+}
+
+.deviceName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: var(--base-text-weight-semibold);
+}
+
+.deviceStatus {
+  font: var(--text-caption-shorthand);
+  flex: none;
+}
+
+.online,
+.offline {
+  display: inline-block;
+  block-size: var(--base-size-8);
+  inline-size: var(--base-size-8);
+  margin-inline-end: var(--base-size-4);
+  border-radius: var(--borderRadius-full);
+  background: var(--bgColor-success-emphasis);
+}
+
+.offline {
+  background: var(--bgColor-neutral-emphasis);
+}
+
+.command {
+  inline-size: var(--filesharing-command-width);
+}
+
+.divider {
+  border-inline-start: var(--borderWidth-thin) solid var(--borderColor-default);
+  block-size: var(--base-size-24);
+  margin-inline: var(--base-size-4);
+}
+
+.header > nav.nav {
+  padding-block-start: var(--base-size-4) !important;
+  padding-inline: var(--base-size-16);
+  min-block-size: var(--base-size-44);
+  align-content: end;
+}
+
+:global(:root) {
+  --filesharing-command-width: 260px;
+  --filesharing-workspace-top: calc(var(--base-size-64) + var(--base-size-44));
+  --filesharing-folder-header-height: 129px;
+  --filesharing-table-min-width: 720px;
+  --filesharing-row-menu-width: 232px;
+  --filesharing-path-padding: 10px;
+  --filesharing-preview-min-height: 180px;
+}
+
+@media (width < 64rem) {
+  .command,
+  .divider {
+    display: none;
+  }
+}
+
+@media (width < 48rem) {
+  .deviceStatus {
+    display: none;
+  }
+}
+
+@media (width < 34rem) {
+  .nav .inactiveTab {
+    display: none;
+  }
+}
+
+@media (width < 30rem) {
+  .header > nav.nav {
+    padding-inline: var(--base-size-8);
+  }
+}
