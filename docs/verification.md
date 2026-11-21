@@ -1,5 +1,9 @@
 # FileSharing 验收记录
 
+## Agent 0.4.5
+
+原生 AppKit 测试核对弹窗与屏幕的水平和垂直中心，再通过 `submitsOnlyVisibleChoice` 验证单选请求只有一个可见按钮且能提交。`dismissesWithEscapeWhileEditing` 验证单选弹窗里的遮蔽输入可使用 Escape 关闭。短内容样例实测宽度仍为 260 pt。
+
 ## Agent 0.4.4
 
 `tests/native_dialog_smoke.swift` 在已解锁的 Mac 上验证了独立的 AppKit `NSAlert`、当前空间置顶、应用图标和首选项默认按钮。短内容实测宽度为 260 pt。普通说明和 `NSSecureTextField` 遮蔽审批码均可提交，审批码保留前导零和空格。取消、Escape、请求撤销及超时后重新弹出均通过。

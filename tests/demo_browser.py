@@ -348,6 +348,7 @@ class LocalDemoBrowser(unittest.TestCase):
         """)
         dialog = command("interaction.dialog")
         self.assertFalse(browser.evaluate("Boolean(document.querySelector('#dialog-icon'))"))
+        self.assertEqual(dialog["payload"]["choices"], [{"id": "choice-1", "label": "同意"}])
         self.assertTrue(dialog["payload"]["askText"] and dialog["payload"]["textRequired"])
         send({"type": "result", "id": dialog["id"], "ok": True,
               "payload": {"outcome": "submitted", "choiceId": "choice-1", "text": "<b>维护说明</b>", "respondedAt": stamp()}})

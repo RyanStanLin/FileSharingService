@@ -10,11 +10,12 @@ struct NativeDialogSmoke {
             do {
                 try await submitsPlainTextAndSelectedOption()
                 try await submitsMaskedApprovalCode()
+                try await submitsOnlyVisibleChoice()
                 try await dismissesWithCancelButton()
                 try await dismissesWithEscapeWhileEditing()
                 try await expiresAndReopens()
                 try await dismissesOnTaskCancellation()
-                print("Native NSAlert smoke passed: plain input, masked input, cancellation, timeout, and reopening.")
+                print("Native NSAlert smoke passed: screen centering, one-button layout, input, cancellation, timeout, and reopening.")
                 exit(EXIT_SUCCESS)
             } catch {
                 fail(error)
@@ -23,11 +24,27 @@ struct NativeDialogSmoke {
         app.run()
     }
 
-    private static func request(message: String, askText: Bool = true, maskText: Bool = false) -> JSON {
-        ["title": "Local smoke test",
+    private static func request(message: String, askText: Bool = true, maskText: Bool = false, singleChoice: Bool = false) -> JSON {
+        var choices: [JSON] = [["id": "submit", "label": "Submit fixture"]]
+        if !singleChoice { choices.append(["id": "review", "label": "Review fixture"]) }
+        return ["title": "Local smoke test",
          "message": .string(message),
-         "choices": [["id": "submit", "label": "Submit fixture"], ["id": "review", "label": "Review fixture"]],
+         "choices": .array(choices),
          "askText": .boolean(askText), "textRequired": .boolean(askText), "maskText": .boolean(maskText), "timeoutSeconds": 10]
+    }
+
+    @MainActor
+    private static func submitsOnlyVisibleChoice() async throws {
+        let input = request(message: "Confirm this fixture.", askText: false, singleChoice: true)
+        let result = try await interact(with: input) { window, controls in
+            let buttons = controls.compactMap { $0 as? NSButton }.filter { !$0.isHiddenOrHasHiddenAncestor }
+            guard buttons.count == 1, let primary = buttons.first, primary.title == "Submit fixture",
+                  window.defaultButtonCell === primary.cell else { throw AgentError("expected_one_visible_default_button") }
+            primary.performClick(nil)
+        }
+        guard result["outcome"].string == "submitted", result["choiceId"].string == "submit", result["text"] == .null else {
+            throw AgentError("single_option_response_mismatch")
+        }
     }
 
     @MainActor
@@ -80,7 +97,8 @@ struct NativeDialogSmoke {
 
     @MainActor
     private static func dismissesWithEscapeWhileEditing() async throws {
-        let result = try await interact(with: request(message: "Dismiss this fixture with Escape.", maskText: true)) { window, _ in
+        let input = request(message: "Dismiss this fixture with Escape.", maskText: true, singleChoice: true)
+        let result = try await interact(with: input) { window, _ in
             try postKey("\u{1b}", code: 53, to: window)
         }
         guard result["outcome"].string == "dismissed", result["text"] == .null else { throw AgentError("escape_did_not_dismiss") }
@@ -128,6 +146,13 @@ struct NativeDialogSmoke {
                     guard visible.count == 1, let window = app.modalWindow, window === visible.first,
                           window.sheetParent == nil, window.attachedSheet == nil, let content = window.contentView else {
                         throw AgentError("expected_one_standalone_modal_alert")
+                    }
+                    guard let screen = window.screen else { throw AgentError("native_alert_has_no_screen") }
+                    let offsetX = window.frame.midX - screen.frame.midX
+                    let offsetY = window.frame.midY - screen.frame.midY
+                    guard abs(offsetX) <= 1, abs(offsetY) <= 1 else {
+                        print("Alert center offset in points: (\(offsetX), \(offsetY)).")
+                        throw AgentError("native_alert_not_centered")
                     }
                     try action(window, flattened(content))
                 } catch {

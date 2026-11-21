@@ -84,7 +84,7 @@ final class NativeDialog: NSObject, NSTextFieldDelegate {
         for (index, option) in options.enumerated() {
             alert.addButton(withTitle: option.1).keyEquivalent = index == 0 ? "\r" : ""
         }
-        alert.addButton(withTitle: "取消").keyEquivalent = "\u{1b}"
+        if options.count > 1 { alert.addButton(withTitle: "取消").keyEquivalent = "\u{1b}" }
         updateButtons()
     }
 
@@ -96,13 +96,27 @@ final class NativeDialog: NSObject, NSTextFieldDelegate {
 
     private func runAlert() -> NSApplication.ModalResponse {
         alert.layout()
+        let app = NSApplication.shared
         let window = alert.window
         window.hidesOnDeactivate = false
         window.level = .modalPanel
         window.collectionBehavior = [.moveToActiveSpace, .canJoinAllApplications]
         if let inputField { window.initialFirstResponder = inputField }
-        defer { window.orderOut(nil) }
-        NSApplication.shared.activate()
+        let pointer = NSEvent.mouseLocation
+        if let screen = NSScreen.screens.first(where: { $0.frame.contains(pointer) }) ?? NSScreen.main {
+            let frame = window.frame
+            window.setFrameOrigin(NSPoint(x: screen.frame.midX - frame.width / 2, y: screen.frame.midY - frame.height / 2))
+        }
+        let escapeMonitor = options.count == 1 ? NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            guard event.charactersIgnoringModifiers == "\u{1b}", event.window === window, app.modalWindow === window else { return event }
+            app.stopModal(withCode: .cancel)
+            return nil
+        } : nil
+        defer {
+            if let escapeMonitor { NSEvent.removeMonitor(escapeMonitor) }
+            window.orderOut(nil)
+        }
+        app.activate()
         window.makeKeyAndOrderFront(nil)
         window.orderFrontRegardless()
         return alert.runModal()
@@ -177,7 +191,7 @@ final class NativeDialog: NSObject, NSTextFieldDelegate {
 
     private func updateButtons() {
         let enabled = isInputValid
-        for button in alert.buttons.dropLast() { button.isEnabled = enabled }
+        for button in alert.buttons.prefix(options.count) { button.isEnabled = enabled }
     }
 
     private func authenticate() async throws -> Bool {
