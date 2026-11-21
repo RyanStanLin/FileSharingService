@@ -2,7 +2,7 @@ export const apiPrefix = '/api/v1'
 export const sessionExpired = 'filesharing:session-expired'
 
 export class ApiError extends Error {
-  constructor(readonly status: number, readonly code: string) {
+  constructor(readonly status: number, readonly code: string, readonly retryAfterMs?: number) {
     super(code)
   }
 }
@@ -23,7 +23,12 @@ export async function response(route: string, {anonymous, ...options}: Options =
   if (result.ok) return result
   const problem: {code?: string} | null = await result.json().catch(() => null)
   if (result.status === 401 && !anonymous) window.dispatchEvent(new Event(sessionExpired))
-  throw new ApiError(result.status, problem?.code ?? 'request_failed')
+  const retryAfter = result.headers.get('Retry-After')
+  const delay = retryAfter === null ? NaN
+    : /^\d+$/.test(retryAfter) ? Number(retryAfter) * 1000
+    : Math.max(0, Date.parse(retryAfter) - Date.now())
+  const fallback = result.status === 429 ? 'rate_limited' : 'request_failed'
+  throw new ApiError(result.status, problem?.code ?? fallback, Number.isFinite(delay) ? delay : undefined)
 }
 
 export async function request<T>(route: string, options?: Options): Promise<T> {

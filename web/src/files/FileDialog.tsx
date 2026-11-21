@@ -38,13 +38,27 @@ const submitLabel: Record<Mutation['kind'], Message> = {
 
 function InfoDialog({action, location, deviceId, close}: Props) {
   const {t} = useLanguage()
+  const [calculate, setCalculate] = useState(false)
   const target = 'entry' in action && action.entry ? {...location, path: action.entry.path} : location
-  const info = useResource(target.path, signal => stat(deviceId, target, signal))
+  const key = JSON.stringify([target.rootId, target.path])
+  const info = useResource(key, signal => stat(deviceId, target, signal))
+  const totals = useResource(calculate ? key : null, signal => stat(deviceId, target, signal, true))
+  const entry = totals.data ?? info.data
+
   return (
     <Modal title={t('fileInfo')} onClose={close} footerButtons={[{size: 'medium', content: t('close'), onClick: close}]}>
-      {info.pending && <Loading />}
-      <ErrorText error={info.error} />
-      {info.data && <><strong>{info.data.name}</strong><Metadata entry={info.data} all /></>}
+      <Stack gap="condensed">
+        {info.pending && !entry && <Loading />}
+        <ErrorText error={info.error} />
+        {entry && <><strong>{entry.name}</strong><Metadata entry={entry} all /></>}
+        {entry?.kind === 'directory' && !totals.data && <Stack align="start" gap="condensed">
+          <Button size="medium" loading={totals.pending} loadingAnnouncement={t('readingFolderTotals')} onClick={() =>
+            calculate ? totals.refresh() : setCalculate(true)}>
+            {t('readFolderTotals')}
+          </Button>
+          <ErrorText error={totals.error} />
+        </Stack>}
+      </Stack>
     </Modal>
   )
 }

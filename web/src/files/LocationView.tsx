@@ -8,15 +8,19 @@ import {FileDialog} from './FileDialog'
 import {FilePanel} from './FilePanel'
 import {FolderPanel} from './FolderPanel'
 import {locationOf, navigate, parent} from './navigation'
+import type {Explorer} from './useExplorer'
 import styles from './workspace.module.css'
 
-export function LocationView({device, share, location, visibleRoots, hidden, revision, refresh}: {
+export function LocationView({device, share, location, visibleRoots, hidden, revision, explorer, refresh, rootEntry, rootPending}: {
   device: Device
   share: Share
   location: Location
   visibleRoots: Share[]
   hidden: boolean
   revision: number
+  explorer: Explorer
+  rootEntry?: Entry
+  rootPending: boolean
   refresh: () => void
 }) {
   const [action, setAction] = useState<FileAction>()
@@ -42,7 +46,7 @@ export function LocationView({device, share, location, visibleRoots, hidden, rev
       {task.error != null && <div className={styles.pageAction}><ErrorText error={task.error} /></div>}
       {location.kind === 'file'
         ? <FilePanel device={device.id} {...common} />
-        : <FolderPanel key={String(hidden)} device={device} hidden={hidden} {...common} />}
+        : <FolderPanel device={device} explorer={explorer} rootEntry={rootEntry} rootPending={rootPending} {...common} />}
       {action && <FileDialog action={action} deviceId={device.id} share={share} location={location} hidden={hidden}
         roots={visibleRoots} close={() => setAction(undefined)} changed={changed} refresh={refresh} />}
     </>

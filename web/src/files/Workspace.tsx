@@ -1,24 +1,25 @@
 import {useCallback, useEffect, useId, useRef, useState} from 'react'
-import {Button, SplitPageLayout, Stack} from '@primer/react'
+import {Button, SplitPageLayout, Stack, useResponsiveValue} from '@primer/react'
 import {FileDirectoryIcon} from '@primer/octicons-react'
 import {ApiError} from '../api/client'
 import {readPermissions, readShares} from '../api/devices'
-import {useDeviceEvents} from '../api/events'
-import type {Device, Location} from '../api/types'
+import {stat} from '../api/files'
+import type {Device} from '../api/types'
 import {useLanguage} from '../i18n'
 import {Modal} from '../ui/Modal'
 import {Loading, Retry, State} from '../ui/Feedback'
 import {useRefresh, useResource} from '../ui/async'
 import {LocationView} from './LocationView'
-import {basename, parent, permissionFor, useLocation} from './navigation'
+import {basename, homeLocation, permissionFor, useLocation} from './navigation'
 import {PathBar} from './PathBar'
 import {PermissionView} from './PermissionView'
 import {ShareManager} from './ShareManager'
 import {permissionBlocks, Sidebar} from './Sidebar'
+import {useExplorer} from './useExplorer'
+import {useLiveFolder} from './useLiveFolder'
 import styles from './workspace.module.css'
 
-const sidebarWidth = '233px'
-const sidebarSize = {min: sidebarWidth, default: sidebarWidth, max: sidebarWidth} as const
+const sidebarSize = {min: '176px', default: '233px', max: '480px'} as const
 
 interface Props {
   device: Device
@@ -36,28 +37,34 @@ export function Workspace({device, refreshDevice, shareManager, setShareManager}
   const [mobileTree, setMobileTree] = useState(false)
   const sidebar = useId()
   const treeButton = useRef<HTMLButtonElement>(null)
-  const [revision, setRevision] = useState(0)
-  const eventDebounce = useRef(0)
-  const refresh = useCallback(() => setRevision(value => value + 1), [])
-  const onChange = useCallback(() => {
-    if (eventDebounce.current) return
-    eventDebounce.current = window.setTimeout(() => {
-      eventDebounce.current = 0
-      refresh()
-    }, 350)
-  }, [refresh])
-  useEffect(() => () => window.clearTimeout(eventDebounce.current), [])
+  const narrow = useResponsiveValue({narrow: true, regular: false, wide: false}, false)
+  const [fileRevision, setFileRevision] = useState(0)
+  const [treeRevision, setTreeRevision] = useState(0)
+  const refreshFile = useCallback(() => setFileRevision(value => value + 1), [])
 
   const kind = root && location ? permissionFor(root, location.path) : undefined
   const permission = kind ? permissions.data?.[kind] : undefined
   const blocked = permissionBlocks(permission)
-  const watched: Location | undefined = location && !blocked
-    ? {...location, path: location.kind === 'file' ? parent(location.path) : location.path, kind: 'folder'}
-    : undefined
-  useDeviceEvents(device.id, watched, refreshDevice, permissions.refresh, onChange)
+  const activeLocation = blocked ? undefined : location
+  const folder = activeLocation?.kind === 'folder' ? activeLocation : undefined
+  const explorer = useExplorer(device.id, folder, hidden)
+  const blockedByMac = folder && kind && explorer.view.error instanceof ApiError &&
+    ['filesystem_access_denied', 'permission_denied'].includes(explorer.view.error.code)
+  const rootInfo = useResource(root?.id ?? null, signal => stat(device.id, homeLocation(root!), signal, false, 'background'))
+  const refreshCurrent = folder ? explorer.view.refresh : refreshFile
+  useLiveFolder({
+    device: device.id, location: blockedByMac ? undefined : activeLocation, ready: Boolean(explorer.view.page || activeLocation?.kind === 'file'),
+    snapshotRevision: explorer.view.page?.snapshotRevision, refreshCurrent,
+    refreshDevice, refreshPermissions: permissions.refresh,
+  })
   useRefresh(true, permissions.refresh, 15_000)
   useRefresh(true, shares.refresh, 20_000)
-  useRefresh(Boolean(watched), refresh, 30_000)
+
+  function refreshAfterEdit() {
+    refreshCurrent()
+    if (folder?.path === '') rootInfo.refresh()
+    setTreeRevision(value => value + 1)
+  }
 
   function toggleHidden() {
     setHidden(!hidden)
@@ -73,13 +80,18 @@ export function Workspace({device, refreshDevice, shareManager, setShareManager}
     view = <State title={t('emptyShares')} description={t('emptySharesHelp')}>
       <Button size="medium" onClick={() => setShareManager(true)}>{t('sharedFolders')}</Button>
     </State>
-  } else if (kind && blocked) {
-    view = <PermissionView key={kind} device={device} kind={kind} permission={permission}
-      refresh={permissions.refresh} displayName={basename(location.path.split('/')[0])} />
+  } else if (kind && (blocked || blockedByMac)) {
+    view = <PermissionView key={kind} device={device} kind={kind}
+      permission={blockedByMac ? {state: 'denied', phase: 'completed'} : permission}
+      refresh={() => {
+        permissions.refresh()
+        if (blockedByMac) explorer.view.refresh()
+      }} displayName={basename(location.path.split('/')[0])} />
   } else {
     view = <LocationView key={root.id + ':' + location.kind + ':' + location.path}
-      device={device} share={root} location={location} hidden={hidden} revision={revision}
-      visibleRoots={shares.data.shares} refresh={refresh} />
+      device={device} share={root} location={location} hidden={hidden} revision={fileRevision} explorer={explorer}
+      visibleRoots={shares.data.shares} refresh={refreshAfterEdit}
+      rootEntry={rootInfo.data} rootPending={rootInfo.pending} />
   }
 
   useEffect(() => {
@@ -88,15 +100,16 @@ export function Workspace({device, refreshDevice, shareManager, setShareManager}
 
   const sidebarContent = root && location ? (
     <Sidebar key={root.id} deviceId={device.id} roots={shares.data?.shares ?? []} root={root} location={location}
-      hidden={hidden} toggleHidden={toggleHidden} permissions={permissions.data ?? {}} revision={revision}
+      hidden={hidden} toggleHidden={toggleHidden} permissions={permissions.data ?? {}} revision={treeRevision}
+      opened={folder ? {location: folder, view: explorer.view} : undefined} rootPath={rootInfo.data?.fullPath}
       onNavigate={() => setMobileTree(false)} />
   ) : null
 
   return (
     <>
       <SplitPageLayout className={styles.workspace}>
-        {sidebarContent && <SplitPageLayout.Sidebar padding="none" divider="line" width={sidebarSize}
-          className={styles.sidePane} hidden={{narrow: true, regular: false}}>
+        {!narrow && sidebarContent && <SplitPageLayout.Sidebar padding="none" divider="line" width={sidebarSize}
+          resizable aria-label={t('folderTree')} widthStorageKey="filesharing.sidebar-width" className={styles.sidePane}>
           {sidebarContent}
         </SplitPageLayout.Sidebar>}
         <SplitPageLayout.Content width="full" padding="none" className={styles.content}>
@@ -110,7 +123,7 @@ export function Workspace({device, refreshDevice, shareManager, setShareManager}
           </Stack>
         </SplitPageLayout.Content>
       </SplitPageLayout>
-      {mobileTree && sidebarContent && (
+      {narrow && mobileTree && sidebarContent && (
         <Modal title={t('folderTree')} returnFocusRef={treeButton} onClose={() => setMobileTree(false)}>
           <div id={sidebar} className={styles.mobileTree}>{sidebarContent}</div>
         </Modal>

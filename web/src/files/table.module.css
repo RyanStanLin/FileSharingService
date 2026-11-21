@@ -1,35 +1,86 @@
 .table {
+  border-spacing: 0;
+  inline-size: 100%;
   min-inline-size: var(--filesharing-table-min-width);
+  table-layout: fixed;
   font: var(--text-body-shorthand-small);
 }
 
-.table tbody > tr:nth-of-type(even) > :is(td, th) {
-  background: var(--bgColor-muted);
+.checkColumn,
+.menuColumn {
+  inline-size: var(--base-size-36);
 }
 
-.table thead > tr > th {
-  background: var(--bgColor-default);
+.iconColumn {
+  inline-size: var(--base-size-32);
 }
 
-.table tbody > tr > :last-child {
-  padding-block: var(--base-size-2);
+.table thead tr {
+  block-size: var(--base-size-28);
+}
+
+.table tbody tr {
+  block-size: var(--base-size-36);
 }
 
 .table :is(th, td) {
+  background: var(--bgColor-default);
+  border-block-end: var(--borderWidth-thin) solid var(--borderColor-default);
+  padding: 0 var(--base-size-8);
+  text-align: start;
+  vertical-align: middle;
+}
+
+.table thead th {
+  border-inline-end: var(--borderWidth-thin) solid var(--borderColor-default);
+  padding: 0;
+}
+
+.table thead th:last-child {
+  border-inline-end: 0;
+}
+
+.table tbody tr:nth-of-type(even) > :is(td, th) {
+  background: var(--bgColor-muted);
+}
+
+.table .checkCell {
+  padding-inline-start: var(--base-size-8);
+}
+
+.checkCell input,
+.iconCell :is(svg, img) {
+  vertical-align: middle;
+}
+
+.table .iconCell,
+.table .menuCell {
+  padding-inline: var(--base-size-2);
+}
+
+.table .sortButton {
   border-radius: 0;
+  block-size: calc(var(--base-size-28) - var(--borderWidth-thin));
+  padding-inline: var(--base-size-8);
+  font: var(--text-body-shorthand-small);
+}
+
+.table [aria-sort] .sortButton {
+  font-weight: var(--base-text-weight-semibold);
 }
 
 .entryMenu {
   max-inline-size: var(--filesharing-row-menu-width);
 }
 
-.entryName {
+.table .entryName {
   color: var(--fgColor-default);
   font-weight: var(--base-text-weight-semibold);
 }
 
 .entryName,
 .cell {
+  display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

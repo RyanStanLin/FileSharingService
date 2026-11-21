@@ -1,5 +1,6 @@
 import {apiPrefix, query, request, send} from './client'
 import {deviceRoute} from './devices'
+import {readFile, type FileReadPriority} from './fileReads'
 import type {DirectoryPage, Entry, Location, SortKey} from './types'
 
 export type Direction = 'asc' | 'desc'
@@ -12,16 +13,20 @@ export interface Listing {
 
 const fileRoute = (device: string) => deviceRoute(device) + '/files'
 
-export function browse(device: string, location: Location, listing: Listing, signal: AbortSignal, page?: DirectoryPage) {
+export function browse(device: string, location: Location, listing: Listing, signal: AbortSignal,
+  page?: DirectoryPage, priority: FileReadPriority = 'interactive') {
   const {rootId, path} = location
-  return request<DirectoryPage>(query(fileRoute(device) + '/entries', {
+  const route = query(fileRoute(device) + '/entries', {
     rootId, path, limit: 80, ...listing, offset: page?.nextOffset, revision: page?.revision,
-  }), {signal})
+  })
+  return readFile(device, priority, signal, () => request<DirectoryPage>(route, {signal}), !page)
 }
 
-export function stat(device: string, location: Location, signal: AbortSignal, summary = true) {
+export function stat(device: string, location: Location, signal: AbortSignal, summary = false,
+  priority: FileReadPriority = 'interactive') {
   const {rootId, path} = location
-  return request<Entry>(query(fileRoute(device) + '/entry', {rootId, path, summary}), {signal})
+  const route = query(fileRoute(device) + '/entry', {rootId, path, summary})
+  return summary ? request<Entry>(route, {signal}) : readFile(device, priority, signal, () => request<Entry>(route, {signal}))
 }
 
 export function thumbnail(device: string, rootId: string, entry: Entry) {

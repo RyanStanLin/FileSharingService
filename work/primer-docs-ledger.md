@@ -1,6 +1,6 @@
 # File System 的 Primer 与设计核对
 
-核对日期为 2026-11-21。项目使用 `@primer/react` 38.46.0、`@primer/primitives` 11.10.0、`@primer/octicons-react` 19.42.0。React 入口使用 `ThemeProvider`、`BaseStyles`、基础变量和 light 主题。
+核对日期为 2026-11-21。项目使用 `@primer/react` 38.46.0、`@primer/primitives` 11.10.0、`@primer/octicons-react` 19.42.0。`ThemeProvider` 和 `BaseStyles` 使用系统配色，标准和高对比度各有一套亮色与暗色变量。应用会保存对比度偏好。 [Primer 主题](https://primer.style/product/getting-started/react/theming/)
 
 ## 文档来源
 
@@ -25,7 +25,7 @@
 
 `list_components` 实际返回 76 个去重名称。每个名称均请求 API、示例、用法和无障碍资料。下表的「已取回」表示返回了组件页面。跳到 Primer 首页的内容标为「未发布独立页」。官方回退核对明细在本机的 `.local/frontend-design/component-fallback.json`。粗体是本项目实际采用的组件。
 
-对实际使用的组件，核对了对应示例、安装版属性和用法。Stack、SplitPageLayout、FormControl、Heading、Checkbox、Label、Spinner 和 ProgressBar 的缺失独立页面以组件概览、API 和对应的 Navigation、Forms、Loading 或排版指南覆盖。Dialog 的自定义头部保留官方 Escape 和焦点返回行为，并本地化关闭按钮。DataTable 使用外部排序、命名列和自定义的 Primer Checkbox 单元格保留独立的选中工具栏和两种语言的可访问名称。
+对实际使用的组件，核对了对应示例、安装版属性和用法。Stack、SplitPageLayout、FormControl、Heading、Checkbox、Label、Spinner 和 ProgressBar 的缺失独立页面以组件概览、API 和对应的 Navigation、Forms、Loading 或排版指南覆盖。Dialog 的自定义头部保留官方 Escape 和焦点返回行为，并本地化关闭按钮。此次重新核对 SplitPageLayout 的 `resizable`、`width` 和 `widthStorageKey`，使用其分隔线、指针与方向键交互。 [SplitPageLayout](https://primer.style/product/components/split-page-layout/)
 
 | 组件 | API | 示例 | 用法 | 无障碍 |
 | --- | --- | --- | --- | --- |
@@ -49,7 +49,7 @@
 | CircleBadge | 已取回 | 已取回 | 未发布独立页 | 未发布独立页 |
 | ConfirmationDialog | 已取回 | 已取回 | 已取回 | 已取回 |
 | CounterLabel | 已取回 | 已取回 | 未发布独立页 | 已取回 |
-| **DataTable** | 已取回 | 已取回 | 已取回 | 已取回 |
+| DataTable | 已取回 | 已取回 | 已取回 | 已取回 |
 | Details | 已取回 | 已取回 | 未发布独立页 | 已取回 |
 | **Dialog** | 已取回 | 已取回 | 已取回 | 已取回 |
 | FeatureFlags | 未发布独立页 | 未发布独立页 | 未发布独立页 | 未发布独立页 |
@@ -110,25 +110,31 @@
 
 - [FileSystem-Folder](https://www.figma.com/design/l9hmusc9x5sSYw59WQygO4/PrimerPlus?node-id=7880-24518) 的 MCP 返回 1280 × 950 框架与子节点几何。达到 Starter 配额后从 Figma 画布补看目录列表、隔行底色、列头、文件类型和菜单。画布约 70% 的缩放仅供位置和外观参照。
 - [FileSystem-File](https://www.figma.com/design/l9hmusc9x5sSYw59WQygO4/PrimerPlus?node-id=7882-36694) 和 [FileSystemLocked](https://www.figma.com/design/l9hmusc9x5sSYw59WQygO4/PrimerPlus?node-id=7882-35968) 有完整设计上下文以及 1024 × 760 的渲染图。文件详情中的文档图标使用该设计提供的 PNG。浏览器以 Agent 返回的图片或 PDF 首屏显示真实预览。
-- 采用 data-list 工作区。桌面顶栏目标 108 px，目录树 233 px，右侧概要 129 px，目录操作栏 65 px，路径栏 41 px。文件列表横向占满可用宽度。窄屏用 Primer Dialog 打开同一棵目录树，宽表由表格容器滚动。隐藏了窄屏中暂未开放的功能入口。
-- Header 使用 Stack、UnderlineNav、ActionMenu 和 ToggleSwitch。SplitPageLayout 放置 TreeView 和内容区。Folder 视图使用 DataTable、Checkbox、Label 和 ButtonGroup。操作用 ActionMenu 和 Dialog，路径用 Breadcrumbs。安装版 UnderlineNav 会为辅助技术附加英文的 navigation 后缀。
+- 桌面顶栏目标 108 px，目录树默认 233 px，可在 176–480 px 内调整，右侧概要 129 px，路径栏 41 px。侧栏标题用 1 px 分隔线，隐藏项按钮填满选项区域。窄屏用 Primer Dialog 打开同一棵目录树，宽表可以横向滚动。
+- Header 使用 Stack、UnderlineNav、ActionMenu 和 ToggleSwitch。SplitPageLayout 放置 TreeView 和内容区。右侧按 Figma 自定义语义表格，排序、复选、标签和菜单沿用 Primer 控件。操作用 ActionMenu 和 Dialog，路径用 Breadcrumbs。安装版 UnderlineNav 会为辅助技术附加英文的 navigation 后缀。
 - Commands、Data、Window Activity 和 FTP 凭据处于后续里程碑。目录菜单提供当前选择或文件夹的下载。Date Created 对应后端的 `createdAt`。
 
 ## 样式和组件边界
 
 - 使用 `bgColor-default`、`bgColor-muted`、`bgColor-disabled`、`fgColor-default`、`fgColor-muted`、`borderColor-default`、`treeViewItem-leadingVisual-iconColor-rest`、`text-*-shorthand-*` 等安装版语义变量。
 - 260 px 的命令占位、233 px 的侧栏、129 px 的概要、232 px 的行菜单与 10 px 的路径栏内边距按 Figma 测量设置。查阅过 `size`、`stack` 和 `overlay` 分组，现有配置没有对应的精确值。720 px 的可滚动表格宽度和 180 px 的窄屏预览高度是实现选择。顶栏 108 px 由 64 和 44 两个 Primer size token 合成。
-- DataTable 按真实行序添加 muted 背景。末列紧凑内边距配合 medium 的 IconButton。原生文件选择器通过 Primer Button 打开，Primer 组件目录未提供 FileInput。
+- 自定义表格采用 28 px 列头、36 px 文件行、独立的复选、文件图标与菜单列，以及偶数行的 `bgColor-muted`。选中栏展开至 65 px，取消选择时收起，跟随系统的减少动态效果设置。原生文件选择器通过 Primer Button 打开，Primer 组件目录未提供 FileInput。
 - 按 `list_icons` 和 `get_icon` 核对图标。业务图标使用 Octicons，包括 ThreeBars、FileDirectory、FileDirectoryFill、FileDirectoryOpenFill、File、FileSymlinkFile、Graph、Versions、Shield、ShieldCheck、ShieldX、Eye、EyeClosed、DesktopDownload、ChevronDown、KebabHorizontal、Pencil、FileMoved、Trash、X、Globe 和 ArrowLeft。命令占位用 Terminal，设计中的 command-palette 没有可用的当前 Octicon 条目。
 
+## 目录读取
+
+- Agent 的文件 I/O 使用串行队列，Agent 与 Broker 都限制未完成指令数。前端先请求列表，目录树复用当前目录数据，轻量元数据在后台读取。只有在「查看信息」主动触发时才递归扫描目录。订阅回执及相同快照版本会被跳过，实际目录变更合并为一次刷新。
+- 同一页面按设备排队执行列表和轻量元数据读取，优先处理当前操作。读取受限时依照 `Retry-After` 和短退避重试，设备短时超时可自动恢复一次。滚动到列表底部时加载后续页。遇到快照冲突会从首屏刷新，连续失败可以手动重试，已读取项目保留在列表中。
 
 ## 验收
 
 - `npm --prefix web run build` 完成严格 TypeScript 检查与 Vite 生产构建。Vite 报告 Primer 的客户端指令和包体积提示。
-- 本机隔离 Chromium、ASP.NET Core 和 Swift Agent 的两条浏览器验收通过。 `test_filesystem_milestone_with_real_server_and_agent` 验证了虚拟 Passkey 注册、锁定和重解锁、权限请求、隐藏项、服务端排序、83 项分页、建目录、分块上传、改名、移动、下载字节、永久删除、PDF 首屏、中英文持久化和窄屏 Dialog 的 Escape 焦点返回。 `test_device_switch_archive_and_trash` 验证了切换两台真实 Agent、各自连接授权、ZIP 内容和废纸篓中的文件字节。
+- 本轮通过四条隔离 Chromium、ASP.NET Core 和 Swift Agent 浏览器验收。文件操作回归覆盖虚拟 Passkey、目录权限、隐藏项、服务端排序、建目录、上传、改名、移动、下载、删除、PDF 预览、语言持久化和窄屏焦点。双设备回归覆盖各自连接授权、ZIP 和废纸篓中的文件字节。
+- 验证了标准和高对比度跟随系统亮暗并保存偏好。桌面分隔线可用鼠标与键盘操作，刷新后保留宽度。浏览器测得 28 px 列头、36 px 文件行、1 px 侧栏标题分隔线、选中栏从 0 展开到 65 px 再收起。已检查隔行颜色与按钮填充宽度。
+- 83 项目录先显示 80 项，滚到底自动追加至 83 项。首屏只有一次列表和一次随后完成的轻量 stat。测试模拟带 `Retry-After` 的 429、设备超时和分页快照冲突，均自动恢复。外部新增文件通过目录订阅触发一次列表刷新。连续切换 12 个目录期间，设备读取并发上限为一，真实 Agent 未返回 429。
 - 浏览器在 1280 × 950 下截图核对三个状态。顶栏分隔线与下方内容位于 y107–108，概要分隔线与下方内容位于 y236–237，路径栏分隔线位于 y909。原尺寸的目录页样本、字体渲染和实时文件内容存在差异。锁定、目录、行菜单、PDF 预览和窄屏截图保存在本机 `.local/frontend-check`。
 - 窄屏检查覆盖 320、375 和 768 CSS px。375 px 下可从内容区打开目录树，页面无横向溢出。
-- 最终五份 CSS 均调用了 `primerdoc.lint_css`。服务对这些样式及只含两个官方变量的对照样式都返回「Errors without autofix remaining」，诊断正文为空。独立 PostCSS 检查成功解析五份 CSS，105 处 token 引用均能在导入的 Primer 变量或项目尺寸定义中解析。手写前端文件少于 200 行。
+- 本轮对五个变更的 CSS 模块调用了 `primerdoc.lint_css`。服务对这些样式及只含两个官方变量的对照样式都返回「Errors without autofix remaining」，诊断正文为空。独立 PostCSS 检查成功解析全部六份 CSS 模块，并核对了四套主题下的 128 处变量引用。48 个手写前端文件均少于 200 行。
 - 浏览器验收使用隔离 HOME 的权限样本和虚拟验证器。生产硬件 Passkey 与真实受保护目录上的 macOS 弹窗需另行实机核对。
 - 当第二台设备上线时保留当前设备，直到操作者从菜单切换或当前设备从清单移除。此行为已纳入双设备验收。
 - Alt 文本工具需要当前连接未启用的 sampling。人工核对使用空 alt 的装饰文件图标，以及使用实际文件名的内容预览。

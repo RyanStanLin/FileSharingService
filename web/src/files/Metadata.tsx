@@ -1,4 +1,5 @@
-import {Heading, Stack} from '@primer/react'
+import {Heading, Spinner, Stack} from '@primer/react'
+import {useMemo, type ReactNode} from 'react'
 import {FileDirectoryFillIcon, FileIcon, FileSymlinkFileIcon} from '@primer/octicons-react'
 import type {Entry} from '../api/types'
 import {useLanguage, type Message} from '../i18n'
@@ -24,6 +25,44 @@ export function FileTitle({id, title, detail, entry}: {id?: string; title: strin
       </Stack.Item>
     </Stack>
   )
+}
+
+function Facts({items, title}: {items: [Message, ReactNode][]; title?: string}) {
+  const {t} = useLanguage()
+  return (
+    <Stack as="dl" direction="horizontal" wrap="wrap" gap="normal" className={styles.metadata} title={title}>
+      {items.map(([label, value]) => (
+        <div key={label} className={styles.fact}>
+          <dt>{t(label)}</dt><dd>{value}</dd>
+        </div>
+      ))}
+    </Stack>
+  )
+}
+
+export function FolderOverview({entry, entries, complete, pending}: {
+  entry?: Entry
+  entries: Entry[]
+  complete: boolean
+  pending: boolean
+}) {
+  const {t, locale} = useLanguage()
+  const totals = useMemo(() => {
+    if (!complete) return undefined
+    let size = 0
+    let folders = 0
+    for (const item of entries) {
+      if (item.kind === 'directory') folders++
+      if (item.kind === 'file') size += item.size
+    }
+    return {size, folders, files: entries.length - folders}
+  }, [complete, entries])
+  return <Facts title={t('visibleTotals')} items={[
+    ['modified', entry ? date(entry.modifiedAt, locale) : pending ? <Spinner size="small" srText={t('loadingFolder')} /> : t('missing')],
+    ['size', totals ? bytes(totals.size, locale) : t('missing')],
+    ['filesCount', totals ? number(totals.files, locale) : t('missing')],
+    ['folders', totals ? number(totals.folders, locale) : t('missing')],
+  ]} />
 }
 
 export function Metadata({entry, all = false}: {entry?: Entry; all?: boolean}) {
@@ -52,13 +91,7 @@ export function Metadata({entry, all = false}: {entry?: Entry; all?: boolean}) {
   }
   return (
     <Stack gap="tight">
-      <Stack as="dl" direction="horizontal" wrap="wrap" gap="normal" className={styles.metadata}>
-        {facts.map(([label, value]) => (
-          <div key={label} className={styles.fact}>
-            <dt>{t(label)}</dt><dd>{value}</dd>
-          </div>
-        ))}
-      </Stack>
+      <Facts items={facts} />
       {summary?.complete === false && <div className={styles.caption}>{t('summaryPartial')}</div>}
     </Stack>
   )

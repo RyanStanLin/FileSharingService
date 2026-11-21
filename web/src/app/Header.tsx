@@ -4,6 +4,7 @@ import {FileDirectoryIcon, GlobeIcon, GraphIcon, TerminalIcon, ThreeBarsIcon, Ve
 import type {Device} from '../api/types'
 import {useLanguage} from '../i18n'
 import {duration} from '../i18n/format'
+import {useAppearance} from './AppTheme'
 import styles from './shell.module.css'
 
 interface Props {
@@ -21,6 +22,7 @@ interface Props {
 
 function DeviceMenu({devices, device, select, unlocked, shares, revoke}: Props) {
   const {t, locale, setLocale} = useLanguage()
+  const {contrast, setContrast} = useAppearance()
   return (
     <ActionMenu>
       <ActionMenu.Anchor>
@@ -43,6 +45,15 @@ function DeviceMenu({devices, device, select, unlocked, shares, revoke}: Props) 
             <ActionList.Item onSelect={revoke}>{t('connectionRevoke')}</ActionList.Item>
           </>}
           {unlocked && <ActionList.Divider />}
+          <ActionList.Group title={t('appearance')} selectionVariant="single">
+            <ActionList.Item selected={contrast === 'standard'} onSelect={() => setContrast('standard')}>
+              {t('standardContrast')}
+            </ActionList.Item>
+            <ActionList.Item selected={contrast === 'high'} onSelect={() => setContrast('high')}>
+              {t('highContrast')}
+            </ActionList.Item>
+          </ActionList.Group>
+          <ActionList.Divider />
           <ActionList.Group title={t('language')} selectionVariant="single">
             <ActionList.Item selected={locale === 'en'} onSelect={() => setLocale('en')}>
               <ActionList.LeadingVisual><GlobeIcon /></ActionList.LeadingVisual>

@@ -58,16 +58,19 @@ export function useTask() {
   return {busy, error, run}
 }
 
-export function useRefresh(active: boolean, refresh: () => void, interval: number) {
+export function useRefresh(active: boolean, refresh: () => void, interval: number, onFocus = true) {
   useEffect(() => {
     if (!active) return
-    const timer = window.setInterval(refresh, interval)
-    window.addEventListener('focus', refresh)
+    function refreshVisible() {
+      if (document.visibilityState === 'visible') refresh()
+    }
+    const timer = window.setInterval(refreshVisible, interval)
+    if (onFocus) window.addEventListener('focus', refresh)
     return () => {
       window.clearInterval(timer)
       window.removeEventListener('focus', refresh)
     }
-  }, [active, refresh, interval])
+  }, [active, refresh, interval, onFocus])
 }
 
 export function useRefreshSignal(revision: number, refresh: () => void) {

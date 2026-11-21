@@ -5,6 +5,7 @@
 
 .title {
   padding: var(--base-size-16) var(--base-size-16) var(--base-size-8);
+  border-block-end: var(--borderWidth-thin) solid var(--borderColor-default);
 }
 
 .heading {
@@ -40,10 +41,14 @@
 }
 
 .hiddenToggle {
-  justify-self: start;
-  align-self: start;
   padding-inline: 0;
   font-weight: var(--text-body-weight);
+}
+
+.pageMarker {
+  display: inline-block;
+  inline-size: var(--borderWidth-thin);
+  block-size: var(--borderWidth-thin);
 }
 
 @media (width < 48rem) {

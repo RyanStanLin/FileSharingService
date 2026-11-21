@@ -1,0 +1,33 @@
+.frame {
+  display: grid;
+  grid-template-rows: 0fr;
+  flex: none;
+  visibility: hidden;
+  transition: grid-template-rows var(--motion-transition-stateChange), visibility 0s var(--motion-duration-short);
+}
+
+.frame[data-active='true'] {
+  grid-template-rows: 1fr;
+  visibility: visible;
+  transition-delay: 0s;
+}
+
+.clip {
+  min-block-size: 0;
+  overflow: hidden;
+}
+
+.bar {
+  background: var(--bgColor-muted);
+  border-block-end: var(--borderWidth-thin) solid var(--borderColor-default);
+}
+
+.bar strong {
+  font-weight: var(--base-text-weight-semibold);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .frame {
+    transition: none;
+  }
+}

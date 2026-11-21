@@ -5,6 +5,10 @@
   min-block-size: 100%;
 }
 
+:global(html) {
+  color-scheme: light dark;
+}
+
 .base {
   font: var(--text-body-shorthand-medium);
   color: var(--fgColor-default);

@@ -1,70 +1,50 @@
 import {useId, useState} from 'react'
 import {Button, Stack} from '@primer/react'
-import {stat, type Direction} from '../api/files'
-import type {Device, Entry, Location, Share, SortKey} from '../api/types'
+import {stat} from '../api/files'
+import type {Device, Entry, Location, Share} from '../api/types'
 import {useLanguage} from '../i18n'
 import {ErrorText, Loading, Retry} from '../ui/Feedback'
-import {useRefreshSignal, useResource} from '../ui/async'
+import {useResource} from '../ui/async'
 import type {OpenAction} from './actions'
-import {defaultColumns, optionalColumns, type ColumnKey} from './columns'
 import {FileTable} from './FileTable'
 import {FolderHeader, SelectionBar} from './FolderToolbar'
-import {useDirectory} from './useDirectory'
+import {FolderOverview} from './Metadata'
+import {useAutoPage} from './useAutoPage'
+import type {Explorer} from './useExplorer'
 import styles from './workspace.module.css'
 
 interface Props {
   device: Device
   share: Share
   location: Location
-  hidden: boolean
-  revision: number
+  explorer: Explorer
+  rootEntry?: Entry
+  rootPending: boolean
   onAction: OpenAction
   onDownload: (entries: Entry[]) => void
   downloadBusy: boolean
 }
 
-function initialColumns() {
-  try {
-    const saved = JSON.parse(localStorage.getItem('filesharing.columns') ?? 'null')
-    if (Array.isArray(saved)) return optionalColumns.map(column => column.key).filter(key => saved.includes(key))
-  } catch { return defaultColumns }
-  return defaultColumns
-}
-
-export function FolderPanel({device, share, location, hidden, revision, onAction, onDownload, downloadBusy}: Props) {
+export function FolderPanel({device, share, location, explorer, rootEntry, rootPending, onAction, onDownload, downloadBusy}: Props) {
   const {t} = useLanguage()
   const id = useId()
-  const [visible, setVisible] = useState<ColumnKey[]>(initialColumns)
-  const [sort, setSort] = useState<SortKey>(visible.includes('createdAt') ? 'createdAt' : 'name')
-  const [direction, setDirection] = useState<Direction>('asc')
   const [selected, setSelected] = useState<Set<string>>(new Set())
-  const view = useDirectory(device.id, location, {hidden, sort, direction})
-  const summary = useResource(location.path, signal => stat(device.id, location, signal))
-  useRefreshSignal(revision, view.refresh)
-  useRefreshSignal(revision, summary.refresh)
-
-  function toggleColumn(column: ColumnKey) {
-    const next = visible.includes(column) ? visible.filter(item => item !== column) : [...visible, column]
-    if (sort === column && !next.includes(column)) {
-      setSort('name')
-      setDirection('asc')
-    }
-    setVisible(next)
-    localStorage.setItem('filesharing.columns', JSON.stringify(next))
-  }
-
-  function changeSort(next: SortKey, order: Direction) {
-    setSort(next)
-    setDirection(order)
-    setSelected(new Set())
-  }
+  const {view, visible, sort, direction, toggleColumn, changeSort} = explorer
+  const snapshot = view.page?.snapshotRevision
+  const statKey = !location.path || snapshot === undefined ? null : JSON.stringify([location.rootId, location.path, snapshot])
+  const stamp = useResource(statKey, signal => stat(device.id, location, signal, false, 'background'))
+  const tail = useAutoPage(view)
+  const info = location.path ? stamp : {data: rootEntry, pending: rootPending}
+  const chosen = view.entries.filter(entry => selected.has(entry.path))
+  const refreshError = view.moreError ?? view.error
 
   return (
     <>
-      <FolderHeader device={device} location={location} titleId={id} share={share} summary={summary.data}
+      <FolderHeader device={device} location={location} titleId={id} share={share}
+        overview={<FolderOverview entry={info.data} entries={view.entries} complete={view.page?.nextOffset === null}
+          pending={info.pending || !view.page && view.pending} />}
         open={onAction} visible={visible} setVisible={toggleColumn} />
-      {!view.error && view.page && <SelectionBar selected={view.entries.filter(entry => selected.has(entry.path))}
-        busy={downloadBusy} onDownload={onDownload} />}
+      <SelectionBar selected={chosen} busy={downloadBusy} onDownload={onDownload} />
       <Stack gap="none" className={styles.explorer} aria-busy={view.pending || view.loadingMore}>
         {!view.page && (view.error
           ? <Retry error={view.error} refresh={view.refresh} />
@@ -73,13 +53,18 @@ export function FolderPanel({device, share, location, hidden, revision, onAction
           <div className={styles.tableScroll} tabIndex={0} role="region" aria-label={t('files')}>
             <FileTable titleId={id} location={location} share={share} entries={view.entries}
               selected={selected} setSelected={setSelected} visible={visible} sort={sort} direction={direction}
-              onSort={changeSort} onAction={onAction} onDownload={onDownload} />
+              onSort={(field, order) => {
+                setSelected(new Set())
+                changeSort(field, order)
+              }} onAction={onAction} onDownload={onDownload} />
           </div>
           {view.entries.length === 0 && <p className={styles.emptyFolder}>{t('emptyFolder')}</p>}
-          {view.error != null && <div className={styles.pageAction}><ErrorText error={view.error} /></div>}
-          {view.page.nextOffset != null && <div className={styles.pageAction}>
-            <Button size="medium" loading={view.loadingMore} onClick={() => void view.next()}>{t('moreEntries')}</Button>
-          </div>}
+          {view.loadingMore && <Loading message="loadingFolder" />}
+          {refreshError != null && <Stack gap="condensed" padding="normal" align="center">
+            <ErrorText error={refreshError} />
+            <Button size="medium" onClick={view.moreError != null ? () => void view.next() : view.refresh}>{t('retry')}</Button>
+          </Stack>}
+          {view.page.nextOffset !== null && <span className={styles.pageEnd} ref={tail} aria-hidden="true" />}
         </>}
       </Stack>
     </>

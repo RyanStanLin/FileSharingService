@@ -83,13 +83,6 @@
   color: var(--treeViewItem-leadingVisual-iconColor-rest);
 }
 
-.selectionBar {
-  flex: none;
-  background: var(--bgColor-muted);
-  border-block-end: var(--borderWidth-thin) solid var(--borderColor-default);
-}
-
-.selectionBar strong,
 .preview strong {
   font-weight: var(--base-text-weight-semibold);
 }
@@ -100,7 +93,14 @@
   overflow: auto;
 }
 
+.pageEnd {
+  display: block;
+  flex: none;
+  block-size: var(--borderWidth-thin);
+}
+
 .tableScroll {
+  flex: none;
   overflow-x: auto;
 }
 
