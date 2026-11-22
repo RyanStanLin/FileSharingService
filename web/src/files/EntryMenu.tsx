@@ -3,6 +3,7 @@ import {DesktopDownloadIcon, FileMovedIcon, KebabHorizontalIcon, PencilIcon, Tra
 import type {Entry, Share} from '../api/types'
 import {useLanguage} from '../i18n'
 import type {OpenAction} from './actions'
+import {canWriteEntry} from './navigation'
 import styles from './table.module.css'
 
 export function EntryMenu({entry, share, open, download}: {
@@ -12,6 +13,7 @@ export function EntryMenu({entry, share, open, download}: {
   download: (entries: Entry[]) => void
 }) {
   const {t} = useLanguage()
+  const writable = canWriteEntry(share, entry.path)
   return (
     <ActionMenu>
       <ActionMenu.Anchor>
@@ -20,7 +22,7 @@ export function EntryMenu({entry, share, open, download}: {
       <ActionMenu.Overlay align="end" width="small" className={styles.entryMenu}>
         <ActionList>
           <ActionList.Group title={entry.name}>
-            {share.writable && <>
+            {writable && <>
               <ActionList.Item onSelect={() => open({kind: 'move', entry})}>
                 <ActionList.LeadingVisual><FileMovedIcon /></ActionList.LeadingVisual>{t('move')}
               </ActionList.Item>
@@ -35,8 +37,8 @@ export function EntryMenu({entry, share, open, download}: {
                 <ActionList.LeadingVisual><XIcon /></ActionList.LeadingVisual>{t('delete')}
               </ActionList.Item>
             </>}
-            {!share.writable && <ActionList.Item onSelect={() => open({kind: 'info', entry})}>{t('viewInfo')}</ActionList.Item>}
-            {!share.writable && (entry.kind === 'file' || entry.kind === 'directory') && <>
+            {!writable && <ActionList.Item onSelect={() => open({kind: 'info', entry})}>{t('viewInfo')}</ActionList.Item>}
+            {!writable && (entry.kind === 'file' || entry.kind === 'directory') && <>
               <ActionList.Item onSelect={() => download([entry])}>
                 <ActionList.LeadingVisual><DesktopDownloadIcon /></ActionList.LeadingVisual>{t('download')}
               </ActionList.Item>

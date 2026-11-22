@@ -7,7 +7,7 @@ import {number} from '../i18n/format'
 import type {OpenAction} from './actions'
 import {optionalColumns, type ColumnKey} from './columns'
 import {FileTitle} from './Metadata'
-import {basename} from './navigation'
+import {basename, canWriteFolder} from './navigation'
 import styles from './workspace.module.css'
 import selection from './selection.module.css'
 
@@ -23,6 +23,7 @@ export function FolderHeader({device, location, titleId, share, overview, open, 
 }) {
   const {t, locale} = useLanguage()
   const label = location.path ? basename(location.path) : share.primary ? t('userFolder') : share.label
+  const writable = canWriteFolder(share, location.path)
   return (
     <Stack direction="horizontal" align="end" justify="space-between" wrap="wrap" gap="condensed" padding="normal"
       className={styles.folderHeader}>
@@ -32,8 +33,8 @@ export function FolderHeader({device, location, titleId, share, overview, open, 
       </Stack>
       <Stack direction="horizontal" align="center" wrap="wrap" gap="condensed">
         <ButtonGroup>
-          <Button size="medium" disabled={!share.writable} onClick={() => open({kind: 'upload'})}>{t('addFile')}</Button>
-          <Button size="medium" disabled={!share.writable} onClick={() => open({kind: 'mkdir'})}>{t('newFolder')}</Button>
+          <Button size="medium" disabled={!writable} onClick={() => open({kind: 'upload'})}>{t('addFile')}</Button>
+          <Button size="medium" disabled={!writable} onClick={() => open({kind: 'mkdir'})}>{t('newFolder')}</Button>
           <Button size="medium" onClick={() => open({kind: 'info'})}>{t('viewInfo')}</Button>
         </ButtonGroup>
         <ActionMenu>

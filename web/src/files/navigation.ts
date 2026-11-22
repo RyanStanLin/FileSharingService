@@ -34,6 +34,21 @@ export function useLocation(shares: Share[]) {
 
 export function permissionFor(share: Share, path: string): PermissionKind | undefined {
   if (!share.primary) return
-  const first = path.split('/')[0].toLowerCase()
-  if (first === 'downloads' || first === 'documents' || first === 'desktop') return first
+  switch (path.split('/')[0]) {
+    case 'Downloads': return 'downloads'
+    case 'Documents': return 'documents'
+    case 'Desktop': return 'desktop'
+  }
+}
+
+export function canWriteFolder(share: Share, path: string) {
+  if (share.primary && path.split('/')[0].toLowerCase() === 'library') return false
+  const permission = permissionFor(share, path)
+  return share.writable || !!(permission && share.writableFolders?.includes(permission))
+}
+
+export function canWriteEntry(share: Share, path: string) {
+  if (share.primary && !path.includes('/') &&
+      ['library', 'desktop', 'downloads', 'documents', 'music', 'pictures', 'movies', 'applications', 'public'].includes(path.toLowerCase())) return false
+  return canWriteFolder(share, parent(path))
 }

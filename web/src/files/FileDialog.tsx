@@ -10,7 +10,7 @@ import {Modal} from '../ui/Modal'
 import {useResource, useTask} from '../ui/async'
 import type {FileAction} from './actions'
 import {Metadata} from './Metadata'
-import {basename, join, parent} from './navigation'
+import {basename, canWriteFolder, join, parent} from './navigation'
 import {MovePicker} from './MovePicker'
 
 interface Props {
@@ -80,11 +80,12 @@ function MutationDialog({action, deviceId, location, roots, share, hidden, close
   const [recursive, setRecursive] = useState(false)
   const origin = entry ? parent(entry.path) : location.path
   const [target, setTarget] = useState<Location>({...location, path: origin, kind: 'folder'})
-  const allowedTargets = roots.filter(root => root.writable)
+  const allowedTargets = roots.filter(root => root.writable || root.writableFolders?.length)
+  const targetShare = allowedTargets.find(root => root.id === target.rootId)
   const destructive = action.kind === 'trash' || action.kind === 'remove'
-  const canMove = target.rootId !== share.id || (
+  const canMove = targetShare && canWriteFolder(targetShare, target.path) && (target.rootId !== share.id || (
     target.path !== origin && (!entry || !(target.path === entry.path || target.path.startsWith(entry.path + '/')))
-  )
+  ))
   const canClose = !task.busy || action.kind === 'upload'
   const hasName = action.kind === 'mkdir' || action.kind === 'rename'
 

@@ -1,4 +1,4 @@
-import {useCallback, useEffect, useId, useRef, useState} from 'react'
+import {useCallback, useEffect, useId, useMemo, useRef, useState} from 'react'
 import {Button, SplitPageLayout, Stack, useResponsiveValue} from '@primer/react'
 import {FileDirectoryIcon} from '@primer/octicons-react'
 import {ApiError} from '../api/client'
@@ -36,7 +36,14 @@ export function Workspace({device, refreshDevice, shareManager, setShareManager,
   const {t} = useLanguage()
   const shares = useResource(device.id, signal => readShares(device.id, signal))
   const permissions = useResource(device.id, signal => readPermissions(device.id, signal))
-  const {root, location} = useLocation(shares.data?.shares ?? [])
+  const visibleRoots = useMemo(() => {
+    const writableFolders = (['downloads', 'documents', 'desktop'] as const).filter(kind => {
+      const permission = permissions.data?.[kind]
+      return permission?.state === 'allowed' && permission.phase === 'completed' && permission.writable === true
+    })
+    return (shares.data?.shares ?? []).map(share => share.primary ? {...share, writableFolders} : share)
+  }, [shares.data?.shares, permissions.data])
+  const {root, location} = useLocation(visibleRoots)
   const [hidden, setHidden] = useState(() => sessionStorage.getItem('filesharing.hidden') === 'true')
   const [mobileTree, setMobileTree] = useState(false)
   const sidebar = useId()
@@ -94,7 +101,7 @@ export function Workspace({device, refreshDevice, shareManager, setShareManager,
   } else {
     view = <LocationView key={root.id + ':' + location.kind + ':' + location.path}
       device={device} share={root} location={location} hidden={hidden} revision={fileRevision} explorer={explorer}
-      visibleRoots={shares.data.shares} refresh={refreshAfterEdit}
+      visibleRoots={visibleRoots} refresh={refreshAfterEdit}
       rootEntry={rootInfo.data} rootPending={rootInfo.pending} />
   }
 
@@ -103,7 +110,7 @@ export function Workspace({device, refreshDevice, shareManager, setShareManager,
   }, [permissions.error, refreshDevice])
 
   const sidebarContent = root && location ? (
-    <Sidebar key={root.id} deviceId={device.id} roots={shares.data?.shares ?? []} root={root} location={location}
+    <Sidebar key={root.id} deviceId={device.id} roots={visibleRoots} root={root} location={location}
       hidden={hidden} toggleHidden={toggleHidden} permissions={permissions.data ?? {}} revision={treeRevision}
       opened={folder ? {location: folder, view: explorer.view} : undefined} rootPath={rootInfo.data?.fullPath}
       onNavigate={() => setMobileTree(false)} />
@@ -134,7 +141,7 @@ export function Workspace({device, refreshDevice, shareManager, setShareManager,
       )}
       {shareManager && shares.data && <ShareManager device={device.id} local={shares.data.local}
         roots={shares.data.roots} refresh={shares.refresh} close={() => setShareManager(false)} />}
-      {goTo && location && shares.data && <GoToDialog device={device.id} shares={shares.data.shares}
+      {goTo && location && shares.data && <GoToDialog device={device.id} shares={visibleRoots}
         location={location} rootEntry={rootInfo.data} hidden={hidden} close={closeGoTo} />}
     </ThumbnailProvider>
   )

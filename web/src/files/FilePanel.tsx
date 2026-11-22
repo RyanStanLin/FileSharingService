@@ -10,6 +10,7 @@ import type {OpenAction} from './actions'
 import {useEntryThumbnail} from './EntryIcon'
 import {FilePreview} from './FilePreview'
 import {FileTitle, Metadata} from './Metadata'
+import {canWriteEntry} from './navigation'
 import styles from './workspace.module.css'
 
 export function FilePanel({device, share, location, revision, onAction, onDownload, downloadBusy}: {
@@ -37,7 +38,7 @@ export function FilePanel({device, share, location, revision, onAction, onDownlo
           <Metadata entry={entry} />
         </Stack>
         <ButtonGroup>
-          <Button size="medium" disabled={!share.writable} onClick={() => onAction({kind: 'rename', entry})}>{t('rename')}</Button>
+          <Button size="medium" disabled={!canWriteEntry(share, entry.path)} onClick={() => onAction({kind: 'rename', entry})}>{t('rename')}</Button>
           <Button size="medium" variant="primary" leadingVisual={DesktopDownloadIcon} loading={downloadBusy}
             disabled={entry.kind !== 'file'} onClick={() => onDownload([entry])}>{t('download')}</Button>
         </ButtonGroup>

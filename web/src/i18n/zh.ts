@@ -119,7 +119,7 @@ export const zh: Record<keyof typeof en, string> = {
   link: '替身',
   permissionTitle: '{name}访问权限',
   permissionPrompt: 'macOS 弹出提示时，请在 {device} 上允许访问。',
-  permissionRequest: '申请权限',
+  permissionRequest: '申请读写权限',
   permissionSettings: '在 Mac 的「系统设置 → 隐私与安全性 → 文件与文件夹」允许访问。',
   allowed: '已授权',
   notDetermined: '需要授权',

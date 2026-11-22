@@ -117,7 +117,7 @@ export const en = {
   link: 'Alias',
   permissionTitle: '{name} Access',
   permissionPrompt: 'Allow access on {device} when macOS asks.',
-  permissionRequest: 'Request Access',
+  permissionRequest: 'Request Read & Write Access',
   permissionSettings: 'On the Mac, allow access in System Settings → Privacy & Security → Files and Folders.',
   allowed: 'Allowed',
   notDetermined: 'Approval needed',

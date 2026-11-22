@@ -42,6 +42,7 @@ export interface LocalRoot {
 
 export interface Share extends Root {
   primary: boolean
+  writableFolders?: PermissionKind[]
 }
 
 export interface Page<T> {
@@ -98,6 +99,7 @@ export type PermissionState = 'notDetermined' | 'allowed' | 'denied' | 'requires
 export interface Permission {
   state: PermissionState
   phase: 'idle' | 'requesting' | 'completed'
+  writable?: boolean
 }
 
 export type Permissions = Partial<Record<PermissionKind, Permission>>
