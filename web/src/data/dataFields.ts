@@ -35,6 +35,7 @@ const fields: Record<string, readonly [string, string]> = {
   deviceId: ['Device ID', '设备 ID'],
   disk: ['Disk', '磁盘'],
   displayAndLockPolicy: ['Display and lock policy', '显示器与锁屏策略'],
+  displayResolution: ['Display resolution', '显示器分辨率'],
   displaySleeping: ['Display asleep', '显示器休眠'],
   displays: ['Displays', '显示器'],
   documents: ['Documents', '文稿'],

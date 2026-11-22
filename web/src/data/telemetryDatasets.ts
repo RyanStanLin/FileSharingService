@@ -2,7 +2,7 @@ import type {DataObject, History, SnapshotTopic, TrendTopic} from '../api/teleme
 import type {Device} from '../api/types'
 import type {Locale, Message, Translate} from '../i18n'
 import {metricCategories} from './categories'
-import {fullTimestamp, object} from './format'
+import {fullTimestamp, object, records} from './format'
 import {metricValue, readings} from './metrics'
 import {cell, objectDataset, type ReadingDataset} from './readingModel'
 import type {TelemetryView} from './useTelemetry'
@@ -40,12 +40,20 @@ export function historyDataset(metric: TrendTopic, {history, locale, t}: Reading
 
 export function deviceDatasets(context: ReadingContext) {
   const {telemetry, device, locale, t} = context
-  const identity = telemetry.samples.identity
+  const {identity, system, displays} = telemetry.samples
   const info: DataObject = {name: device.name, ...object(identity?.value), deviceId: device.id,
     profileId: device.profileId ?? null, createdAt: device.createdAt ?? null, revision: device.revision ?? null}
+  const resolutions = records(object(displays?.value)?.items).flatMap(({width, height}) =>
+    typeof width === 'number' && typeof height === 'number' && width > 0 && height > 0 &&
+    Number.isSafeInteger(width) && Number.isSafeInteger(height) ? [`${width} × ${height} px`] : [])
+  const systemInfo = system || displays
+    ? {...object(system?.value), displayResolution: resolutions.length ? resolutions : null}
+    : undefined
+  const observedAt = [system?.observedAt, displays?.observedAt].flatMap(time => time ? [time] : []).sort().at(-1) ?? null
   return [
     objectDataset('identity', t('dataIdentity'), info, locale, t, identity),
-    sampleDataset('system', 'dataDeviceState', context),
+    objectDataset('system', t('dataDeviceState'), systemInfo, locale, t,
+      {observedAt, stale: Boolean(system?.stale || displays?.stale)}),
     sampleDataset('agent', 'dataAgent', context),
     sampleDataset('displays', 'dataDisplays', context),
     sampleDataset('locale', 'dataLocale', context),

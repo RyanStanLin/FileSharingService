@@ -221,6 +221,10 @@ export function deviceData({call, perform, submitCollection}) {
         const cpu = value("cpu"), memory = value("memory"), battery = value("battery"), power = value("power")
         const lid = value("lid")?.lidClosed ?? power?.closedLid?.lidClosed
         const identity = value("identity"), system = value("system"), network = value("network"), agent = value("agent"), locale = value("locale")
+        const displays = value("displays")
+        const resolutions = (Array.isArray(displays?.items) ? displays.items : []).flatMap(display =>
+            Number.isSafeInteger(display?.width) && Number.isSafeInteger(display?.height) && display.width > 0 && display.height > 0
+                ? [`${display.width} × ${display.height} px`] : [])
         element("telemetry-summary").replaceChildren(...[
             ["CPU 使用率", percent(cpu?.usagePercent), cpu?.usagePercent],
             ["内存使用率", percent(memory?.usagePercent), memory?.usagePercent],
@@ -242,6 +246,7 @@ export function deviceData({call, perform, submitCollection}) {
         facts("system-details", [
             ["设备", identity?.name ?? state?.device.name], ["UUID", state?.id], ["主机名 / 用户", join(identity?.hostname, identity?.username)],
             ["系统版本", join(identity?.osVersion, identity?.osBuild)], ["型号", identity?.model], ["处理器", join(identity?.cpuModel, identity?.architecture, identity?.cores && identity.cores + " 核")],
+            ["显示器分辨率", join(...resolutions)],
             ["语言 / 时区 / 地区", join(locale?.language, locale?.timeZone, locale?.region)],
             ["开机时间", dateText(system?.bootedAt)], ["运行时长", duration(system?.uptimeSeconds)], ["锁屏", lockStates[system?.lockState] ?? "未报告"],
             ["Agent", join(agent?.version, healthStates[agent?.health] ?? agent?.health, duration(agent?.uptimeSeconds))]
@@ -254,7 +259,7 @@ export function deviceData({call, perform, submitCollection}) {
             ["主网卡", network?.primaryInterface],
             ["代理", network?.proxy && (network.proxy.http || network.proxy.https || network.proxy.automatic ? "已配置" : "关闭")],
             ["VPN", {tunnelObserved: "检测到隧道", noTunnelObserved: "未检测到隧道"}[network?.vpn?.state]],
-            ["显示器数量", value("displays")?.count]
+            ["显示器数量", displays?.count]
         ])
         facts("power-details", [
             ["盖状态", closedText(lid)], ["Mac 收到的策略", boolText(power?.configured, "请求保持唤醒", "遵循默认睡眠")],
