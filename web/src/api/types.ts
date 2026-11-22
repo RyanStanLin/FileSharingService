@@ -16,12 +16,19 @@ export interface Connection {
   accessGranted: boolean
   connectedAt: string | null
   connectionSeconds: number | null
+  protocol?: string | null
+  lastCommunicationAt?: string | null
+  latencyMs?: number | null
+  peerAddress?: string | null
 }
 
 export interface Device {
   id: string
   name: string
   connection: Connection
+  profileId?: string
+  createdAt?: string
+  revision?: number
 }
 
 export interface Root {

@@ -1,7 +1,9 @@
 import {fileMutationEn, fileMutationErrorsEn} from './file-mutations'
+import {dataEn} from './data'
 
 export const en = {
   ...fileMutationEn,
+  ...dataEn,
   app: 'FileSharing',
   files: 'File System',
   data: 'Data',
@@ -134,6 +136,7 @@ export const en = {
 
 export const errorsEn: Readonly<Record<string, string>> = {
   ...fileMutationErrorsEn,
+  data_sampling_failed: 'The Mac could not deliver a new sample. Try again.',
   authentication_required: 'Passkey verification failed or the session expired.',
   passkey_unsupported: 'Use a browser with passkey support on HTTPS or localhost.',
   passkey_cancelled: 'Passkey verification was canceled or timed out.',

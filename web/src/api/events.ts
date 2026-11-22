@@ -19,6 +19,12 @@ interface Watch {
   state: 'starting' | 'active' | 'stopping'
 }
 
+export function eventSocket() {
+  const url = new URL('/api/v1/events/ws', window.location.href)
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+  return new WebSocket(url)
+}
+
 function folderKey(folder?: Location) {
   return folder && JSON.stringify([folder.rootId, folder.path])
 }
@@ -42,12 +48,9 @@ export function useDeviceEvents(deviceId: string | null, folder: Location | unde
     let timer = 0
     let reconnectDelay = 1000
     let socket: WebSocket | undefined
-    const url = new URL('/api/v1/events/ws', window.location.href)
-    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
-
     function connect() {
       if (closed) return
-      const channel = new WebSocket(url)
+      const channel = eventSocket()
       socket = channel
       let nextId = 0
       let ready = false

@@ -112,7 +112,7 @@
 - FileSystem-File 和 FileSystemLocked 有完整设计上下文以及 1024 × 760 的渲染图。文件图标和预览使用 Agent 返回的逐文件 PNG。 [FileSystem-File](https://www.figma.com/design/l9hmusc9x5sSYw59WQygO4/PrimerPlus?node-id=7882-36694) · [FileSystemLocked](https://www.figma.com/design/l9hmusc9x5sSYw59WQygO4/PrimerPlus?node-id=7882-35968)
 - 桌面顶栏目标 108 px，目录树默认 233 px，可在 176–480 px 内调整，右侧概要 129 px，路径栏 41 px。侧栏标题用 1 px 分隔线，隐藏项按钮填满选项区域。窄屏用 Primer Dialog 打开同一棵目录树，宽表可以横向滚动。
 - Header 使用 Stack、UnderlineNav、ActionMenu 和 ToggleSwitch。SplitPageLayout 放置 TreeView 和内容区。右侧按 Figma 自定义语义表格，排序、复选、标签和菜单沿用 Primer 控件。操作用 ActionMenu 和 Dialog，路径用 Breadcrumbs。安装版 UnderlineNav 会为辅助技术附加英文的 navigation 后缀。
-- Commands、Data、Window Activity 和 FTP 凭据处于后续里程碑。目录菜单提供当前选择或文件夹的下载。Date Created 对应后端的 `createdAt`。
+- Commands、Window Activity 和 FTP 凭据处于后续里程碑。目录菜单提供当前选择或文件夹的下载。Date Created 对应后端的 `createdAt`。
 
 ## 样式和组件边界
 
@@ -158,3 +158,11 @@
 - 浏览器验收使用隔离 HOME 的权限样本和虚拟验证器。生产硬件 Passkey 与真实受保护目录上的 macOS 弹窗需另行实机核对。
 - 当第二台设备上线时保留当前设备，直到操作者从菜单切换或当前设备从清单移除。此行为已纳入双设备验收。
 - Alt 文本工具需要当前连接未启用的 sampling。人工核对使用空 alt 的装饰文件图标，以及使用实际文件名的内容预览。
+
+## Data 页
+
+- 采用 overview 模板。参考图为 2266 × 1316 图像像素，导航边界在 x≈560，右侧卡片从 x≈600 开始，同一行两卡宽约 802 图像像素，间距约 22，卡片高约 264。参考图的 DPR、缩放和裁切未知。实现沿用 File System 的 SplitPageLayout，在 176–480 CSS px 内调整侧栏，默认 272 CSS px。内容使用 24 CSS px 内距和 12 CSS px 卡片间距。内容容器小于 42 rem 时改为单列。小于 48 rem 时通过 Primer Dialog 打开同一 NavList，关闭后回到触发按钮。 [SplitPageLayout](https://primer.style/product/components/split-page-layout/) · [NavList](https://primer.style/product/components/nav-list/)
+- 卡片使用安装版 Primer Card 的自定义内容模式、`Card.Link` 和原生焦点反馈。右上角显示时间与前往详情的箭头，卡片下方显示主值和真实采样。二维网格和柱状图使用 CSS Modules 与 SVG。图表按接收顺序展示至多九条采样，最后一条着色，详情可读到数值和时间。 [Primer Card](https://primer.style/product/components/card/) · [Data Visualization](https://primer.style/product/ui-patterns/data-visualization/)
+- 首屏读取 `/status`、独立快照和有效策略，详情覆盖全部 17 个遥测主题及连接状态。应用清单支持搜索、分页和详情。事件按类型筛选，通过最近 30 分钟历史补齐。两条 WebSocket 各自保持在 16 个订阅以内，按序号去重，重连后补齐。推送降级时轮询最新快照与可见历史。现有采样策略保留，已授权连接可以主动请求新样本。 [遥测结构](../docs/telemetry.md) · [WebSocket 协议](../docs/asyncapi.yaml)
+- 隔离 Chromium、ASP.NET Core 和 Mac Agent 0.4.7 的五条 Data 浏览器检查通过，覆盖采样、推送、断线轮询与恢复、设备切换、离线快照、锁定、应用筛选和分页、事件详情、路径恢复和键盘操作。原有 12 条 File System 回归通过。1280 × 950 CSS px 检查两列同宽、12 px 间距及侧栏调整，另检查 768、375、320 CSS px 下的单列和窄屏导航。人工核对标准暗色、亮色和亮色高对比度。参考图尺寸证据只用于布局比例核对。
+- Primer CSS 检查对两份 Data 模块返回空诊断。PostCSS 成功解析全部 11 份 CSS 模块，核对四套主题下 203 处变量引用，以及 88 个手写前端源文件的长度。

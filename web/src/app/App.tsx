@@ -1,4 +1,4 @@
-import {useEffect, useRef, useState} from 'react'
+import {lazy, Suspense, useEffect, useRef, useState} from 'react'
 import {Button, Stack} from '@primer/react'
 import {readDevices, setAccess} from '../api/devices'
 import {useDeviceEvents} from '../api/events'
@@ -10,14 +10,17 @@ import {Loading, Retry, State} from '../ui/Feedback'
 import {useRefresh, useResource, useTask} from '../ui/async'
 import {Header} from './Header'
 import {SetupDialog} from './SetupDialog'
+import {useAppPage} from './useAppPage'
 import {useSession} from './useSession'
 import styles from './shell.module.css'
 
 const selectedDevice = 'filesharing.device'
 const ignore = () => undefined
+const DataWorkspace = lazy(() => import('../data/DataWorkspace'))
 
 export function App() {
   const {t} = useLanguage()
+  const {page, filesHref, hash, resetFileLocation} = useAppPage()
   const session = useSession()
   const unlocked = session.current?.unlocked === true
   const devices = useResource(unlocked ? 'devices' : null, readDevices)
@@ -39,14 +42,16 @@ export function App() {
     }
   }, [unlocked, device, deviceId])
   useRefresh(unlocked, devices.refresh, 8000)
-  useDeviceEvents(unlocked && device?.connection.online && !device.connection.accessGranted ? device.id : null, undefined, devices.refresh, ignore, ignore)
+  useDeviceEvents(page === 'files' && unlocked && device?.connection.online && !device.connection.accessGranted ? device.id : null,
+    undefined, devices.refresh, ignore, ignore)
 
   function select(item: Device) {
     setShareManager(false)
     setGoTo(false)
     setDeviceId(item.id)
     sessionStorage.setItem(selectedDevice, item.id)
-    window.history.replaceState(null, '', window.location.pathname + window.location.search)
+    resetFileLocation()
+    if (page === 'files') window.history.replaceState(null, '', window.location.pathname + window.location.search)
   }
 
   function authorize(enabled: boolean) {
@@ -81,7 +86,7 @@ export function App() {
     </State>
   }
 
-  const workspace = unlocked && device?.connection.online && device.connection.accessGranted
+  const workspace = page === 'files' && unlocked && device?.connection.online && device.connection.accessGranted
   useEffect(() => {
     if (!workspace) {
       setGoTo(false)
@@ -100,12 +105,18 @@ export function App() {
     <Stack gap="none" className={styles.app}>
       <Header devices={items} device={device ?? (!unlocked ? lastDevice.current : undefined)} unlocked={unlocked}
         ready={Boolean(session.current)} busy={session.task.busy} toggle={session.change} select={select}
-        shares={() => setShareManager(true)} revoke={() => authorize(false)} accessRef={accessRef}
+        page={page} filesHref={filesHref} shares={workspace ? () => setShareManager(true) : undefined}
+        revoke={() => authorize(false)} accessRef={accessRef}
         openPath={workspace ? () => setGoTo(true) : undefined} />
       {workspace
         ? <Workspace key={device.id + device.connection.connectionId} device={device} refreshDevice={devices.refresh}
             shareManager={shareManager} setShareManager={setShareManager} goTo={goTo} closeGoTo={() => setGoTo(false)} />
-        : <Stack as="main" gap="none" className={styles.main}>{content}</Stack>}
+        : page === 'data' && unlocked && device
+          ? <Suspense fallback={<Stack as="main" gap="none" className={styles.main}><Loading /></Stack>}>
+              <DataWorkspace key={device.id} device={device} hash={hash} refreshDevice={devices.refresh}
+                authorize={() => authorize(true)} authorizationBusy={connectionTask.busy} authorizationError={connectionTask.error} />
+            </Suspense>
+          : <Stack as="main" gap="none" className={styles.main}>{content}</Stack>}
       {session.setup && <SetupDialog submit={session.initialize} close={session.closeSetup}
         busy={session.task.busy} error={session.task.error} returnFocusRef={accessRef} />}
     </Stack>

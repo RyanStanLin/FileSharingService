@@ -1,8 +1,10 @@
 import type {en} from './en'
 import {fileMutationErrorsZh, fileMutationZh} from './file-mutations'
+import {dataZh} from './data'
 
 export const zh: Record<keyof typeof en, string> = {
   ...fileMutationZh,
+  ...dataZh,
   app: 'FileSharing',
   files: '文件系统',
   data: '数据',
@@ -135,6 +137,7 @@ export const zh: Record<keyof typeof en, string> = {
 
 export const errorsZh: Readonly<Record<string, string>> = {
   ...fileMutationErrorsZh,
+  data_sampling_failed: 'Mac 未返回新的采样，请重试。',
   authentication_required: '通行密钥验证失败或会话已过期。',
   passkey_unsupported: '请使用支持通行密钥的浏览器，通过 HTTPS 或 localhost 访问。',
   passkey_cancelled: '通行密钥验证已取消或超时。',

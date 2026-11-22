@@ -5,6 +5,7 @@ import type {Device} from '../api/types'
 import {useLanguage} from '../i18n'
 import {duration} from '../i18n/format'
 import {useAppearance} from './AppTheme'
+import type {AppPage} from './useAppPage'
 import styles from './shell.module.css'
 
 interface Props {
@@ -16,9 +17,11 @@ interface Props {
   accessRef: RefObject<HTMLButtonElement | null>
   select: (device: Device) => void
   toggle: (checked: boolean) => void
-  shares: () => void
+  shares?: () => void
   openPath?: () => void
   revoke: () => void
+  page: AppPage
+  filesHref: string
 }
 
 function DeviceMenu({devices, device, select, unlocked, shares, openPath, revoke}: Props) {
@@ -45,7 +48,7 @@ function DeviceMenu({devices, device, select, unlocked, shares, openPath, revoke
             {openPath && <ActionList.Item onSelect={openPath} aria-keyshortcuts="Meta+Shift+G">
               {t('goTo')}…<ActionList.Description variant="inline">⌘⇧G</ActionList.Description>
             </ActionList.Item>}
-            <ActionList.Item onSelect={shares}>{t('sharedFolders')}</ActionList.Item>
+            {shares && <ActionList.Item onSelect={shares}>{t('sharedFolders')}</ActionList.Item>}
             <ActionList.Item onSelect={revoke}>{t('connectionRevoke')}</ActionList.Item>
           </>}
           {unlocked && <ActionList.Divider />}
@@ -108,9 +111,11 @@ export function Header(props: Props) {
             checked={props.unlocked} disabled={!props.ready} loading={props.busy} onChange={props.toggle} />
         </Stack>
       </Stack>
-      <UnderlineNav aria-label={t('files')} className={styles.nav} hideIconsBreakpoint={null}>
-        <UnderlineNav.Item href={window.location.hash || '#files'} aria-current="page" icon={FileDirectoryIcon}>{t('files')}</UnderlineNav.Item>
-        <UnderlineNav.Item as="span" className={styles.inactiveTab} aria-disabled="true" icon={GraphIcon}>{t('data')}</UnderlineNav.Item>
+      <UnderlineNav aria-label={t('app')} className={styles.nav} hideIconsBreakpoint={null}>
+        <UnderlineNav.Item href={props.filesHref} aria-current={props.page === 'files' ? 'page' : undefined}
+          icon={FileDirectoryIcon}>{t('files')}</UnderlineNav.Item>
+        <UnderlineNav.Item href={props.page === 'data' ? window.location.hash : '#data'} aria-current={props.page === 'data' ? 'page' : undefined}
+          icon={GraphIcon}>{t('data')}</UnderlineNav.Item>
         <UnderlineNav.Item as="span" className={styles.inactiveTab} aria-disabled="true" icon={VersionsIcon}>{t('activity')}</UnderlineNav.Item>
       </UnderlineNav>
     </header>
