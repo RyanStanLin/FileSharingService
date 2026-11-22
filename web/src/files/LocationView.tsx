@@ -52,7 +52,7 @@ export function LocationView({device, share, location, visibleRoots, hidden, rev
         ? <FilePanel device={device.id} {...common} />
         : <FolderPanel device={device} explorer={explorer} rootEntry={rootEntry} rootPending={rootPending} {...common} />}
       {action && <FileDialog action={action} deviceId={device.id} share={share} location={location} hidden={hidden}
-        roots={visibleRoots} close={() => setAction(undefined)} changed={changed} refresh={refresh} />}
+        roots={visibleRoots} directoryEntries={explorer.view.entries} close={() => setAction(undefined)} changed={changed} refresh={refresh} />}
     </>
   )
 }

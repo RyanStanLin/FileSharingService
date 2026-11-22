@@ -1,6 +1,8 @@
 import type {en} from './en'
+import {fileMutationErrorsZh, fileMutationZh} from './file-mutations'
 
 export const zh: Record<keyof typeof en, string> = {
+  ...fileMutationZh,
   app: 'FileSharing',
   files: '文件系统',
   data: '数据',
@@ -106,7 +108,6 @@ export const zh: Record<keyof typeof en, string> = {
   uploading: '正在上传 {name}（{percent}）',
   chooseFile: '选取文件',
   noChosenFile: '未选取文件',
-  invalidName: '名称中不能包含 / 或控制字符。',
   preview: '预览 · {kind}',
   previewUnavailable: '无法预览',
   loadOriginal: '加载原图',
@@ -133,6 +134,7 @@ export const zh: Record<keyof typeof en, string> = {
 }
 
 export const errorsZh: Readonly<Record<string, string>> = {
+  ...fileMutationErrorsZh,
   authentication_required: '通行密钥验证失败或会话已过期。',
   passkey_unsupported: '请使用支持通行密钥的浏览器，通过 HTTPS 或 localhost 访问。',
   passkey_cancelled: '通行密钥验证已取消或超时。',

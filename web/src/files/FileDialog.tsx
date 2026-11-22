@@ -1,45 +1,27 @@
-import {useId, useRef, useState} from 'react'
-import {Button, Checkbox, FormControl, ProgressBar, Stack, TextInput} from '@primer/react'
+import {useId, useState} from 'react'
+import {Button, Checkbox, FormControl, Stack} from '@primer/react'
 import {ApiError} from '../api/client'
-import {mkdir, move, remove, rename, stat, trash} from '../api/files'
-import {upload} from '../api/transfers'
-import type {Entry, Location, Share} from '../api/types'
-import {useLanguage, type Message} from '../i18n'
+import {move, remove, stat, trash} from '../api/files'
+import type {Location} from '../api/types'
+import {useLanguage} from '../i18n'
 import {ErrorText, Loading} from '../ui/Feedback'
 import {Modal} from '../ui/Modal'
 import {useResource, useTask} from '../ui/async'
-import type {FileAction} from './actions'
+import type {FileAction, FileDialogProps} from './actions'
+import {isStaleEntry, isVersionMismatch} from './fileName'
 import {Metadata} from './Metadata'
-import {basename, canWriteFolder, join, parent} from './navigation'
 import {MovePicker} from './MovePicker'
+import {NameMutationDialog} from './NameMutationDialog'
+import {canWriteEntry, canWriteFolder, join, parent} from './navigation'
 
-interface Props {
-  action: FileAction
-  deviceId: string
-  share: Share
-  location: Location
-  hidden: boolean
-  roots: Share[]
-  close: () => void
-  changed: (entry?: Entry) => void
-  refresh: () => void
-}
+type InfoAction = Extract<FileAction, {kind: 'info'}>
+type MoveAction = Extract<FileAction, {kind: 'move'}>
+type RemoveAction = Extract<FileAction, {kind: 'trash' | 'remove'}>
 
-type Mutation = Exclude<FileAction, {kind: 'info'}>
-
-const title: Record<Mutation['kind'], Message> = {
-  mkdir: 'newFolder', upload: 'addFile',
-  rename: 'renameEntry', move: 'moveEntry', trash: 'trashEntry', remove: 'deleteEntry',
-}
-
-const submitLabel: Record<Mutation['kind'], Message> = {
-  mkdir: 'newFolder', upload: 'upload', rename: 'rename', move: 'moveHere', trash: 'trash', remove: 'delete',
-}
-
-function InfoDialog({action, location, deviceId, close}: Props) {
+function InfoDialog({action, location, deviceId, close}: FileDialogProps<InfoAction>) {
   const {t} = useLanguage()
   const [calculate, setCalculate] = useState(false)
-  const target = 'entry' in action && action.entry ? {...location, path: action.entry.path} : location
+  const target = action.entry ? {...location, path: action.entry.path} : location
   const key = JSON.stringify([target.rootId, target.path])
   const info = useResource(key, signal => stat(deviceId, target, signal))
   const totals = useResource(calculate ? key : null, signal => stat(deviceId, target, signal, true))
@@ -63,107 +45,95 @@ function InfoDialog({action, location, deviceId, close}: Props) {
   )
 }
 
-function validName(name: string) {
-  return name.length > 0 && name !== '.' && name !== '..' && !/[\/\x00-\x1f\x7f]/.test(name)
-}
-
-function MutationDialog({action, deviceId, location, roots, share, hidden, close, changed, refresh}: Omit<Props, 'action'> & {action: Mutation}) {
-  const {t, locale} = useLanguage()
+function MoveDialog({action, deviceId, location, roots, share, hidden, close, changed, refresh}: FileDialogProps<MoveAction>) {
+  const {t} = useLanguage()
   const form = useId()
-  const filePicker = useRef<HTMLInputElement>(null)
-  const entry = 'entry' in action ? action.entry : undefined
   const task = useTask()
-  const [name, setName] = useState(entry?.name ?? '')
-  const [chosenFile, chooseFile] = useState<File>()
-  const [invalid, setInvalid] = useState(false)
-  const [progress, setProgress] = useState(0)
-  const [recursive, setRecursive] = useState(false)
-  const origin = entry ? parent(entry.path) : location.path
+  const entry = action.entry
+  const origin = parent(entry.path)
   const [target, setTarget] = useState<Location>({...location, path: origin, kind: 'folder'})
+  const [submitted, setSubmitted] = useState<Location>()
   const allowedTargets = roots.filter(root => root.writable || root.writableFolders?.length)
   const targetShare = allowedTargets.find(root => root.id === target.rootId)
-  const destructive = action.kind === 'trash' || action.kind === 'remove'
-  const canMove = targetShare && canWriteFolder(targetShare, target.path) && (target.rootId !== share.id || (
-    target.path !== origin && (!entry || !(target.path === entry.path || target.path.startsWith(entry.path + '/')))
-  ))
-  const canClose = !task.busy || action.kind === 'upload'
-  const hasName = action.kind === 'mkdir' || action.kind === 'rename'
+  const sameRoot = target.rootId === share.id
+  const issue = !targetShare || !canWriteFolder(targetShare, target.path) ? 'moveReadOnly'
+    : sameRoot && target.path === origin ? 'moveDifferentFolder'
+    : sameRoot && (target.path === entry.path || target.path.startsWith(entry.path + '/')) ? 'moveInsideSource'
+    : undefined
+  const sourceWritable = canWriteEntry(share, entry.path)
+  const sourceChanged = isVersionMismatch(task.error)
 
-  function submit(event: React.FormEvent) {
-    event.preventDefault()
-    if (task.busy || (action.kind === 'move' && !canMove)) return
-    if ((hasName && !validName(name)) || (action.kind === 'upload' && !chosenFile)) {
-      setInvalid(true)
-      return
-    }
-    setInvalid(false)
-    void task.run(async signal => {
-      try {
-        let result: Entry | undefined
-        if (action.kind === 'mkdir') result = await mkdir(deviceId, location, join(location.path, name), signal)
-        if (action.kind === 'upload' && chosenFile) {
-          setProgress(0)
-          result = await upload(deviceId, share.id, join(location.path, chosenFile.name), chosenFile, setProgress, signal)
+  return <Modal title={t('moveEntry', {name: entry.name})} onClose={() => { if (!task.busy) close() }} footerButtons={[
+    {size: 'medium', content: t('cancel'), onClick: close, disabled: task.busy},
+    {size: 'medium', content: t('moveHere'), type: 'submit', form, buttonType: 'primary',
+      loading: task.busy, disabled: Boolean(issue) || !sourceWritable || sourceChanged},
+  ]}>
+    <Stack as="form" id={form} gap="normal" onSubmit={(event: React.FormEvent) => {
+      event.preventDefault()
+      if (issue || task.busy || !sourceWritable || sourceChanged) return
+      setSubmitted(target)
+      void task.run(async signal => {
+        try {
+          const result = await move(deviceId, location, entry, join(target.path, entry.name), target.rootId, signal)
+          if (!signal.aborted) changed(result)
+        } catch (error) {
+          if (isStaleEntry(error)) refresh()
+          throw error
         }
-        if (action.kind === 'rename') result = await rename(deviceId, location, action.entry, name, signal)
-        if (action.kind === 'move') result = await move(deviceId, location, action.entry,
-          join(target.path, basename(action.entry.path)), target.rootId, signal)
-        if (action.kind === 'trash') await trash(deviceId, location, action.entry, signal)
-        if (action.kind === 'remove') await remove(deviceId, location, action.entry, recursive, signal)
-        if (!signal.aborted) changed(result)
-      } catch (error) {
-        if (error instanceof ApiError && ['version_mismatch', 'not_found', 'delete_incomplete'].includes(error.code)) refresh()
-        throw error
-      }
-    })
-  }
-
-  return (
-    <Modal title={t(title[action.kind], {name: entry?.name ?? ''})}
-      role={destructive ? 'alertdialog' : 'dialog'}
-      onClose={() => { if (canClose) close() }}
-      footerButtons={[
-        {size: 'medium', content: t('cancel'), onClick: close, disabled: !canClose},
-        {size: 'medium', content: t(submitLabel[action.kind]),
-          type: 'submit', form, buttonType: destructive ? 'danger' : 'primary', loading: task.busy,
-          disabled: (action.kind === 'move' && !canMove) || (action.kind === 'rename' && name === entry?.name)},
-      ]}>
-      <Stack as="form" id={form} onSubmit={submit} gap="normal">
-        {hasName && <FormControl required>
-          <FormControl.Label>{t('name')}</FormControl.Label>
-          <TextInput size="medium" block value={name} autoComplete="off" disabled={task.busy}
-            onChange={event => { setName(event.target.value); setInvalid(false) }} />
-          {invalid && <FormControl.Validation variant="error">{t('invalidName')}</FormControl.Validation>}
-        </FormControl>}
-        {action.kind === 'move' && (
-          <MovePicker device={deviceId} roots={allowedTargets} source={location} entry={action.entry}
-            target={target} hidden={hidden} onTarget={setTarget} />
-        )}
-        {action.kind === 'upload' && <Stack gap="condensed">
-          <input type="file" ref={filePicker} hidden onChange={event => {
-            chooseFile(event.target.files?.[0])
-            setInvalid(false)
-          }} />
-          <Stack direction="horizontal" align="center" wrap="wrap" gap="condensed">
-            <Button size="medium" disabled={task.busy} onClick={() => filePicker.current?.click()}>{t('chooseFile')}</Button>
-            <span role={invalid ? 'alert' : undefined}>{chosenFile?.name ?? t('noChosenFile')}</span>
-          </Stack>
-          {task.busy && chosenFile && <>
-            <span role="status">{t('uploading', {name: chosenFile.name, percent: new Intl.NumberFormat(locale, {style: 'percent'}).format(progress)})}</span>
-            <ProgressBar progress={progress * 100} aria-label={t('upload')} />
-          </>}
-        </Stack>}
-        {destructive && <p>{t(action.kind === 'trash' ? 'trashHelp' : 'deleteHelp')}</p>}
-        {action.kind === 'remove' && action.entry.kind === 'directory' && <FormControl layout="horizontal">
-          <Checkbox checked={recursive} disabled={task.busy} onChange={event => setRecursive(event.target.checked)} />
-          <FormControl.Label>{t('deleteContents')}</FormControl.Label>
-        </FormControl>}
-        <ErrorText error={task.error} />
-      </Stack>
-    </Modal>
-  )
+      })
+    }}>
+      {!sourceWritable && <ErrorText error={new ApiError(403, 'root_access_denied')} />}
+      <MovePicker device={deviceId} roots={allowedTargets} source={location} entry={entry}
+        target={target} hidden={hidden} onTarget={setTarget} busy={task.busy} />
+      {issue && <FormControl.Caption>{t(issue)}</FormControl.Caption>}
+      {sourceChanged ? <ErrorText error={new ApiError(409, 'mutation_source_changed')} />
+        : submitted === target && <ErrorText error={task.error} />}
+    </Stack>
+  </Modal>
 }
 
-export function FileDialog(props: Props) {
-  return props.action.kind === 'info' ? <InfoDialog {...props} /> : <MutationDialog {...props} action={props.action} />
+function RemoveDialog({action, deviceId, location, share, close, changed, refresh}: FileDialogProps<RemoveAction>) {
+  const {t} = useLanguage()
+  const form = useId()
+  const task = useTask()
+  const [recursive, setRecursive] = useState(false)
+  const writable = canWriteEntry(share, action.entry.path)
+  const sendingToTrash = action.kind === 'trash'
+
+  return <Modal title={t(sendingToTrash ? 'trashEntry' : 'deleteEntry', {name: action.entry.name})} role="alertdialog"
+    onClose={() => { if (!task.busy) close() }} footerButtons={[
+      {size: 'medium', content: t('cancel'), onClick: close, disabled: task.busy},
+      {size: 'medium', content: t(sendingToTrash ? 'trash' : 'delete'), type: 'submit', form, buttonType: 'danger',
+        loading: task.busy, disabled: !writable},
+    ]}>
+    <Stack as="form" id={form} gap="normal" onSubmit={(event: React.FormEvent) => {
+      event.preventDefault()
+      if (task.busy || !writable) return
+      void task.run(async signal => {
+        try {
+          if (sendingToTrash) await trash(deviceId, location, action.entry, signal)
+          else await remove(deviceId, location, action.entry, recursive, signal)
+          if (!signal.aborted) changed()
+        } catch (error) {
+          if (isStaleEntry(error)) refresh()
+          throw error
+        }
+      })
+    }}>
+      <p>{t(sendingToTrash ? 'trashHelp' : 'deleteHelp')}</p>
+      {!sendingToTrash && action.entry.kind === 'directory' && <FormControl layout="horizontal">
+        <Checkbox checked={recursive} disabled={task.busy} onChange={event => setRecursive(event.target.checked)} />
+        <FormControl.Label>{t('deleteContents')}</FormControl.Label>
+      </FormControl>}
+      <ErrorText error={writable ? task.error : new ApiError(403, 'root_access_denied')} />
+    </Stack>
+  </Modal>
+}
+
+export function FileDialog(props: FileDialogProps) {
+  const {action} = props
+  if (action.kind === 'info') return <InfoDialog {...props} action={action} />
+  if (action.kind === 'move') return <MoveDialog {...props} action={action} />
+  if (action.kind === 'trash' || action.kind === 'remove') return <RemoveDialog {...props} action={action} />
+  return <NameMutationDialog {...props} action={action} />
 }

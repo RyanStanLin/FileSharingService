@@ -6,6 +6,12 @@
   font: var(--text-title-shorthand-small);
 }
 
+.dialogTitle,
+.caption,
+.wrapText {
+  overflow-wrap: anywhere;
+}
+
 .caption {
   color: var(--fgColor-muted);
   font: var(--text-body-shorthand-small);

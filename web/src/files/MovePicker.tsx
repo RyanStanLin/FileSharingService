@@ -3,6 +3,7 @@ import {ArrowLeftIcon, FileDirectoryFillIcon, FileIcon} from '@primer/octicons-r
 import type {Entry, Location, Share} from '../api/types'
 import {useLanguage} from '../i18n'
 import {ErrorText, Loading} from '../ui/Feedback'
+import uiStyles from '../ui/ui.module.css'
 import {homeLocation, parent} from './navigation'
 import {useAutoPage} from './useAutoPage'
 import {useDirectory} from './useDirectory'
@@ -15,10 +16,11 @@ interface Props {
   entry: Entry
   target: Location
   hidden: boolean
+  busy: boolean
   onTarget: (location: Location) => void
 }
 
-export function MovePicker({device, roots, source, entry, target, hidden, onTarget}: Props) {
+export function MovePicker({device, roots, source, entry, target, hidden, busy, onTarget}: Props) {
   const {t} = useLanguage()
   const view = useDirectory(device, target, {hidden, sort: 'name', direction: 'asc'})
   const tail = useAutoPage(view)
@@ -28,7 +30,7 @@ export function MovePicker({device, roots, source, entry, target, hidden, onTarg
     <Stack gap="condensed">
       {roots.length > 1 && <FormControl>
         <FormControl.Label>{t('sharedFolders')}</FormControl.Label>
-        <Select size="medium" block value={target.rootId} onChange={event => {
+        <Select size="medium" block disabled={busy} value={target.rootId} onChange={event => {
           const next = roots.find(root => root.id === event.target.value)
           if (next) onTarget(homeLocation(next))
         }}>
@@ -36,15 +38,15 @@ export function MovePicker({device, roots, source, entry, target, hidden, onTarg
         </Select>
       </FormControl>}
       <Stack direction="horizontal" align="center" gap="condensed">
-        <Button size="medium" leadingVisual={ArrowLeftIcon} disabled={!target.path}
+        <Button size="medium" leadingVisual={ArrowLeftIcon} disabled={busy || !target.path}
           onClick={() => onTarget({...target, path: parent(target.path)})}>{t('upFolder')}</Button>
-        <strong title={target.path}>/{target.path}</strong>
+        <strong className={uiStyles.wrapText} title={target.path}>/{target.path}</strong>
       </Stack>
       {view.pending && !view.page && <Loading message="loadingFolder" />}
       <ErrorText error={view.moreError ?? (!view.page ? view.error : undefined)} />
       <ActionList aria-label={t('destination')}>
         {visible.map(item => (
-          <ActionList.Item key={item.path} disabled={item.kind !== 'directory'} onSelect={() => onTarget({...target, path: item.path})}>
+          <ActionList.Item key={item.path} disabled={busy || item.kind !== 'directory'} onSelect={() => onTarget({...target, path: item.path})}>
             <ActionList.LeadingVisual>{item.kind === 'directory' ? <FileDirectoryFillIcon /> : <FileIcon />}</ActionList.LeadingVisual>
             {item.name}
           </ActionList.Item>

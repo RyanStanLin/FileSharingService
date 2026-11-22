@@ -1,4 +1,7 @@
+import {fileMutationEn, fileMutationErrorsEn} from './file-mutations'
+
 export const en = {
+  ...fileMutationEn,
   app: 'FileSharing',
   files: 'File System',
   data: 'Data',
@@ -104,7 +107,6 @@ export const en = {
   uploading: 'Uploading {name} ({percent})',
   chooseFile: 'Choose file',
   noChosenFile: 'No file chosen',
-  invalidName: 'Enter a name without / or a control character.',
   preview: 'Preview: {kind}',
   previewUnavailable: 'Preview unavailable',
   loadOriginal: 'Load original',
@@ -131,6 +133,7 @@ export const en = {
 }
 
 export const errorsEn: Readonly<Record<string, string>> = {
+  ...fileMutationErrorsEn,
   authentication_required: 'Passkey verification failed or the session expired.',
   passkey_unsupported: 'Use a browser with passkey support on HTTPS or localhost.',
   passkey_cancelled: 'Passkey verification was canceled or timed out.',

@@ -1,4 +1,4 @@
-import {useId, useRef, type DragEvent, type MouseEvent} from 'react'
+import {useId, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent} from 'react'
 import {Button, Stack} from '@primer/react'
 import {stat} from '../api/files'
 import type {Device, Entry, Location, Share} from '../api/types'
@@ -6,6 +6,7 @@ import {useLanguage} from '../i18n'
 import {ErrorText, Loading, Retry} from '../ui/Feedback'
 import {useResource} from '../ui/async'
 import type {DownloadSelection, OpenAction} from './actions'
+import {ContextEntryMenu, type EntryContext} from './EntryMenu'
 import {FileTable} from './FileTable'
 import {FolderHeader, SelectionBar} from './FolderToolbar'
 import {FolderOverview} from './Metadata'
@@ -33,6 +34,7 @@ export function FolderPanel({device, share, location, explorer, rootEntry, rootP
   const {t} = useLanguage()
   const id = useId()
   const scrollRoot = useRef<HTMLDivElement>(null)
+  const [context, setContext] = useState<EntryContext>()
   const {view, visible, sort, direction, toggleColumn, changeSort} = explorer
   const selection = useFileSelection(device, location, explorer)
   const {onGroupClick, ...input} = useExplorerInput(location, selection, () => void view.next())
@@ -43,6 +45,38 @@ export function FolderPanel({device, share, location, explorer, rootEntry, rootP
   const tail = useAutoPage(view, scrollRoot)
   const info = location.path ? stamp : {data: rootEntry, pending: rootPending}
   const refreshError = view.moreError ?? view.error
+
+  function openContext(row: HTMLTableRowElement, point?: {x: number; y: number}) {
+    const entry = view.entries[row.sectionRowIndex]
+    const trigger = row.querySelector<HTMLElement>('[data-file-link]')
+    if (!entry || !trigger) return
+    const bounds = trigger.getBoundingClientRect()
+    const x = Math.min(Math.max(0, point?.x ?? bounds.left), window.innerWidth - 1)
+    const y = Math.min(Math.max(0, point?.y ?? bounds.bottom), window.innerHeight - 1)
+    if (!selection.includes(entry.path)) selection.select(row.sectionRowIndex)
+    setContext({entry, trigger, x, y})
+  }
+
+  function onContextMenu(event: MouseEvent<HTMLElement>) {
+    const row = event.target instanceof Element ? event.target.closest<HTMLTableRowElement>('[data-file-row]') : null
+    if (!row || !event.currentTarget.contains(row)) return
+    event.preventDefault()
+    openContext(row, event.clientX || event.clientY ? {x: event.clientX, y: event.clientY} : undefined)
+  }
+
+  function onExplorerKeyDown(event: KeyboardEvent<HTMLElement>) {
+    if ((event.key === 'ContextMenu' || event.key === 'F10' && event.shiftKey) && event.target instanceof Element) {
+      const selectedIndex = view.entries.findIndex(entry => selection.includes(entry.path))
+      const row = event.target.closest<HTMLTableRowElement>('[data-file-row]') ??
+        event.currentTarget.querySelector('tbody')?.rows[selectedIndex]
+      if (row && event.currentTarget.contains(row)) {
+        event.preventDefault()
+        openContext(row)
+        return
+      }
+    }
+    input.onKeyDown(event)
+  }
 
   return (
     <>
@@ -57,6 +91,7 @@ export function FolderPanel({device, share, location, explorer, rootEntry, rootP
           onDownloadSelected={() => onDownload(selection.downloadEntries)} onDownloadFolder={() => onDownload([])} />
         <Stack ref={scrollRoot} gap="none" className={styles.explorer} aria-busy={view.pending || view.loadingMore} tabIndex={-1}
           {...input} onPointerDown={onPointerDown} onClickCapture={onClickCapture}
+          onContextMenu={onContextMenu} onKeyDown={onExplorerKeyDown}
           onDragStart={(event: DragEvent<HTMLElement>) => {
             if (event.target instanceof Element && event.target.closest('[data-file-row]')) event.preventDefault()
           }}>
@@ -82,6 +117,8 @@ export function FolderPanel({device, share, location, explorer, rootEntry, rootP
           </>}
         </Stack>
       </Stack>
+      {context && <ContextEntryMenu key={JSON.stringify([context.entry.path, context.x, context.y])} context={context}
+        close={() => setContext(current => current === context ? undefined : current)} share={share} open={onAction} download={onDownload} />}
       <div className={selectionStyles.marquee} ref={marquee} hidden aria-hidden="true" />
     </>
   )

@@ -134,10 +134,18 @@
 - 自定义文件表格保留 Primer Checkbox 作为可访问的选择控件。整行支持单击、⌘ 切换单项、Shift 范围和按住拖动框选。选择状态使用 `bgColor-accent-muted`，选框使用语义边框颜色，位置和尺寸随指针变化。⌘A 作用于当前目录快照，尚未加载的行无需提前请求，取消选择的项目从该快照排除。 [Apple 的选择操作说明](https://support.apple.com/guide/mac-help/select-items-mchlp1378/mac)
 - 「前往」按 Navigation 和 Search 的模式组合 Dialog、FormControl 和 Autocomplete。目标验证复用文件元数据，候选通过已授权目录的分页列表获取。输入支持方向键、Tab、Enter 和 IME，菜单保留快捷键入口。 [Primer Autocomplete](https://primer.style/product/components/autocomplete/guidelines/) · [WAI-ARIA Combobox](https://www.w3.org/WAI/ARIA/apg/patterns/combobox/) · [Apple 的路径补全说明](https://support.apple.com/en-gb/guide/mac-help/-mchlp1236/mac)
 
+## 文件写操作
+
+- 按 Agent 0.4.7 的权限契约检查 Downloads、Documents、Desktop 的读写授权，保留 Library 的只读规则。移动同时校验源、目标根和项目版本。源项目版本发生变化时刷新列表并提示重新选择。 [API 契约](../docs/api.md#文件与目录)
+- 右键和行尾菜单共享 ActionMenu 与 ActionList。菜单锚定指针或键盘焦点所在行，Shift+F10 和菜单键可打开，Escape 返回原焦点。不同权限只显示当前可用的操作。对应的文件信息和上传图标采用 Info 和 Upload Octicons。 [Primer ActionMenu](https://primer.style/product/components/action-menu/)
+- 重命名、新建文件夹和上传统一使用 TextInput 的 `validationStatus` 与 FormControl.Validation。名称格式和已加载的同名项目即时提示。服务端确认底层卷的大小写规则以及隐藏或尚未分页的同名项目，冲突反馈显示在原输入框。 [Primer TextInput](https://primer.style/product/components/text-input/) · [Primer Forms](https://primer.style/product/ui-patterns/forms/)
+- 上传先读取目标版本，再按连续偏移发送 256 KiB 分块。临时错误重试当前分块并沿用传输标识，保存前可取消暂存。覆盖需主动勾选并绑定当前版本，版本变化后重置确认。使用 ProgressBar 和状态文字显示进度，错误后保留选中的文件。 [传输契约](../docs/api.md#文件传输与-zip) · [Primer ProgressBar](https://primer.style/product/components/progress-bar/)
+
 ## 验收
 
 - `npm --prefix web run build` 完成严格 TypeScript 检查与 Vite 生产构建。Vite 报告 Primer 的客户端指令和包体积提示。
-- 九条隔离 Chromium、ASP.NET Core 和 Swift Agent 浏览器验收通过。回归覆盖虚拟 Passkey、权限、隐藏项、排序、建目录、上传、改名、移动、下载、删除、PDF 预览、语言持久化、窄屏焦点和双设备授权。
+- 十二条隔离 Chromium、ASP.NET Core 与 Swift Agent 0.4.7 浏览器验收通过。回归覆盖虚拟 Passkey、权限、隐藏项、排序、建目录、上传、改名、移动、下载、删除、PDF 预览、语言持久化、窄屏焦点和双设备授权。
+- 写操作验收覆盖鼠标右键、键盘菜单和焦点返回、保留名称、UTF-8 字节上限、大小写冲突、仅修改大小写、源版本变化、移动同名保护、上传覆盖版本检查、临时 429 同偏移重试、保留本地选件、零字节文件和取消清理暂存。另有三条后端集成检查通过，覆盖范围写权限、移动与删除、续传与发布。
 - 本轮新增场景确认列表和树合计只下载八个可见文件的八份原生 PNG。鼠标单击、⌘ 加选与取消、Shift 范围、按住拖动、空白清空和双击打开均通过。83 项目录首屏只加载 80 项时，⌘A 计数为 83，逐项取消的状态保留到分页完成。
 - 路径对话框验证了快捷键打开和输入聚焦、Tab 补全、Enter 提交、相对与绝对路径、超过首个 200 项分段的候选、菜单入口、Escape 和共享范围外反馈。
 - 本轮新增分页延迟回归，覆盖 320、375、768 和 1280 CSS px。滚动到底、等待加载和翻页完成后，文档高度始终等于窗口高度，标题栏、导航和路径栏坐标保持稳定。
@@ -146,7 +154,7 @@
 - 83 项目录先显示 80 项，滚到底自动追加至 83 项。首屏只有一次列表和一次随后完成的轻量 stat。测试模拟带 `Retry-After` 的 429、设备超时和分页快照冲突，均自动恢复。外部新增文件通过目录订阅触发一次列表刷新。连续切换 12 个目录期间，设备读取并发上限为一，真实 Agent 未返回 429。
 - 浏览器在 1280 × 950 下截图核对三个状态。顶栏分隔线与下方内容位于 y107–108，概要分隔线与下方内容位于 y236–237，路径栏分隔线位于 y909。原尺寸的目录页样本、字体渲染和实时文件内容存在差异。锁定、目录、行菜单、PDF 预览和窄屏截图保存在本机 `.local/frontend-check`。
 - 窄屏检查覆盖 320、375 和 768 CSS px。375 px 下可从内容区打开目录树，页面无横向溢出。
-- 对五个变更的 CSS 模块调用了 `primerdoc.lint_css`。服务对这些样式和此前只含两个官方变量的对照样式都返回「Errors without autofix remaining」，诊断正文为空。独立 PostCSS 检查成功解析全部九份 CSS 模块，并核对了四套主题下的 140 处变量引用。59 个手写前端文件均少于 200 行。
+- 对变更的 CSS 模块调用了 `primerdoc.lint_css`。服务对这些样式和此前只含两个官方变量的对照样式都返回「Errors without autofix remaining」，诊断正文为空。独立 PostCSS 检查成功解析全部九份 CSS 模块，并核对了四套主题下的 144 处变量引用。63 个手写前端文件均少于 200 行。
 - 浏览器验收使用隔离 HOME 的权限样本和虚拟验证器。生产硬件 Passkey 与真实受保护目录上的 macOS 弹窗需另行实机核对。
 - 当第二台设备上线时保留当前设备，直到操作者从菜单切换或当前设备从清单移除。此行为已纳入双设备验收。
 - Alt 文本工具需要当前连接未启用的 sampling。人工核对使用空 alt 的装饰文件图标，以及使用实际文件名的内容预览。
