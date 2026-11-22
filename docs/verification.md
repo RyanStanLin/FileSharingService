@@ -1,5 +1,11 @@
 # FileSharing 验收记录
 
+## Agent 0.4.8
+
+`test_window_geometry_focus_and_live_fallback` 使用同一份窗口采集逻辑和隔离输入，验证多屏相对坐标、大小、前后顺序、透明窗处理、部分和完全遮挡。还验证同一 Foreground 应用中的焦点判定、仅 Foreground 切换时的更新，以及前台应用没有屏上窗口的情形。Agent 分别使用 WebSocket 和 HTTPS，浏览器 WebSocket 与 REST 长轮询接收同一修订。撤销连接授权后窗口订阅结束，数据库中无窗口快照和历史事件。
+
+本机 WindowServer 验收在双屏会话读取实际窗口数据。临时 AppKit 测试窗口的创建、移动、缩放和所属进程退出均产生了 WebSocket 快照。原生采集将现有 Foreground 应用最靠前的屏上窗口标为焦点。
+
 ## Agent 0.4.7
 
 `test_folder_permission_enables_scoped_writes_and_library_reads` 在 WebSocket 和 HTTPS 回退下验证只读 HOME。一次 Downloads 授权后，新建目录、上传、改名和移动通过。带隐藏标志的 `~/Library` 可浏览和下载，移入 Library 被拒绝。重启保留新版目录授权，旧版 Documents 授权在新版 Agent 检查可写后生效。

@@ -218,6 +218,7 @@ SFTP 客户端首次连接时校验 `hostKeyFingerprint`，格式为 `SHA256:…
 | `GET /devices/D/apps/running` | 无 | `200 Snapshot` 运行程序 |
 | `GET /devices/D/apps/installed` | 无 | `200 Snapshot` 安装清单 |
 | `GET /devices/D/apps/icon` | `applicationId` 每个应用的 ID | `200 image/png` |
+| `GET /devices/D/windows` | `after` 可选窗口修订 UUID，`waitSeconds` 可选 0–10 | `200 WindowSnapshot` 或 `204` 未变化 |
 | `GET /devices/D/storage` | 无 | `200 Snapshot` 外接存储 |
 | `POST /devices/D/diagnostics` | `{kind}`，`osVersion,uptime,diskSpace,agentHealth`，或 `{kind:"custom",command}` | `202 Job`，`Location` 指向作业 URL |
 | `GET /jobs` | `cursor,limit,deviceId` | `200 Page<Job>` |
@@ -228,6 +229,25 @@ SFTP 客户端首次连接时校验 `hostKeyFingerprint`，格式为 `SHA256:…
 | `GET /health/live`、`GET /health/ready` | 无 | `200 {status:"live"}` 或 `200 {ready:true}` |
 
 `from/to` 接收 ISO 8601，边界包含。应用事件使用 `applications.changed`，存储事件使用 `storage.changed`。审计游标为字符串序列，响应记录为 `{sequence,time,actor,deviceId,action,detail}`。快照结构为 `{topic,observedAt,stale,value}`，根据设备在线状态与采样时间计算 stale。作业可能为 `queued`、`completed`、`cancelled`、`failed`。
+
+### 窗口实时状态
+
+窗口接口要求 Passkey 会话、已授权的设备连接和 Agent 0.4.8 或更新版本。第一次读取 `GET /api/v1/devices/D/windows` 获取完整 `{revision,observedAt,value}`，最多等待首个样本 4 秒。后续调用带 `after=<revision>&waitSeconds=10`，收到变化后立即返回下一份完整快照，等待期间无变化返回 `204`。省略 `waitSeconds` 的条件读取立即返回。修订号是 UUID，`observedAt` 是服务器收到该次观察的时间。新的快照可以直接替换本地窗口列表。
+
+`value` 包含 `available`、`displays`、`activePid`、`focusStatus`、`focusedWindowId`、`windows` 和 `truncated`。Agent 检测到休眠、锁屏或 WindowServer 不可用时，以 `available:false` 和空列表表示当前会话不可采集。超过每次采集的 1024 个窗口或 32 个显示器上限时置 `truncated:true`。
+
+| 单个窗口字段 | 含义 |
+| --- | --- |
+| `id,pid,ownerName,layer,alpha` | WindowServer 窗口 ID、所属进程、进程显示名、系统层级与整体透明度。用 PID 可对照运行中的应用清单。 |
+| `bounds` | `{x,y,width,height}`，单位为逻辑屏幕点，原点在主屏左上角。副屏可出现负坐标。 |
+| `displayId,relativeBounds` | 选与窗口相交面积最大的活动显示器，等面积优先主屏。以该显示器左上角为原点返回整窗位置和大小，无交集时两项为 `null`。 |
+| `onScreen,zIndex,frontmost,ownerFrontmost` | `zIndex:0` 是 WindowServer 屏上序列的最前一项，序号递增表示靠后，屏外窗口为 `null`。`frontmost` 标记首个有屏幕交集且 `alpha>0` 的窗口。`ownerFrontmost` 表示窗口属于前台应用。 |
+| `focused` | 与运行应用清单共用 Foreground PID。该应用在屏上层级最前的有效窗口为 `true`，其余为 `false`。 |
+| `occlusion` | `{state,coveredFraction,occludingWindowIds}`。state 为 `visible`、`partial`、`covered`、`notDisplayed` 或 `unknown`。面积比例按窗口落在屏幕内的区域计算，合并上层完全不透明窗口的矩形，最多列出 16 个实际增加遮挡的窗口 ID。圆角、形状和逐像素透明度会影响实际可见区域。 |
+
+`activePid` 是现有 Foreground 应用的 PID。该应用存在与活动显示器相交且 `alpha>0` 的屏上窗口时，`focusStatus:"foreground"` 并附带 `focusedWindowId`。前台应用无符合条件的窗口时返回 `noFocusedWindow`，图形会话不可采集时返回 `unavailable`。窗口观察沿用现有设备连接授权。
+
+窗口数据取自当前用户的图形会话，服务端在当前连接的短租约内保存最新快照。REST 和 WebSocket 复用同一快照。窗口标题、图像和文本不属于该接口。 [Apple 窗口坐标](https://developer.apple.com/documentation/coregraphics/kcgwindowbounds) · [Apple 窗口元数据权限](https://developer.apple.com/videos/play/wwdc2019/701/?time=986)
 
 ```json
 {"id":"2204ec63-266b-45d3-8f67-8a088c744b21","deviceId":"144bae60-503d-45e3-8a17-ec7a64886c20","kind":"diagnostics.run","state":"completed","createdAt":"2026-11-19T08:22:00Z","finishedAt":"2026-11-19T08:22:01Z","result":{"stdout":"{\"seconds\":20188}","stderr":"","exitCode":0,"data":{"seconds":20188}},"error":null}
@@ -300,5 +320,13 @@ Agent 0.4.3 起支持遮蔽企业审批码。提交 `askText:true,maskText:true`
 ```
 
 普通主题包括所有[设备样本及事件](telemetry.md)。连接后可在 subscribe 传 `after` 续收历史。遇到 WebSocket 断线时用 `GET /events?deviceId=D&topic=...&after=...` 读取同一游标之后的事件，逐页读取到 `hasMore:false`。若服务端返回 `410 resync_required`，读取最新快照并重新订阅。错误帧为 `{type:"error",id,code}`。管理会话撤销后服务器以 1008 关闭。
+
+窗口订阅使用同一个 WS 地址与独立的窗口修订号。首订阅省略 `after`，服务端先确认订阅，再发送完整窗口快照。
+
+```json
+{"type":"subscribe","id":"window-layout","deviceId":"144bae60-503d-45e3-8a17-ec7a64886c20","topic":"windows.changed"}
+```
+
+窗口事件的 `item.payload` 是上面的 `WindowSnapshot`，`item.sequence` 等于 `payload.revision`。连续拖动时会合并采样与发送之间的状态，后续帧包含当前坐标、大小、层级、遮挡和焦点。重连时可以在 `after` 传上次的窗口修订 UUID。WS 不可用时使用 `GET /devices/D/windows` 条件读取。连接授权结束后会收到对应的订阅错误，重新授权当前连接后重新订阅。
 
 目录订阅使用 `added`、`removed`、`updated`、`renamed`，或者 `change.kind:"resync_required"`。目录初订阅和重连须拉取新的 REST 快照。事件前置版本与当前快照不符时也重新读取。目录变更经 WebSocket 投递，失去 WebSocket 时可通过 REST 周期拉取目录。这一机制允许授权撤销立即停止目录推送。

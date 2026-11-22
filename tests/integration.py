@@ -1546,6 +1546,121 @@ precondition(board.setString("ISOLATED_CLIPBOARD_CONTENT", forType: .string))
         mkdir("Documents/after-upgrade")
         mkdir("Library/still-read-only", 403)
 
+    def test_window_geometry_focus_and_live_fallback(self):
+        fixture = self.work / "windows.json"
+        self.env["FILESHARING_TEST_WINDOW_STATE"] = str(fixture)
+
+        def rect(x, y, width, height):
+            return {"x": x, "y": y, "width": width, "height": height}
+
+        displays = [{"id": 1, "main": True, "bounds": rect(0, 0, 500, 300)},
+                    {"id": 2, "main": False, "bounds": rect(-400, 0, 400, 300)}]
+        front = {"id": 21, "pid": 301, "bounds": rect(-20, 40, 60, 80), "title": "FIXTURE_PRIVATE_TITLE"}
+        back = {"id": 22, "pid": 302, "bounds": rect(-50, 40, 100, 80)}
+        translucent = {"id": 20, "pid": 303, "bounds": back["bounds"], "alpha": 0.4, "layer": 8}
+        offscreen = {"id": 23, "pid": 304, "bounds": rect(-310, 10, 60, 60)}
+        moved = back | {"bounds": rect(-350, 20, 70, 60)}
+        covered = {"id": 24, "pid": 302, "bounds": moved["bounds"]}
+
+        def sample(windows, visible, active):
+            temp = fixture.with_suffix(".next")
+            temp.write_text(json.dumps({"windows": windows, "onScreen": visible, "displays": displays,
+                                        "activePid": active}))
+            temp.replace(fixture)
+
+        sample([translucent, front, back, offscreen], [20, 21, 22], 301)
+        self.setup_device(allow_access=False)
+        route = self.device_api + "/windows"
+        self.api("GET", route, 401, self.client())
+        self.api("GET", route, 403)
+        self.api("GET", route, 400, params={"waitSeconds": -1})
+        self.api("GET", route, 400, params={"after": "42"})
+        subscription = {"type": "subscribe", "id": "layout", "deviceId": self.device, "topic": "windows.changed"}
+
+        for protocol in ("wss", "https"):
+            with self.subTest(protocol=protocol):
+                if protocol == "https":
+                    self.stop(self.agent)
+                    self.stop(self.server)
+                    self.start_server(polling=True)
+                    sample([translucent, front, back, offscreen], [20, 21, 22], 301)
+                    self.agent = self.spawn([str(APP), "run"], "agent.log", self.env)
+
+                def connection():
+                    value = self.api("GET", self.device_api).json()["connection"]
+                    return value if value["protocol"] == protocol else None
+
+                presence = self.wait(connection)
+                with self.channel() as ws:
+                    self.receive(ws, lambda frame: frame["type"] == "ready")
+                    ws.send(json.dumps(subscription))
+                    rejection = self.receive(ws, lambda frame: frame["type"] == "error")
+                    self.assertEqual(rejection["code"], "agent_connection_access_required")
+                    self.set_access(presence["connectionId"], True)
+                    first = self.api("GET", route).json()
+                    layout = first["value"]
+                    self.assertTrue(layout["available"])
+                    self.assertEqual(layout["displays"], displays)
+                    self.assertEqual((layout["activePid"], layout["focusStatus"], layout["focusedWindowId"]), (301, "foreground", 21))
+                    self.assertNotIn("FIXTURE_PRIVATE_TITLE", json.dumps(layout))
+                    windows = {item["id"]: item for item in layout["windows"]}
+                    self.assertEqual(list(windows), [20, 21, 22, 23])
+                    self.assertTrue(windows[20]["frontmost"])
+                    self.assertEqual((windows[20]["layer"], windows[20]["alpha"]), (8, 0.4))
+                    self.assertTrue(windows[21]["focused"] and windows[21]["ownerFrontmost"])
+                    self.assertEqual(windows[22]["zIndex"], 2)
+                    self.assertEqual(windows[22]["relativeBounds"], back["bounds"])
+                    self.assertEqual(windows[22]["occlusion"]["state"], "partial")
+                    self.assertAlmostEqual(windows[22]["occlusion"]["coveredFraction"], 0.6)
+                    self.assertEqual(windows[22]["occlusion"]["occludingWindowIds"], [21])
+                    self.assertFalse(windows[23]["onScreen"])
+                    self.assertIsNone(windows[23]["zIndex"])
+                    self.assertEqual(windows[23]["occlusion"]["state"], "notDisplayed")
+
+                    ws.send(json.dumps(subscription | {"after": first["revision"]}))
+                    subscribed = self.receive(ws, lambda frame: frame["type"] == "subscribed")
+                    self.assertEqual(subscribed["cursor"], first["revision"])
+                    self.api("GET", route, 204, params={"after": first["revision"]})
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as reader:
+                        pending = reader.submit(self.api, "GET", route, params={"after": first["revision"], "waitSeconds": 5})
+                        sample([moved, front, covered, offscreen], [22, 21, 24], 302)
+                        changed = self.receive(ws, lambda frame: frame["type"] == "event" and frame["id"] == "layout")["item"]
+                        polled = pending.result(timeout=8).json()
+                    self.assertEqual(changed["topic"], "windows.changed")
+                    self.assertEqual(changed["sequence"], polled["revision"])
+                    self.assertEqual(changed["payload"], polled)
+                    self.assertNotEqual(polled["revision"], first["revision"])
+                    layout = polled["value"]
+                    self.assertEqual((layout["activePid"], layout["focusedWindowId"]), (302, 22))
+                    windows = {item["id"]: item for item in layout["windows"]}
+                    self.assertEqual(list(windows), [22, 21, 24, 23])
+                    self.assertEqual(windows[22]["bounds"], moved["bounds"])
+                    self.assertEqual((windows[22]["displayId"], windows[22]["relativeBounds"]), (2, rect(50, 20, 70, 60)))
+                    self.assertTrue(windows[22]["frontmost"] and windows[22]["focused"])
+                    self.assertTrue(windows[24]["ownerFrontmost"])
+                    self.assertFalse(windows[24]["focused"])
+                    self.assertEqual(windows[24]["occlusion"], {"state": "covered", "coveredFraction": 1, "occludingWindowIds": [22]})
+
+                    sample([moved, front, covered, offscreen], [22, 21, 24], 301)
+                    focus_only = self.receive(ws, lambda frame: frame["type"] == "event")["item"]["payload"]["value"]
+                    self.assertEqual((focus_only["activePid"], focus_only["focusedWindowId"]), (301, 21))
+                    self.assertTrue(focus_only["windows"][0]["frontmost"])
+                    self.assertFalse(focus_only["windows"][0]["focused"])
+
+                    sample([moved, front, covered, offscreen], [22, 21, 24], 304)
+                    no_focus = self.receive(ws, lambda frame: frame["type"] == "event")["item"]["payload"]["value"]
+                    self.assertEqual(no_focus["focusStatus"], "noFocusedWindow")
+                    self.assertIsNone(no_focus["focusedWindowId"])
+                    self.assertTrue(all(not item["focused"] for item in no_focus["windows"]))
+                    self.set_access(presence["connectionId"], False)
+                    revoked = self.receive(ws, lambda frame: frame["type"] == "error")
+                    self.assertEqual(revoked["code"], "agent_connection_access_required")
+                    self.api("GET", route, 403)
+
+                with closing(sqlite3.connect(self.work / "db" / "filesharing.db")) as db:
+                    for table in ("Events", "Snapshots"):
+                        self.assertEqual(db.execute(f"SELECT count(*) FROM {table} WHERE Topic='windows.changed'").fetchone()[0], 0)
+
     def test_permissions_per_device_policy_and_history(self):
         self.setup_device()
         for folder in ("Downloads", "Documents", "Desktop"):
@@ -1607,11 +1722,13 @@ precondition(board.setString("ISOLATED_CLIPBOARD_CONTENT", forType: .string))
                          "/api/v1/ftp/accounts/{id}/password", "/api/v1/transfers/{id}/content", "/api/v1/events/ws",
                          "/api/v1/jobs/{id}/output", "/api/v1/devices/{id}/interactions/dialogs",
                          "/api/v1/devices/{id}/interactions/notifications", "/api/v1/ftp/connections",
-                         "/api/v1/ftp/accounts/{id}/password/reveal"):
+                         "/api/v1/ftp/accounts/{id}/password/reveal", "/api/v1/devices/{id}/windows"):
             self.assertIn(expected, paths)
         self.assertNotIn("/api/v1/enrollments", paths)
         self.assertIn("101", paths["/api/v1/events/ws"]["get"]["responses"])
         self.assertIn("FileEntry", contract["components"]["schemas"])
+        self.assertIn("WindowSnapshot", contract["components"]["schemas"])
+        self.assertIn("204", paths["/api/v1/devices/{id}/windows"]["get"]["responses"])
 
 
 if __name__ == "__main__":

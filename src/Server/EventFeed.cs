@@ -11,7 +11,8 @@ internal sealed record EventRow(long Sequence, string DeviceId, string Topic, lo
 internal sealed record EventView(string Sequence, string DeviceId, string Topic, DateTimeOffset Time, JsonElement Payload);
 internal sealed record EventsPage(IReadOnlyList<EventView> Items, string Cursor, bool HasMore);
 internal sealed record SubscriptionInput(string Type, string? Id, string? DeviceId, string? Topic, string? RootId, string? Path, string? After);
-internal sealed record Subscription(string Id, string DeviceId, string Topic, long Cursor, Watch? Watch);
+internal sealed record Subscription(string Id, string DeviceId, string Topic, long Cursor, Watch? Watch, WindowSubscription? Windows = null);
+internal sealed record WindowSubscription(WindowLease Lease, string? Revision);
 internal sealed record Watch(string Id, string DeviceId, string RootId, string RootKey, string Path, string ConnectionId);
 
 internal sealed class WatchRegistry(DeviceService devices, AgentBroker broker, Database db)
@@ -158,7 +159,7 @@ internal sealed class EventFeed(Database db)
 internal static class BrowserEvents
 {
     public static async Task Handle(HttpContext context, ReviewService reviews, Settings settings, EventFeed feed, DeviceService devices,
-        WatchRegistry watches, CancellationToken ct)
+        WatchRegistry watches, WindowFeed windows, CancellationToken ct)
     {
         ReviewService.RequireOrigin(context, settings);
         var review = await reviews.Require(context, ct);
@@ -187,7 +188,11 @@ internal static class BrowserEvents
                     break;
                 }
 
-                if (await Task.WhenAny(input, Task.Delay(500, life)) == input)
+                var pending = new List<Task> { input, Task.Delay(500, life) };
+                foreach (var sub in subscriptions.Values)
+                    if (sub.Windows is { } window)
+                        pending.Add(windows.NextChange(window.Lease, window.Revision));
+                if (await Task.WhenAny(pending) == input)
                 {
                     var command = await input;
                     if (command is null)
@@ -231,6 +236,14 @@ internal static class BrowserEvents
                             throw Fault.Conflict("subscription_limit_or_duplicate");
                         var device = await devices.Require(Secrets.Identifier(command.DeviceId), life);
                         var topic = Secrets.Text(command.Topic, 35);
+                        if (topic == WindowFeed.Topic)
+                        {
+                            var revision = WindowFeed.Revision(command.After);
+                            var lease = await windows.Open(device.Id, life);
+                            subscriptions.Add(id, new(id, device.Id, topic, 0, null, new(lease, revision)));
+                            await SocketWire.Send(socket, new { type = "subscribed", id, cursor = revision, snapshotRequired = false }, life);
+                            return;
+                        }
                         if (!EventFeed.Known(topic))
                             throw Fault.Bad("invalid_topic");
                         var after = command.After is null ? await feed.Head(life) : EventFeed.Cursor(command.After);
@@ -252,6 +265,24 @@ internal static class BrowserEvents
 
         async Task Deliver(Subscription sub)
         {
+            if (sub.Windows is { } window)
+            {
+                try
+                {
+                    await windows.Renew(window.Lease, life);
+                    if (await windows.Read(window.Lease, window.Revision, 0, life) is not { } current)
+                        return;
+                    var item = new EventView(current.Revision, sub.DeviceId, sub.Topic, current.ObservedAt, Wire.Element(current));
+                    await SocketWire.Send(socket, new { type = "event", id = sub.Id, item }, life);
+                    subscriptions[sub.Id] = sub with { Windows = window with { Revision = current.Revision } };
+                }
+                catch (Fault error)
+                {
+                    subscriptions.Remove(sub.Id);
+                    await SocketWire.Send(socket, new { type = "error", sub.Id, code = error.Code }, life);
+                }
+                return;
+            }
             if (sub.Watch is { } watch)
             {
                 try

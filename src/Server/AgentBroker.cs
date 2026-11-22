@@ -35,6 +35,7 @@ internal sealed class AgentBroker(Database db, AgentRegistration registration, I
         public CancellationToken Lifetime => stop.Token;
         public Dictionary<string, Pending> Pending { get; } = [];
         public Queue<AgentCommand> Cancellations { get; } = [];
+        public WindowChannel Windows { get; } = new();
         public SemaphoreSlim Signal { get; } = new(0, 1);
         public long Seen { get; set; } = Clock.Now;
         public long LastSignal { get; set; } = Stopwatch.GetTimestamp();
@@ -105,13 +106,15 @@ internal sealed class AgentBroker(Database db, AgentRegistration registration, I
             return Read(link);
     }
 
-    public string RequireAccess(string device, string? connectionId = null)
+    public string RequireAccess(string device, string? connectionId = null) => AccessibleLink(device, connectionId).Id;
+
+    public Link AccessibleLink(string device, string? connectionId = null)
     {
         var link = Find(device);
         lock (link)
         {
             RequireAccess(link, connectionId);
-            return link.Id;
+            return link;
         }
     }
 
@@ -130,7 +133,10 @@ internal sealed class AgentBroker(Database db, AgentRegistration registration, I
             RequireConnection(link, connectionId);
             link.AccessGranted = enabled;
             if (!enabled)
+            {
+                link.Windows.Clear();
                 FailPending(link, Fault.Forbidden("agent_connection_access_required"));
+            }
         }
         await db.Audit("device.connection_access_changed", actor, device, new { connectionId, enabled }, CancellationToken.None);
         return await Publish(link, ct);
@@ -165,7 +171,12 @@ internal sealed class AgentBroker(Database db, AgentRegistration registration, I
     public async Task Expire(CancellationToken ct)
     {
         foreach (var link in links.Values)
+        {
+            lock (link)
+                if (link.Windows.Expired)
+                    link.Windows.Clear();
             await Close(link, ct, expiredOnly: true);
+        }
     }
 
     public async Task Revoke(string device, CancellationToken ct)
@@ -190,6 +201,7 @@ internal sealed class AgentBroker(Database db, AgentRegistration registration, I
                 return;
             link.Closed = true;
             link.AccessGranted = false;
+            link.Windows.Clear();
             FailPending(link, Fault.Unavailable());
         }
         if (link.Channel is { } channel)

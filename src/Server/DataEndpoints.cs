@@ -174,6 +174,7 @@ internal static class DataEndpoints
             .WithSummary("Poll ordered stdout and stderr segments for a diagnostic");
         api.MapGet("/events", Events).WithTags("Events").WithSummary("Read a page of live-event history over REST");
         api.MapGet("/events/ws", BrowserEvents.Handle).WithTags("Events").WithSummary("Subscribe to events using WebSocket");
+        WindowEndpoints.Map(devices);
         InteractionEndpoints.Map(devices);
         FileEndpoints.Map(devices, api);
     }

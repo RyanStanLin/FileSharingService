@@ -32,6 +32,7 @@ public static class Program
         builder.Services.AddSingleton<DeviceService>();
         builder.Services.AddSingleton<EventFeed>();
         builder.Services.AddSingleton<WatchRegistry>();
+        builder.Services.AddSingleton<WindowFeed>();
         builder.Services.AddSingleton<FileService>();
         builder.Services.AddSingleton<TransferService>();
         builder.Services.AddSingleton<JobService>();

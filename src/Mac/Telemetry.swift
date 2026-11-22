@@ -91,7 +91,7 @@ final class Telemetry {
         }
     }
 
-    static let version = "0.4.7"
+    static let version = "0.4.8"
     private static let applicationQueue = DispatchQueue(label: "FileSharing.applications", qos: .utility)
     private let boot = Date()
     private let roots: [LocalRoot]
@@ -105,6 +105,7 @@ final class Telemetry {
     private let icons = ApplicationIcons()
     private var storage = [String: JSON]()
     private let permissions: DevicePermissions
+    private let windows = WindowMonitor()
     private let lid: LidLease
     private var assertion: IOPMAssertionID = 0
     private var observers = [NSObjectProtocol]()
@@ -177,6 +178,17 @@ final class Telemetry {
     }
 
     func setReachability(_ value: String) { reachability = value }
+
+    func observeWindows(_ id: String, seconds: Int64, report: @escaping (String, JSON) async -> Void) {
+        windows.observe(id, seconds: seconds, canSample: { [weak self] in
+            guard let self else { return false }
+            return !asleep && !displaySleeping && lockState != "locked"
+        }, report: report)
+    }
+
+    func stopObservingWindows(_ id: String) {
+        windows.stop(id)
+    }
 
     func observeLid() {
         guard started else { return }

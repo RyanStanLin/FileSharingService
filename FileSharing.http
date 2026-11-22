@@ -205,6 +205,14 @@ Cookie: {{cookie}}
 GET {{api}}/devices/{{device}}/apps/icon?applicationId=REPLACE
 Cookie: {{cookie}}
 
+### Current window geometry and focus
+GET {{api}}/devices/{{device}}/windows
+Cookie: {{cookie}}
+
+### Wait for a window revision. Replace the UUID with the previous response revision.
+GET {{api}}/devices/{{device}}/windows?after=18b0acd9-cf3b-4e96-98a3-b4638814e6c7&waitSeconds=10
+Cookie: {{cookie}}
+
 ### External storage
 GET {{api}}/devices/{{device}}/storage
 Cookie: {{cookie}}

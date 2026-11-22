@@ -1,7 +1,7 @@
 asyncapi: 3.0.0
 info:
   title: FileSharing browser events
-  version: 1.1.0
+  version: 1.2.0
 servers:
   enterprise:
     host: filesharing.example.com
@@ -50,6 +50,18 @@ components:
       payload:
         type: object
         required: [type, id, deviceId, topic]
+        if:
+          properties:
+            topic:
+              const: windows.changed
+        then:
+          properties:
+            after:
+              $ref: '#/components/schemas/WindowRevision'
+        else:
+          properties:
+            after:
+              $ref: '#/components/schemas/Cursor'
         properties:
           type:
             const: subscribe
@@ -69,8 +81,6 @@ components:
           path:
             type: string
             description: Relative directory path for files.changed. Empty selects the root.
-          after:
-            $ref: '#/components/schemas/Cursor'
     Unsubscribe:
       payload:
         type: object
@@ -99,7 +109,10 @@ components:
           id:
             type: string
           cursor:
-            $ref: '#/components/schemas/Cursor'
+            oneOf:
+              - $ref: '#/components/schemas/Cursor'
+              - $ref: '#/components/schemas/WindowRevision'
+              - type: 'null'
           snapshotRequired:
             type: boolean
     Unsubscribed:
@@ -137,10 +150,29 @@ components:
     Cursor:
       type: string
       pattern: '^[0-9]+$'
+    WindowRevision:
+      type: string
+      format: uuid
+      pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+      description: Opaque window revision. Omit after to receive the latest full window snapshot on subscription.
     EventItem:
       type: object
       required: [sequence, deviceId, topic, time, payload]
       allOf:
+        - if:
+            properties:
+              topic:
+                const: windows.changed
+          then:
+            properties:
+              sequence:
+                $ref: '#/components/schemas/WindowRevision'
+              payload:
+                $ref: '#/components/schemas/WindowSnapshot'
+          else:
+            properties:
+              sequence:
+                $ref: '#/components/schemas/Cursor'
         - if:
             properties:
               topic:
@@ -174,8 +206,6 @@ components:
               payload:
                 $ref: '#/components/schemas/JobChanged'
       properties:
-        sequence:
-          $ref: '#/components/schemas/Cursor'
         deviceId:
           type: string
           format: uuid
@@ -185,7 +215,87 @@ components:
           type: string
           format: date-time
         payload:
-          description: Topic-specific value. files.changed uses DirectoryEvent, clipboard.changed uses ClipboardChange, lid.changed uses LidChange, and jobs.output uses JobOutput.
+          description: Topic-specific value. windows.changed uses WindowSnapshot including the initial observation.
+    WindowSnapshot:
+      type: object
+      required: [revision, observedAt, value]
+      properties:
+        revision:
+          $ref: '#/components/schemas/WindowRevision'
+        observedAt:
+          type: string
+          format: date-time
+        value:
+          type: object
+          required: [available, displays, activePid, focusStatus, focusedWindowId, windows, truncated]
+          properties:
+            available:
+              type: boolean
+            activePid:
+              type: [integer, 'null']
+            focusStatus:
+              enum: [foreground, noFocusedWindow, unavailable]
+            focusedWindowId:
+              type: [integer, 'null']
+            truncated:
+              type: boolean
+            displays:
+              type: array
+              maxItems: 32
+              items:
+                type: object
+                required: [id, main, bounds]
+                properties:
+                  id: {type: integer}
+                  main: {type: boolean}
+                  bounds:
+                    $ref: '#/components/schemas/WindowBounds'
+            windows:
+              type: array
+              maxItems: 1024
+              items:
+                $ref: '#/components/schemas/WindowDetails'
+    WindowBounds:
+      type: object
+      required: [x, y, width, height]
+      properties:
+        x: {type: number}
+        y: {type: number}
+        width: {type: number, minimum: 0}
+        height: {type: number, minimum: 0}
+    WindowDetails:
+      type: object
+      required: [id, pid, ownerName, layer, alpha, bounds, displayId, relativeBounds, onScreen, zIndex, frontmost,
+                 ownerFrontmost, focused, occlusion]
+      properties:
+        id: {type: integer}
+        pid: {type: integer}
+        ownerName: {type: [string, 'null']}
+        layer: {type: integer}
+        alpha: {type: number, minimum: 0, maximum: 1}
+        bounds:
+          $ref: '#/components/schemas/WindowBounds'
+        displayId: {type: [integer, 'null']}
+        relativeBounds:
+          oneOf:
+            - $ref: '#/components/schemas/WindowBounds'
+            - type: 'null'
+        onScreen: {type: boolean}
+        zIndex: {type: [integer, 'null'], minimum: 0}
+        frontmost: {type: boolean}
+        ownerFrontmost: {type: boolean}
+        focused: {type: boolean}
+        occlusion:
+          type: object
+          required: [state, coveredFraction, occludingWindowIds]
+          properties:
+            state:
+              enum: [visible, partial, covered, notDisplayed, unknown]
+            coveredFraction: {type: [number, 'null'], minimum: 0, maximum: 1}
+            occludingWindowIds:
+              type: array
+              maxItems: 16
+              items: {type: integer}
     JobOutput:
       type: object
       required: [jobId, index, stream, data]

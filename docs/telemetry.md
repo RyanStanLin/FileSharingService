@@ -39,11 +39,14 @@
 | `clipboard.changed` | `{occurredAt}`。客户端约每 500 毫秒比较一次本地所有权计数，发送发现变化的时间。采样间隔内的多次变化可能合并。 |
 | `telemetry.gap` | 客户端待发送事件超过保留上限。 |
 | `files.changed` | 目录增量或重新同步信号。 |
+| `windows.changed` | 最新窗口快照。WS 使用窗口修订 UUID，REST 回退使用 `/devices/D/windows`。 |
 | `jobs.changed` | `{id,state,kind}`，诊断进程返回退出码时附带 `exitCode`。 |
 | `jobs.output` | `{jobId,index,stream,data}`，诊断标准输出或错误流分片。 |
 | `transfers.changed` | `{id,state,offset,length}`。 |
 
 剪贴板实现见 [ClipboardObserver.swift](../src/Mac/ClipboardObserver.swift) 与 [AgentTransport.swift](../src/Mac/AgentTransport.swift)。剪贴板载荷仅含 ISO 8601 时间，服务端在写库前校验唯一字段并重新序列化。服务器添加设备 ID 和事件序号。初次观测只建立本机基线。客户端仅在内存排队，服务端使用通用事件保留期限。
+
+窗口观察按需启动。存在 WS 订阅或 REST 请求时，服务端按设备连接合并并续期 20 秒采集租约。Agent 在独立队列约每 250 毫秒采样，窗口属性或 Foreground 变化时上报最新完整快照。服务端只在内存保留当前租约内的最新值。实际更新延迟包含采样、设备传输与浏览器订阅投递。 [窗口接口和字段](api.md#窗口实时状态)
 
 策略采样间隔支持 5–3600 秒或 `0`。设为 `0` 后可以调用刷新 API，系统事件仍会更新相关样本。应用启动和退出通过 `NSWorkspace.runningApplications` 的 KVO 发现，包括 AppKit 注册的后台 App。安装事件来自 FSEvents 触发的安装目录对账，另有周期重扫。清单覆盖 `/Applications`、`/System/Applications`、`~/Applications` 内的 App 包。 [Apple AppKit](https://developer.apple.com/documentation/appkit/nsworkspace/runningapplications)
 

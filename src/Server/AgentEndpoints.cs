@@ -18,7 +18,7 @@ internal sealed record AgentReady(string Type, string DeviceId,
 internal sealed record AgentConnected(string DeviceId, string? Channel,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string[]? PreviouslyAllowedFolders);
 
-internal sealed class AgentIngest(Database db, AgentBroker broker, WatchRegistry watches)
+internal sealed class AgentIngest(Database db, AgentBroker broker, WatchRegistry watches, WindowFeed windows)
 {
     public static readonly string[] SnapshotTopics =
         ["identity", "cpu", "memory", "disk", "battery", "power", "system", "displays", "locale", "network", "agent",
@@ -64,6 +64,11 @@ internal sealed class AgentIngest(Database db, AgentBroker broker, WatchRegistry
         {
             if (broker.HasAccess(link))
                 await watches.Ingest(device, link.Id, payload, ct);
+            return;
+        }
+        if (topic == WindowFeed.Topic)
+        {
+            windows.Ingest(link, id, frame.Snapshot, payload);
             return;
         }
 

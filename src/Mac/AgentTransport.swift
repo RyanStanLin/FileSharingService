@@ -137,6 +137,8 @@ actor AgentTransport {
     private var persisted = [JSON]()
     private var reviewLossNoted = false
     private var lastSave = Date.distantPast
+    private var windowLease: String?
+    private static let windowTopic = "windows.changed"
     @MainActor init(enrollment: Enrollment, state: LocalState) {
         self.id = enrollment.deviceId
         let name = Host.current().localizedName ?? ProcessInfo.processInfo.hostName
@@ -154,7 +156,8 @@ actor AgentTransport {
         }
         self.interactions = DeviceInteractions()
         self.outbox = state.loadPending().compactMap { item in
-            guard item["topic"].string != "clipboard.changed", let count = try? item.encoded().count else { return nil }
+            guard !["clipboard.changed", Self.windowTopic].contains(item["topic"].string ?? ""),
+                  let count = try? item.encoded().count else { return nil }
             return Signal(value: item, bytes: count)
         }
     }
@@ -504,6 +507,7 @@ actor AgentTransport {
         activeOrigin = nil
         linkReady = false
         policyDelivery?.cancel()
+        stopWindowStream()
     }
 
     private func applyPolicy(_ policy: JSON) {
@@ -513,8 +517,25 @@ actor AgentTransport {
             if !Task.isCancelled { telemetry.setPolicy(sampling) }
         }
         if policy["accessGranted"].bool == false {
+            stopWindowStream()
             for id in managedOperations { operations[id]?.cancel() }
         }
+    }
+
+    private func stopWindowStream() {
+        guard let id = windowLease else { return }
+        windowLease = nil
+        outbox.removeAll { item in
+            guard item.value["topic"].string == Self.windowTopic else { return false }
+            if let key = item.value["id"].string { seen.removeValue(forKey: key) }
+            return true
+        }
+        Task { @MainActor [telemetry] in telemetry.stopObservingWindows(id) }
+    }
+
+    private func reportWindows(_ id: String, _ sample: JSON) {
+        guard linkReady, windowLease == id else { return }
+        emit(topic: Self.windowTopic, data: ["watchId": .string(id), "value": sample], snapshot: true)
     }
 
     private func drainLocalReports() {
@@ -640,6 +661,21 @@ actor AgentTransport {
             guard let activeOrigin else { throw AgentError("connection_unavailable") }
             return try await interactions.notify(input, id: id, from: activeOrigin)
         case "app.icon": return try await telemetry.icon(input.requireString("applicationId"))
+        case "windows.observe":
+            let watchId = try input.requireString("watchId")
+            let seconds = try input.requireInt("seconds")
+            guard linkReady, UUID(uuidString: watchId) != nil, (1...30).contains(seconds) else {
+                throw AgentError("invalid_request")
+            }
+            if windowLease != watchId {
+                stopWindowStream()
+                windowLease = watchId
+            }
+            await telemetry.observeWindows(watchId, seconds: seconds) { [weak self] lease, sample in
+                await self?.reportWindows(lease, sample)
+            }
+            if windowLease != watchId { await telemetry.stopObservingWindows(watchId) }
+            return [:]
         case "files.watch": return try await observer.start(input)
         case "files.unwatch": return try await observer.stop(input)
         case "files.list", "files.stat", "files.thumbnail", "files.read", "files.mkdir", "files.move", "files.trash",

@@ -39,6 +39,7 @@ Agent 使用 `openat`、`fstatat`、`renameatx_np` 和 `unlinkat` 逐级处理�
 4. WSS 暂时不可用时，Agent 向 `POST /agent/v1/connect` 发送同一份 UUID 和名称，接收 `{deviceId,channel}` 及可选的 `previouslyAllowedFolders`。随后在 `X-FileSharing-Channel` 携带通道号，调用 `GET /agent/v1/commands` 长轮询约 20 秒、`POST /agent/v1/frames` 批量回送 `{frames:[...]}`，或用 `GET /agent/v1/policy`、`POST /agent/v1/pulse` 同步策略和 RTT。通道号只在该次连接期存于内存。Agent 感知接口、可达性和代理指纹变化，重连优先尝试 WSS，故障重试采用带抖动的指数退避。
 5. 管理后台使用 `PUT /api/v1/devices/{id}/connection-access` 开启或停用当前连接的文件与远程操作。连接关闭、超时或服务重启时该授权结束。设备 UUID、别名、策略和根目录授权保存在原记录中。服务器把命令、进行中的归档、下载和目录监听绑定到各自活跃连接。
 6. 指标用 `event` 帧推送，快照及分页历史落 SQLite。CPU 与内存默认手动刷新，高频采样可单独设为 5–3600 秒。应用生命周期和磁盘连接走系统通知，已安装应用用扫描对账。网络变化与电源信息按事件和低频采样同步。
+7. 窗口观察通过 `windows.observe` 命令按需启用。Agent 通过 WSS 或 HTTPS 报告 `windows.changed` 快照，服务端以当前已授权连接和观察租约验证消息。浏览器订阅与 REST 条件读取共享一份内存快照。连接结束、撤销授权或租约过期时清除快照。
 
 ```json
 {"type":"command","id":"0e2706c0-30f8-44dd-8a7a-8f6fce9c5585","kind":"files.stat","payload":{"root":"8a98c55a-bb1c-49ef-8c59-4af48f0cde53","path":"plan.pdf","summary":false}}
