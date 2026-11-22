@@ -72,6 +72,10 @@
   padding-inline: var(--base-size-2);
 }
 
+.table [data-data-row] > .iconCell {
+  text-align: center;
+}
+
 .table .sortButton {
   border-radius: 0;
   block-size: calc(var(--base-size-28) - var(--borderWidth-thin));
