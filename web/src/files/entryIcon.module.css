@@ -6,31 +6,9 @@
   flex: none;
 }
 
-.entryThumbnail {
-  --file-thumbnail-size: var(--base-size-20);
-  display: inline-grid;
-  place-items: center;
-  inline-size: var(--file-thumbnail-size);
-  block-size: var(--file-thumbnail-size);
-  vertical-align: middle;
-}
-
-.entryThumbnail[data-compact='true'] {
-  --file-thumbnail-size: var(--base-size-16);
-}
-
-.fileIcon,
 .largeFileIcon {
   display: block;
   object-fit: contain;
-}
-
-.fileIcon {
-  max-inline-size: var(--file-thumbnail-size);
-  max-block-size: var(--file-thumbnail-size);
-}
-
-.largeFileIcon {
   max-inline-size: var(--base-size-32);
   max-block-size: var(--base-size-32);
 }

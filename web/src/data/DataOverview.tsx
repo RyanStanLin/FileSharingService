@@ -24,15 +24,15 @@ export function DataOverview({device, telemetry, history}: {device: Device; tele
   const connectionDescription = [protocol, latency === undefined ? undefined : displayField('latencyMs', latency, locale, t)]
     .filter(Boolean).join(' · ')
   const inventories = [
-    {topic: 'apps-running', label: 'dataRunning', icon: AppsIcon, category: 'applications', tone: 'blue'},
-    {topic: 'apps-installed', label: 'dataInstalled', icon: AppsIcon, category: 'applications', tone: 'purple'},
-    {topic: 'storage', label: 'dataExternal', icon: DatabaseIcon, category: 'storage', tone: 'green'},
-    {topic: 'disk', label: 'dataVolumes', icon: DatabaseIcon, category: 'storage', tone: 'blue'},
+    {topic: 'apps-running', label: 'dataRunning', icon: AppsIcon, href: dataHref('applications')},
+    {topic: 'apps-installed', label: 'dataInstalled', icon: AppsIcon, href: dataHref('applications', {inventory: 'installed'})},
+    {topic: 'storage', label: 'dataExternal', icon: DatabaseIcon, href: dataHref('storage', {view: 'external'})},
+    {topic: 'disk', label: 'dataVolumes', icon: DatabaseIcon, href: dataHref('storage')},
   ] as const
 
   return <Stack gap="spacious">
     <div className={styles.grid}>
-      <DataCard title={t('dataConnection')} icon={PulseIcon} tone="blue" href={dataHref('network')}
+      <DataCard title={t('dataConnection')} icon={PulseIcon} href={dataHref('network', {view: 'connection'})}
         observedAt={connection.lastCommunicationAt} metric>
         <Stack direction="horizontal" align="end" justify="space-between" gap="condensed">
           <MetricValue amount={t(connection.online ? 'online' : 'offline')}
@@ -41,7 +41,7 @@ export function DataOverview({device, telemetry, history}: {device: Device; tele
             points={readings('connection.quality', history['connection.quality'])} />
         </Stack>
       </DataCard>
-      <DataCard title={t('dataDeviceState')} icon={DeviceDesktopIcon} tone="purple" href={dataHref('device')}
+      <DataCard title={t('dataDeviceState')} icon={DeviceDesktopIcon} href={dataHref('device', {view: 'system'})}
         observedAt={samples.system?.observedAt} stale={samples.system && (samples.system.stale || !connection.online)} metric>
         <MetricValue amount={sleep ? codeLabel(sleep, locale) : undefined}
           description={[device.name, uptime === undefined ? undefined : displayField('uptimeSeconds', uptime, locale, t)].filter(Boolean).join(' · ')} />
@@ -57,11 +57,10 @@ export function DataOverview({device, telemetry, history}: {device: Device; tele
     <Stack as="section" gap="condensed">
       <Heading as="h2" className={styles.sectionTitle}>{t('dataInventory')}</Heading>
       <div className={styles.grid}>
-        {inventories.map(({topic, label, icon, category, tone}) => {
+        {inventories.map(({topic, label, icon, href}) => {
           const sample = samples[topic]
           const count = Array.isArray(sample?.value) ? decimal(sample.value.length, locale) : undefined
-          return <DataCard key={topic} title={t(label)} icon={icon} tone={tone} heading="h3"
-            href={dataHref(category, topic === 'apps-installed' ? 'installed' : undefined)}
+          return <DataCard key={topic} title={t(label)} icon={icon} heading="h3" href={href}
             observedAt={sample?.observedAt} stale={sample && (sample.stale || !connection.online)} metric>
             <MetricValue amount={count} />
           </DataCard>

@@ -7,10 +7,10 @@ export function DataSidebar({selected, close}: {selected: Category; close?: () =
   const {t} = useLanguage()
 
   function item(key: Category) {
-    const {icon: Icon, label, tone} = categories[key]
-    return <NavList.Item key={key} href={dataHref(key)} className={styles.navigationItem}
+    const {icon: Icon, label} = categories[key]
+    return <NavList.Item key={key} href={dataHref(key)}
       aria-current={key === selected ? 'page' : undefined} onClick={close}>
-      <NavList.LeadingVisual><Icon className={styles.icon} data-tone={tone} size={20} aria-hidden="true" /></NavList.LeadingVisual>
+      <NavList.LeadingVisual><Icon /></NavList.LeadingVisual>
       {t(label)}
     </NavList.Item>
   }

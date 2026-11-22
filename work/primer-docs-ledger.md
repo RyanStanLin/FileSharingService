@@ -162,7 +162,14 @@
 ## Data 页
 
 - 采用 overview 模板。参考图为 2266 × 1316 图像像素，导航边界在 x≈560，右侧卡片从 x≈600 开始，同一行两卡宽约 802 图像像素，间距约 22，卡片高约 264。参考图的 DPR、缩放和裁切未知。实现沿用 File System 的 SplitPageLayout，在 176–480 CSS px 内调整侧栏，默认 272 CSS px。内容使用 24 CSS px 内距和 12 CSS px 卡片间距。内容容器小于 42 rem 时改为单列。小于 48 rem 时通过 Primer Dialog 打开同一 NavList，关闭后回到触发按钮。 [SplitPageLayout](https://primer.style/product/components/split-page-layout/) · [NavList](https://primer.style/product/components/nav-list/)
-- 卡片使用安装版 Primer Card 的自定义内容模式、`Card.Link` 和原生焦点反馈。右上角显示时间与前往详情的箭头，卡片下方显示主值和真实采样。二维网格和柱状图使用 CSS Modules 与 SVG。图表按接收顺序展示至多九条采样，最后一条着色，详情可读到数值和时间。 [Primer Card](https://primer.style/product/components/card/) · [Data Visualization](https://primer.style/product/ui-patterns/data-visualization/)
-- 首屏读取 `/status`、独立快照和有效策略，详情覆盖全部 17 个遥测主题及连接状态。应用清单支持搜索、分页和详情。事件按类型筛选，通过最近 30 分钟历史补齐。两条 WebSocket 各自保持在 16 个订阅以内，按序号去重，重连后补齐。推送降级时轮询最新快照与可见历史。现有采样策略保留，已授权连接可以主动请求新样本。 [遥测结构](../docs/telemetry.md) · [WebSocket 协议](../docs/asyncapi.yaml)
+- 概览卡片使用安装版 Primer Card 的自定义内容模式、`Card.Link` 和原生焦点反馈。右上角显示时间与前往详情的箭头，卡片下方显示主值和真实采样。二维网格和柱状图使用 CSS Modules 与 SVG。图表按接收顺序展示至多九条采样，最后一条使用主题默认前景色。详情表格提供数值和时间。 [Primer Card](https://primer.style/product/components/card/) · [Data Visualization](https://primer.style/product/ui-patterns/data-visualization/)
+- 首屏读取 `/status`、独立快照和有效策略，详情覆盖全部 17 个遥测主题及连接状态。应用清单支持搜索、滚动续载和详情。事件按类型筛选，通过最近 30 分钟历史补齐。两条 WebSocket 各自保持在 16 个订阅以内，按序号去重，重连后补齐。推送降级时轮询最新快照与可见历史。现有采样策略保留，已授权连接可以主动请求新样本。 [遥测结构](../docs/telemetry.md) · [WebSocket 协议](../docs/asyncapi.yaml)
 - 隔离 Chromium、ASP.NET Core 和 Mac Agent 0.4.7 的五条 Data 浏览器检查通过，覆盖采样、推送、断线轮询与恢复、设备切换、离线快照、锁定、应用筛选和分页、事件详情、路径恢复和键盘操作。原有 12 条 File System 回归通过。1280 × 950 CSS px 检查两列同宽、12 px 间距及侧栏调整，另检查 768、375、320 CSS px 下的单列和窄屏导航。人工核对标准暗色、亮色和亮色高对比度。参考图尺寸证据只用于布局比例核对。
 - Primer CSS 检查对两份 Data 模块返回空诊断。PostCSS 成功解析全部 11 份 CSS 模块，核对四套主题下 203 处变量引用，以及 88 个手写前端源文件的长度。
+
+### Data 详情表格
+
+- 主参考是当前 File Explorer 的实际 DOM。两处复用 ExplorerHeader、ExplorerTitle、ExplorerFacts、排序表头、CSS Modules、独立滚动区和续载观察器。正常桌面下标题栏高 129 px，表头 28 px，行高 36 px，偶数行使用 `bgColor-muted`。读取视图使用语义表格承载自己的列和内容，标题栏通过 Primer Select 切换数据集，行菜单通过 ActionMenu 打开同样样式的属性表格。
+- Data 的导航和表格使用默认 Octicons 尺寸并继承 Primer 颜色。应用图标使用 Agent 的原生 PNG，在与 File Explorer 相同的 20 px 等比框内显示。仅可见行请求图标，沿用按设备串行的低优先级队列和内存缓存。应用变更通过 Agent 快照推送更新列表，当前过滤和排序由本地状态维护。 [应用图标接口](../docs/api.md#遥测诊断和审计)
+- 与隔离 File Explorer 实测比对标题栏、表头、行高、字体和隔行底色。六条 Data 浏览器运行通过，其中五条覆盖全部读取类型、实时更新、离线恢复、移动端和键盘，另一次专门核对首屏至少 15 个原生 PNG 和同设备单请求并发。12 条 File System 回归通过。
+- Primer CSS 工具对七份变更样式返回空诊断。PostCSS 验证全部 13 份 CSS 模块、四套主题下的 176 处变量引用，以及 96 个手写前端源文件的长度。

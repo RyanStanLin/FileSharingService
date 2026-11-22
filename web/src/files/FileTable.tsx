@@ -1,15 +1,15 @@
-import {Button, Checkbox, Label, Link} from '@primer/react'
-import {SortAscIcon, SortDescIcon} from '@primer/octicons-react'
+import {Checkbox, Label, Link} from '@primer/react'
 import type {Direction} from '../api/files'
 import type {Entry, Location, Share, SortKey} from '../api/types'
 import {useLanguage} from '../i18n'
+import {ExplorerSortHeading} from '../ui/ExplorerSortHeading'
+import styles from '../ui/explorerTable.module.css'
 import type {OpenAction} from './actions'
 import {optionalColumns, valueFor, type ColumnKey} from './columns'
 import {ListEntryIcon} from './EntryIcon'
 import {EntryMenu} from './EntryMenu'
 import {href, locationOf} from './navigation'
 import type {FileSelection} from './useFileSelection'
-import styles from './table.module.css'
 
 interface Props {
   titleId: string
@@ -23,23 +23,6 @@ interface Props {
   onSort: (sort: SortKey, direction: Direction) => void
   onAction: OpenAction
   onDownload: (entries: Entry[]) => void
-}
-
-function SortHeading({field, label, sort, direction, onSort}: {
-  field: SortKey
-  label: string
-} & Pick<Props, 'sort' | 'direction' | 'onSort'>) {
-  const current = field === sort
-  const ascending = direction === 'asc'
-  return (
-    <th scope="col" aria-sort={current ? ascending ? 'ascending' : 'descending' : undefined}>
-      <Button size="small" variant="invisible" block alignContent="start" className={styles.sortButton}
-        trailingVisual={current ? ascending ? SortAscIcon : SortDescIcon : undefined}
-        onClick={() => onSort(field, current && ascending ? 'desc' : 'asc')}>
-        {label}
-      </Button>
-    </th>
-  )
 }
 
 export function FileTable({titleId, device, selection, visible, location, share, sort, direction, onSort,
@@ -66,8 +49,8 @@ export function FileTable({titleId, device, selection, visible, location, share,
               onChange={event => event.target.checked ? selection.selectAll() : selection.clear()} />
           </th>
           <th scope="col" aria-hidden="true" />
-          <SortHeading field="name" label={t('name')} {...sortProps} />
-          {columns.map(column => <SortHeading key={column.key} field={column.key} label={t(column.label)} {...sortProps} />)}
+          <ExplorerSortHeading field="name" label={t('name')} {...sortProps} />
+          {columns.map(column => <ExplorerSortHeading key={column.key} field={column.key} label={t(column.label)} {...sortProps} />)}
           <th scope="col" aria-label={t('filesMenu')} />
         </tr>
       </thead>

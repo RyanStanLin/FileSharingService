@@ -8,7 +8,7 @@ import type {Entry, Share} from '../api/types'
 import {useLanguage} from '../i18n'
 import type {OpenAction} from './actions'
 import {canWriteEntry, canWriteFolder, locationOf, navigate} from './navigation'
-import styles from './table.module.css'
+import styles from './fileMenu.module.css'
 
 interface MenuProps {
   entry: Entry

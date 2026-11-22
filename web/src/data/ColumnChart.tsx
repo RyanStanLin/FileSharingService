@@ -3,7 +3,6 @@ import {useLanguage} from '../i18n'
 import {fullTimestamp, timestamp} from './format'
 import {metricValue, type Reading} from './metrics'
 import styles from './dashboard.module.css'
-import detailStyles from './details.module.css'
 
 export function ColumnChart({title, metric, points}: {title: string; metric: TrendTopic; points: Reading[]}) {
   const {locale, t} = useLanguage()
@@ -35,19 +34,4 @@ export function ColumnChart({title, metric, points}: {title: string; metric: Tre
     </svg>
     <figcaption className={styles.chartTimes}><span>{first === last ? '' : first}</span><span>{last}</span></figcaption>
   </figure>
-}
-
-export function ReadingsTable({title, metric, points}: {title: string; metric: TrendTopic; points: Reading[]}) {
-  const {locale, t} = useLanguage()
-  if (!points.length) return <p className={detailStyles.muted}>{t('dataNoReadings')}</p>
-  return <table className={detailStyles.readings} aria-label={title}>
-    <thead><tr><th scope="col">{t('dataTime')}</th><th scope="col">{t('dataValue')}</th></tr></thead>
-    <tbody>{points.slice(-12).reverse().map(point => {
-      const reading = metricValue(metric, point.value, locale)
-      return <tr key={point.id}>
-        <td><time dateTime={point.time}>{fullTimestamp(point.time, locale)}</time></td>
-        <td>{reading.amount} {reading.unit}</td>
-      </tr>
-    })}</tbody>
-  </table>
 }

@@ -7,7 +7,7 @@ import uiStyles from '../ui/ui.module.css'
 import {homeLocation, parent} from './navigation'
 import {useAutoPage} from './useAutoPage'
 import {useDirectory} from './useDirectory'
-import styles from './workspace.module.css'
+import styles from '../ui/explorer.module.css'
 
 interface Props {
   device: string

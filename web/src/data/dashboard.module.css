@@ -19,13 +19,20 @@
   padding: var(--base-size-16) var(--base-size-12);
 }
 
-.navigation .navigationItem {
-  min-block-size: var(--base-size-40);
-  font-size: var(--text-body-size-large);
+.pane {
+  block-size: 100%;
+  contain: size;
+  overflow: clip;
+}
+
+.mobileNavigation {
+  flex: none;
+  padding: var(--base-size-8) var(--base-size-16);
+  border-block-end: var(--borderWidth-thin) solid var(--borderColor-default);
 }
 
 .scroll {
-  block-size: 100%;
+  flex: 1;
   min-block-size: 0;
   contain: size;
   container-type: inline-size;
@@ -69,28 +76,6 @@
   min-block-size: var(--base-size-128);
 }
 
-:is(.card, .icon)[data-tone='blue'] {
-  --data-ink: var(--fgColor-accent);
-}
-
-:is(.card, .icon)[data-tone='purple'] {
-  --data-ink: var(--fgColor-done);
-}
-
-:is(.card, .icon)[data-tone='orange'] {
-  --data-ink: var(--fgColor-severe);
-}
-
-:is(.card, .icon)[data-tone='green'] {
-  --data-ink: var(--fgColor-success);
-}
-
-.icon,
-.cardTitle {
-  color: var(--data-ink);
-}
-
-.icon,
 .cardMeta {
   flex: none;
 }
@@ -171,9 +156,13 @@
 }
 
 .latestBar {
-  fill: var(--data-ink);
+  fill: var(--fgColor-default);
 }
 
 .feedback {
   color: var(--fgColor-success);
+}
+
+.readingNotice {
+  flex: none;
 }

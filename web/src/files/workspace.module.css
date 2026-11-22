@@ -3,12 +3,8 @@
   min-block-size: 0;
 }
 
-.content,
-.titleArea {
-  min-inline-size: 0;
-}
-
 .content {
+  min-inline-size: 0;
   min-block-size: 0;
 }
 
@@ -18,86 +14,14 @@
   overflow: clip;
 }
 
-.folderHeader,
-.fileHeader {
-  box-sizing: border-box;
-  flex: none;
-  min-block-size: var(--filesharing-folder-header-height);
-  border-block-end: var(--borderWidth-thin) solid var(--borderColor-default);
-}
-
-.title {
-  font: var(--text-title-shorthand-medium);
-  line-height: var(--base-size-32);
-  overflow-wrap: anywhere;
-}
-
-.caption {
-  color: var(--fgColor-muted);
-  font: var(--text-body-shorthand-small);
-}
-
-.metadata {
-  margin: 0;
-}
-
-.fact {
-  display: grid;
-  min-inline-size: 0;
-}
-
-.fact dt {
-  grid-row: 2;
-  color: var(--fgColor-muted);
-  font: var(--text-caption-shorthand);
-}
-
-.fact dd {
-  grid-row: 1;
-  margin: 0;
-  overflow-wrap: anywhere;
-  font: var(--text-body-shorthand-medium);
-  line-height: var(--base-size-20);
-  font-weight: var(--base-text-weight-semibold);
-}
-
-.folderArea,
-.explorer {
+.folderArea {
   flex: 1;
   min-block-size: 0;
 }
 
-.explorer {
-  overflow: auto;
-  overscroll-behavior: contain;
-}
-
-.pageEnd {
-  display: block;
-  flex: none;
-  block-size: var(--borderWidth-thin);
-}
-
-.tableScroll {
-  flex: none;
-  overflow-x: auto;
-  overscroll-behavior-x: contain;
-}
-
-.tableScroll:focus-visible {
-  outline: var(--focus-outline);
-  outline-offset: var(--focus-outline-offset);
-}
-
-.emptyFolder,
 .pageAction {
   margin: 0;
   padding: var(--base-size-16);
-}
-
-.emptyFolder {
-  color: var(--fgColor-muted);
-  text-align: center;
 }
 
 .pathBar {

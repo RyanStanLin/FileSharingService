@@ -1,82 +1,71 @@
 import {useMemo, useState} from 'react'
-import {Button, FormControl, Link, Select, Stack, TextInput} from '@primer/react'
-import {AppsIcon, PackageIcon} from '@primer/octicons-react'
+import {Link, Select, TextInput} from '@primer/react'
 import {appIconUrl, type DataObject} from '../api/telemetry'
 import {useLanguage} from '../i18n'
-import {DataCard} from './DataCard'
-import {RecordDialog, RecordPager, useRecordPage} from './RecordList'
+import {ApplicationIcon} from './ApplicationIcon'
+import {ReadingPane, type ReadingChrome} from './ReadingPane'
 import {dataHref} from './categories'
-import {decimal, records, textValue} from './format'
+import {records, textValue} from './format'
+import {cell, fieldColumns, valueCell, type ReadingRow} from './readingModel'
 import type {TelemetryView} from './useTelemetry'
-import styles from './details.module.css'
+
+const installedFields = ['version', 'bundleId', 'build', 'installPath']
+const runningFields = ['version', 'pid', 'state', 'launchedAt', 'uptimeSeconds', 'bundleId']
 
 function appKey(item: DataObject) {
-  return [item.applicationId, item.pid, item.installPath, item.name].join(':')
+  return JSON.stringify([item.applicationId ?? item.installPath ?? item.name, item.pid, item.launchedAt])
 }
 
-export function ApplicationInventory({telemetry, deviceId, installed}: {telemetry: TelemetryView; deviceId: string; installed: boolean}) {
+function appName(item: DataObject) {
+  const packageName = textValue(item.installPath)?.split('/').filter(Boolean).at(-1)?.replace(/\.app$/i, '')
+  return textValue(item.name)?.trim() || packageName || textValue(item.bundleId)
+}
+
+export function ApplicationInventory({telemetry, deviceId, installed, chrome}: {
+  telemetry: TelemetryView
+  deviceId: string
+  installed: boolean
+  chrome: ReadingChrome
+}) {
   const {t, locale} = useLanguage()
-  const topic = installed ? 'apps-installed' : 'apps-running'
   const [search, setSearch] = useState('')
-  const [selected, setSelected] = useState<DataObject>()
+  const topic = installed ? 'apps-installed' : 'apps-running'
+  const fields = installed ? installedFields : runningFields
   const sample = telemetry.samples[topic]
-  const items = useMemo(() => {
+  const {online, accessGranted, connectionId} = telemetry.connection
+  const iconConnection = online && accessGranted ? connectionId ?? undefined : undefined
+  const rows = useMemo(() => {
     const query = search.trim().toLocaleLowerCase(locale)
     return records(sample?.value).filter(app =>
-      [app.name, app.bundleId, app.pid, app.version, app.installPath].some(field =>
-        String(field ?? '').toLocaleLowerCase(locale).includes(query)))
-  }, [sample?.value, search, locale])
-  const pager = useRecordPage(items)
-  const active = selected && (items.find(item => appKey(item) === appKey(selected)) ?? selected)
-  const applicationId = textValue(active?.applicationId)
-  const iconUrl = applicationId && telemetry.connection.online && telemetry.connection.accessGranted
-    ? appIconUrl(deviceId, applicationId) : undefined
+      [appName(app), app.bundleId, app.pid, app.version, app.installPath].some(field =>
+        String(field ?? '').toLocaleLowerCase(locale).includes(query))).map((app): ReadingRow => {
+      const values = Object.fromEntries(fields.map(field => [field, valueCell(field, app[field], locale, t)]))
+      if (!installed) {
+        const state = app.hidden === true ? t('dataHiddenApp') : app.foreground === true ? t('dataForeground') : t('dataBackground')
+        values.state = cell(state, state, true)
+      }
+      return {id: appKey(app), name: cell(appName(app) ?? t('missing')), values, value: app,
+        icon: <ApplicationIcon device={deviceId} app={app} connectionId={iconConnection} />}
+    })
+  }, [deviceId, fields, iconConnection, installed, locale, sample?.value, search, t])
 
-  return <DataCard title={t('dataAppInventory')} tone="blue" icon={AppsIcon}
-    observedAt={sample?.observedAt} stale={sample && (sample.stale || !telemetry.connection.online)}>
-    <Stack gap="normal">
-      <Stack direction="horizontal" align="end" wrap="wrap" gap="normal">
-        <FormControl>
-          <FormControl.Label>{t('dataInventoryType')}</FormControl.Label>
-          <Select size="medium" value={topic} onChange={event => {
-            window.location.hash = dataHref('applications', event.target.value === 'apps-installed' ? 'installed' : undefined)
-            pager.setPage(1)
-          }}>
-            <Select.Option value="apps-running">{t('dataRunning')}</Select.Option>
-            <Select.Option value="apps-installed">{t('dataInstalled')}</Select.Option>
-          </Select>
-        </FormControl>
-        <Stack.Item grow>
-          <FormControl>
-            <FormControl.Label>{t('dataFilterApps')}</FormControl.Label>
-            <TextInput type="search" size="medium" block value={search} onChange={event => {
-              setSearch(event.target.value)
-              pager.setPage(1)
-            }} />
-          </FormControl>
-        </Stack.Item>
-      </Stack>
-      {sample && <span className={styles.muted}>{t(items.length === 1 ? 'dataResultOne' : 'dataResultCount',
-        {count: decimal(items.length, locale)})}</span>}
-      {pager.rows.length ? <ul className={styles.records}>
-        {pager.rows.map(item => <li key={appKey(item)}>
-          <Stack direction="horizontal" align="center" justify="space-between" gap="condensed" wrap="wrap">
-            <Stack className={styles.recordInfo} gap="none">
-              <Button variant="invisible" size="medium" leadingVisual={PackageIcon} className={styles.recordButton}
-                onClick={() => setSelected(item)}>{textValue(item.name) ?? t('missing')}</Button>
-              {item.bundleId && <span className={styles.muted}>{textValue(item.bundleId)}</span>}
-            </Stack>
-            <span className={styles.recordMeta}>
-              {[item.version, topic === 'apps-running' && t(item.foreground === true ? 'dataForeground' : 'dataBackground')]
-                .filter(Boolean).join(' · ')}
-            </span>
-          </Stack>
-        </li>)}
-      </ul> : <p className={styles.muted}>{t(!sample ? 'dataNoSample' : search.trim() ? 'dataNoAppMatches' : 'dataNoApps')}</p>}
-      <RecordPager {...pager} />
-    </Stack>
-    {active && <RecordDialog title={textValue(active.name) ?? t('dataApps')} value={active} close={() => setSelected(undefined)}>
-      {iconUrl && <Link href={iconUrl} target="_blank" rel="noopener noreferrer">{t('dataIcon')}</Link>}
-    </RecordDialog>}
-  </DataCard>
+  return <ReadingPane chrome={chrome} filter={search} dataset={{
+    key: topic, title: t('dataApps'), nameTitle: t('name'), columns: fieldColumns(fields, locale),
+    rows, snapshot: sample, icons: true, details: true,
+    empty: t(!sample ? 'dataNoSample' : search.trim() ? 'dataNoAppMatches' : 'dataNoApps'),
+    pending: !sample && telemetry.stream === 'connecting',
+  }} controls={<>
+    <Select size="medium" aria-label={t('dataInventoryType')} value={topic} onChange={event => {
+      window.location.hash = dataHref('applications', {inventory: event.target.value === 'apps-installed' ? 'installed' : undefined})
+    }}>
+      <Select.Option value="apps-running">{t('dataRunning')}</Select.Option>
+      <Select.Option value="apps-installed">{t('dataInstalled')}</Select.Option>
+    </Select>
+    <TextInput type="search" size="medium" aria-label={t('dataFilterApps')} placeholder={t('dataFilterApps')}
+      value={search} onChange={event => setSearch(event.target.value)} />
+  </>} rowAction={row => {
+    const id = textValue(row.value?.applicationId)
+    return id && textValue(row.value?.installPath) && iconConnection ? <Link href={appIconUrl(deviceId, id)} target="_blank"
+      rel="noopener noreferrer">{t('dataIcon')}</Link> : null
+  }} />
 }

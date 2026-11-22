@@ -5,33 +5,33 @@ import {
 import type {Message} from '../i18n'
 
 export const categories = {
-  overview: {label: 'dataOverview', icon: GraphIcon, tone: 'blue'},
-  device: {label: 'dataDevice', icon: DeviceDesktopIcon, tone: 'purple'},
-  performance: {label: 'dataPerformance', icon: CpuIcon, tone: 'orange'},
-  power: {label: 'dataPower', icon: PlugIcon, tone: 'green'},
-  network: {label: 'dataNetwork', icon: GlobeIcon, tone: 'blue'},
-  storage: {label: 'dataStorage', icon: DatabaseIcon, tone: 'purple'},
-  applications: {label: 'dataApps', icon: AppsIcon, tone: 'blue'},
-  permissions: {label: 'dataPermissions', icon: ShieldIcon, tone: 'green'},
-  events: {label: 'dataEvents', icon: HistoryIcon, tone: 'orange'},
+  overview: {label: 'dataOverview', icon: GraphIcon},
+  device: {label: 'dataDevice', icon: DeviceDesktopIcon},
+  performance: {label: 'dataPerformance', icon: CpuIcon},
+  power: {label: 'dataPower', icon: PlugIcon},
+  network: {label: 'dataNetwork', icon: GlobeIcon},
+  storage: {label: 'dataStorage', icon: DatabaseIcon},
+  applications: {label: 'dataApps', icon: AppsIcon},
+  permissions: {label: 'dataPermissions', icon: ShieldIcon},
+  events: {label: 'dataEvents', icon: HistoryIcon},
 } as const
 
 export type Category = keyof typeof categories
-export type Tone = typeof categories[Category]['tone']
 export const categoryKeys = Object.keys(categories) as Category[]
 
 export const metricCategories = {
-  cpu: {label: 'dataCpu', icon: CpuIcon, category: 'performance', tone: 'orange'},
-  memory: {label: 'dataMemory', icon: MeterIcon, category: 'performance', tone: 'purple'},
-  disk: {label: 'dataDisk', icon: DatabaseIcon, category: 'storage', tone: 'blue'},
-  battery: {label: 'dataBattery', icon: PlugIcon, category: 'power', tone: 'green'},
-  'connection.quality': {label: 'dataLatency', icon: PulseIcon, category: 'network', tone: 'blue'},
-} as const satisfies Record<string, {label: Message; icon: Icon; category: Category; tone: Tone}>
+  cpu: {label: 'dataCpu', icon: CpuIcon, category: 'performance'},
+  memory: {label: 'dataMemory', icon: MeterIcon, category: 'performance'},
+  disk: {label: 'dataDisk', icon: DatabaseIcon, category: 'storage'},
+  battery: {label: 'dataBattery', icon: PlugIcon, category: 'power'},
+  'connection.quality': {label: 'dataLatency', icon: PulseIcon, category: 'network'},
+} as const satisfies Record<string, {label: Message; icon: Icon; category: Category}>
 
-export function dataHref(category: Category = 'overview', inventory?: 'installed') {
+export function dataHref(category: Category = 'overview', options?: {view?: string; inventory?: 'installed'}) {
   if (category === 'overview') return '#data'
   const parameters = new URLSearchParams({section: category})
-  if (inventory) parameters.set('inventory', inventory)
+  if (options?.inventory) parameters.set('inventory', options.inventory)
+  if (options?.view) parameters.set('view', options.view)
   return '#data?' + parameters
 }
 

@@ -4,14 +4,12 @@ import {Card} from '@primer/react/experimental'
 import {ChevronRightIcon, type Icon} from '@primer/octicons-react'
 import type {Snapshot} from '../api/telemetry'
 import {useLanguage} from '../i18n'
-import type {Tone} from './categories'
 import {fullTimestamp, timestamp} from './format'
 import styles from './dashboard.module.css'
 
 interface CardProps {
   title: string
   icon: Icon
-  tone: Tone
   observedAt?: Snapshot['observedAt']
   stale?: boolean
   href?: string
@@ -20,19 +18,19 @@ interface CardProps {
   heading?: 'h2' | 'h3'
 }
 
-export function DataCard({title, icon: Icon, tone, observedAt, stale, href, metric, heading = 'h2', children}: CardProps) {
+export function DataCard({title, icon: Icon, observedAt, stale, href, metric, heading = 'h2', children}: CardProps) {
   const id = useId()
   const {locale, t} = useLanguage()
   const time = timestamp(observedAt, locale)
   const label = <Stack direction="horizontal" align="center" gap="condensed">
-    <Icon size={16} aria-hidden="true" className={styles.icon} />
+    <Icon />
     <span>{title}</span>
   </Stack>
 
   return <Card as="section" shadow={false} padding="regular" aria-labelledby={id}
-    className={metric ? `${styles.card} ${styles.metricCard}` : styles.card} data-tone={tone}>
+    className={metric ? `${styles.card} ${styles.metricCard}` : styles.card}>
     <Stack gap="normal" justify={metric ? 'space-between' : 'start'}>
-      <Stack direction="horizontal" align="start" justify="space-between" gap="condensed" className={styles.cardHeader}>
+      <Stack direction="horizontal" align="start" justify="space-between" gap="condensed">
         <Heading as={heading} id={id} className={styles.cardTitle}>
           {href ? <Card.Link href={href} fullCardHitArea>{label}</Card.Link> : label}
         </Heading>

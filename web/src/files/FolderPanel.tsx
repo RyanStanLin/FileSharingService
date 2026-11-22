@@ -5,6 +5,7 @@ import type {Device, Entry, Location, Share} from '../api/types'
 import {useLanguage} from '../i18n'
 import {ErrorText, Loading, Retry} from '../ui/Feedback'
 import {useResource} from '../ui/async'
+import explorerStyles from '../ui/explorer.module.css'
 import type {DownloadSelection, OpenAction} from './actions'
 import {ContextEntryMenu, type EntryContext} from './EntryMenu'
 import {FileTable} from './FileTable'
@@ -89,7 +90,7 @@ export function FolderPanel({device, share, location, explorer, rootEntry, rootP
       }}>
         <SelectionBar count={dragCount ?? selection.count} busy={downloadBusy}
           onDownloadSelected={() => onDownload(selection.downloadEntries)} onDownloadFolder={() => onDownload([])} />
-        <Stack ref={scrollRoot} gap="none" className={styles.explorer} aria-busy={view.pending || view.loadingMore} tabIndex={-1}
+        <Stack ref={scrollRoot} gap="none" className={explorerStyles.body} aria-busy={view.pending || view.loadingMore} tabIndex={-1}
           {...input} onPointerDown={onPointerDown} onClickCapture={onClickCapture}
           onContextMenu={onContextMenu} onKeyDown={onExplorerKeyDown}
           onDragStart={(event: DragEvent<HTMLElement>) => {
@@ -99,7 +100,7 @@ export function FolderPanel({device, share, location, explorer, rootEntry, rootP
             ? <Retry error={view.error} refresh={view.refresh} />
             : <Loading message="loadingFolder" />)}
           {view.page && <>
-            <div className={styles.tableScroll} tabIndex={0} role="region" aria-label={t('files')} aria-keyshortcuts="Meta+A">
+            <div className={explorerStyles.tableScroll} tabIndex={0} role="region" aria-label={t('files')} aria-keyshortcuts="Meta+A">
               <FileTable titleId={id} location={location} share={share} device={device.id}
                 selection={selection} visible={visible} sort={sort} direction={direction}
                 onSort={(field, order) => {
@@ -107,13 +108,13 @@ export function FolderPanel({device, share, location, explorer, rootEntry, rootP
                   changeSort(field, order)
                 }} onAction={onAction} onDownload={onDownload} />
             </div>
-            {view.entries.length === 0 && <p className={styles.emptyFolder}>{t('emptyFolder')}</p>}
+            {view.entries.length === 0 && <p className={explorerStyles.empty}>{t('emptyFolder')}</p>}
             {view.loadingMore && <Loading message="loadingFolder" />}
             {refreshError != null && <Stack gap="condensed" padding="normal" align="center">
               <ErrorText error={refreshError} />
               <Button size="medium" onClick={view.moreError != null ? () => void view.next() : view.refresh}>{t('retry')}</Button>
             </Stack>}
-            {view.page.nextOffset !== null && <span className={styles.pageEnd} ref={tail} aria-hidden="true" />}
+            {view.page.nextOffset !== null && <span className={explorerStyles.pageEnd} ref={tail} aria-hidden="true" />}
           </>}
         </Stack>
       </Stack>

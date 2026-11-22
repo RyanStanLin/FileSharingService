@@ -1,35 +1,16 @@
-import {Heading, Spinner, Stack} from '@primer/react'
-import {useMemo, type ReactNode} from 'react'
+import {Spinner, Stack} from '@primer/react'
+import {useMemo} from 'react'
 import type {Entry} from '../api/types'
 import {useLanguage, type Message} from '../i18n'
 import {bytes, date, entryKind, number} from '../i18n/format'
+import {ExplorerFacts, ExplorerTitle} from '../ui/ExplorerHeader'
+import styles from '../ui/explorer.module.css'
 import {EntryIcon} from './EntryIcon'
 import iconStyles from './entryIcon.module.css'
-import styles from './workspace.module.css'
 
 export function FileTitle({id, title, detail, entry, thumbnail}: {id?: string; title: string; detail?: string; entry?: Entry; thumbnail?: string}) {
-  return (
-    <Stack direction="horizontal" align="center" gap="normal">
-      {entry && <span className={iconStyles.thumbnail}><EntryIcon entry={entry} url={thumbnail} detail /></span>}
-      <Stack.Item grow className={styles.titleArea}>
-        <Heading as="h1" id={id} className={styles.title}>{title}</Heading>
-        {detail && <div className={styles.caption}>{detail}</div>}
-      </Stack.Item>
-    </Stack>
-  )
-}
-
-function Facts({items, title}: {items: [Message, ReactNode][]; title?: string}) {
-  const {t} = useLanguage()
-  return (
-    <Stack as="dl" direction="horizontal" wrap="wrap" gap="normal" className={styles.metadata} title={title}>
-      {items.map(([label, value]) => (
-        <div key={label} className={styles.fact}>
-          <dt>{t(label)}</dt><dd>{value}</dd>
-        </div>
-      ))}
-    </Stack>
-  )
+  return <ExplorerTitle id={id} title={title} detail={detail}
+    visual={entry && <span className={iconStyles.thumbnail}><EntryIcon entry={entry} url={thumbnail} detail /></span>} />
 }
 
 export function FolderOverview({entry, entries, complete, pending}: {
@@ -49,7 +30,7 @@ export function FolderOverview({entry, entries, complete, pending}: {
     }
     return {size, folders, files: entries.length - folders}
   }, [complete, entries])
-  return <Facts title={t('visibleTotals')} items={[
+  return <ExplorerFacts title={t('visibleTotals')} items={[
     ['modified', entry ? date(entry.modifiedAt, locale) : pending ? <Spinner size="small" srText={t('loadingFolder')} /> : t('missing')],
     ['size', totals ? bytes(totals.size, locale) : t('missing')],
     ['filesCount', totals ? number(totals.files, locale) : t('missing')],
@@ -83,7 +64,7 @@ export function Metadata({entry, all = false}: {entry?: Entry; all?: boolean}) {
   }
   return (
     <Stack gap="tight">
-      <Facts items={facts} />
+      <ExplorerFacts items={facts} />
       {summary?.complete === false && <div className={styles.caption}>{t('summaryPartial')}</div>}
     </Stack>
   )

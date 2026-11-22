@@ -1,0 +1,15 @@
+.entryMenu {
+  max-inline-size: var(--filesharing-row-menu-width);
+}
+
+.contextAnchor {
+  --menu-x: 0px;
+  --menu-y: 0px;
+  position: fixed;
+  top: var(--menu-y);
+  left: var(--menu-x);
+  inline-size: var(--borderWidth-thin);
+  block-size: var(--borderWidth-thin);
+  overflow: hidden;
+  pointer-events: none;
+}

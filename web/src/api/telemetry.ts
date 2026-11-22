@@ -1,4 +1,4 @@
-import {ApiError, apiPrefix, query, request, send, wait} from './client'
+import {ApiError, apiPrefix, query, request, response, send, wait} from './client'
 import {deviceRoute} from './devices'
 import type {Connection} from './types'
 
@@ -96,8 +96,16 @@ export function samplingPolicy(deviceId: string, signal: AbortSignal) {
   return request<DataObject>(deviceRoute(deviceId) + '/policy', {signal})
 }
 
+function appIconPath(deviceId: string, applicationId: string) {
+  return query(deviceRoute(deviceId) + '/apps/icon', {applicationId})
+}
+
 export function appIconUrl(deviceId: string, applicationId: string) {
-  return apiPrefix + query(deviceRoute(deviceId) + '/apps/icon', {applicationId})
+  return apiPrefix + appIconPath(deviceId, applicationId)
+}
+
+export async function appIcon(deviceId: string, applicationId: string, signal: AbortSignal) {
+  return (await response(appIconPath(deviceId, applicationId), {signal})).blob()
 }
 
 export function readHistoryPage(deviceId: string, topic: HistoryTopic, from: string, signal: AbortSignal, after?: string) {

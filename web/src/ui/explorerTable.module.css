@@ -83,25 +83,29 @@
   font-weight: var(--base-text-weight-semibold);
 }
 
-.entryMenu {
-  max-inline-size: var(--filesharing-row-menu-width);
-}
-
-.contextAnchor {
-  --menu-x: 0px;
-  --menu-y: 0px;
-  position: fixed;
-  top: var(--menu-y);
-  left: var(--menu-x);
-  inline-size: var(--borderWidth-thin);
-  block-size: var(--borderWidth-thin);
-  overflow: hidden;
-  pointer-events: none;
-}
-
 .table .entryName {
   color: var(--fgColor-default);
   font-weight: var(--base-text-weight-semibold);
+}
+
+.rowLink {
+  max-inline-size: 100%;
+  font-family: inherit;
+  line-height: inherit;
+  text-align: start;
+}
+
+.table .plainHeading {
+  padding-inline: var(--base-size-8);
+}
+
+.table.dialogTable {
+  min-inline-size: 0;
+}
+
+.dialogTable :is(.entryName, .cell) {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .entryName,

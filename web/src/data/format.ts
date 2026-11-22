@@ -66,7 +66,7 @@ export function displayField(name: string, value: OptionalValue, locale: Locale,
   if (typeof value === 'string') {
     if (name.endsWith('At')) return fullTimestamp(value, locale)
     if (name === 'protocol') return value.toUpperCase()
-    return ['kind', 'state', 'status', 'lockState', 'lockStateQuality', 'sleepState', 'reachability',
+    return ['kind', 'state', 'status', 'phase', 'lockState', 'lockStateQuality', 'sleepState', 'reachability',
       'health', 'displayAndLockPolicy'].includes(name) ? codeLabel(value, locale) : value || t('missing')
   }
   return t('missing')

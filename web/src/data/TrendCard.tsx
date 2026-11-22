@@ -1,22 +1,20 @@
-import {Heading, Stack} from '@primer/react'
+import {Stack} from '@primer/react'
 import type {History, TrendTopic} from '../api/telemetry'
 import {useLanguage} from '../i18n'
 import {DataCard, MetricValue} from './DataCard'
-import {ColumnChart, ReadingsTable} from './ColumnChart'
-import {DataFacts} from './DataFacts'
+import {ColumnChart} from './ColumnChart'
 import {dataHref, metricCategories} from './categories'
 import {displayField, numeric, object} from './format'
 import {metricNumber, metricValue, readings, startupVolume} from './metrics'
 import type {TelemetryView} from './useTelemetry'
 
-export function TrendCard({metric, telemetry, history, detail}: {
+export function TrendCard({metric, telemetry, history}: {
   metric: TrendTopic
   telemetry: TelemetryView
   history: History
-  detail?: boolean
 }) {
   const {t, locale} = useLanguage()
-  const {category, icon, label, tone} = metricCategories[metric]
+  const {category, icon, label} = metricCategories[metric]
   const connection = telemetry.connection
   const sample = metric === 'connection.quality' ? undefined : telemetry.samples[metric]
   const value = metric === 'connection.quality'
@@ -42,17 +40,12 @@ export function TrendCard({metric, telemetry, history, detail}: {
     object(telemetry.policy.data?.settings)?.[metric] === 0
   if (onDemand && !description) description = t('dataOnDemand')
 
-  return <DataCard title={title} icon={icon} tone={tone} href={detail ? undefined : dataHref(category)}
+  return <DataCard title={title} icon={icon} href={dataHref(category, {view: metric + '-readings'})}
     observedAt={metric === 'connection.quality' ? connection.lastCommunicationAt : sample?.observedAt}
-    stale={sample && (sample.stale || !connection.online)} metric={!detail} heading={detail ? 'h2' : 'h3'}>
+    stale={sample && (sample.stale || !connection.online)} metric heading="h3">
     <Stack direction="horizontal" align="end" justify="space-between" gap="condensed">
       <MetricValue {...current} description={description} />
       <ColumnChart metric={metric} title={title} points={points} />
     </Stack>
-    {detail && <Stack gap="condensed">
-      {sample && (metric === 'memory' || metric === 'battery') && <DataFacts value={object(sample.value)} />}
-      <Heading as="h3">{t('dataRecentReadings')}</Heading>
-      <ReadingsTable title={title} metric={metric} points={points} />
-    </Stack>}
   </DataCard>
 }

@@ -4,11 +4,11 @@ import {ChevronDownIcon, DesktopDownloadIcon} from '@primer/octicons-react'
 import type {Device, Location, Share} from '../api/types'
 import {useLanguage} from '../i18n'
 import {number} from '../i18n/format'
+import {ExplorerHeader} from '../ui/ExplorerHeader'
 import type {OpenAction} from './actions'
 import {optionalColumns, type ColumnKey} from './columns'
 import {FileTitle} from './Metadata'
 import {basename, canWriteFolder} from './navigation'
-import styles from './workspace.module.css'
 import selection from './selection.module.css'
 
 export function FolderHeader({device, location, titleId, share, overview, open, visible, setVisible}: {
@@ -25,13 +25,9 @@ export function FolderHeader({device, location, titleId, share, overview, open, 
   const label = location.path ? basename(location.path) : share.primary ? t('userFolder') : share.label
   const writable = canWriteFolder(share, location.path)
   return (
-    <Stack direction="horizontal" align="end" justify="space-between" wrap="wrap" gap="condensed" padding="normal"
-      className={styles.folderHeader}>
-      <Stack gap="condensed" className={styles.titleArea}>
-        <FileTitle id={titleId} title={label} detail={t('folderOn', {device: device.name})} />
-        {overview}
-      </Stack>
-      <Stack direction="horizontal" align="center" wrap="wrap" gap="condensed">
+    <ExplorerHeader title={<FileTitle id={titleId} title={label} detail={t('folderOn', {device: device.name})} />}
+      facts={overview}
+      actions={<Stack direction="horizontal" align="center" wrap="wrap" gap="condensed">
         <ButtonGroup>
           <Button size="medium" disabled={!writable} onClick={() => open({kind: 'upload'})}>{t('addFile')}</Button>
           <Button size="medium" disabled={!writable} onClick={() => open({kind: 'mkdir'})}>{t('newFolder')}</Button>
@@ -49,8 +45,7 @@ export function FolderHeader({device, location, titleId, share, overview, open, 
             </ActionList>
           </ActionMenu.Overlay>
         </ActionMenu>
-      </Stack>
-    </Stack>
+      </Stack>} />
   )
 }
 
