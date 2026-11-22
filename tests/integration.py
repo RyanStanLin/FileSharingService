@@ -15,6 +15,7 @@ import secrets
 import sqlite3
 import socket
 import ssl
+import stat
 import struct
 import subprocess
 import tempfile
@@ -1460,6 +1461,90 @@ precondition(board.setString("ISOLATED_CLIPBOARD_CONTENT", forType: .string))
         self.assertEqual(reply.json()["code"], "invalid_clipboard_event")
         self.assertEqual(self.api("GET", API + "/events",
                                   params={"deviceId": registered["deviceId"], "topic": "clipboard.changed"}).json()["items"], [])
+
+    def test_folder_permission_enables_scoped_writes_and_library_reads(self):
+        for folder in ("Downloads", "Documents", "Library/Preferences", "Library/Keychains",
+                       "Library/Application Support/FileSharingServiceDemo"):
+            (self.home / folder).mkdir(parents=True)
+        os.chflags(self.home / "Library", stat.UF_HIDDEN)
+        library_file = "Library/Preferences/fixture.txt"
+        (self.home / library_file).write_bytes(b"Library fixture")
+        self.setup_device()
+        self.api("POST", self.files_api + "/directories", 403,
+                 json={"rootId": self.root_id, "path": "Library/blocked"})
+
+        def restart_agent():
+            previous = self.api("GET", self.device_api).json()["connection"]
+            self.stop(self.agent)
+            if previous["protocol"] == "https":
+                # A terminated polling client leaves its lease until it expires.
+                self.stop(self.server)
+                self.start_server(polling=True)
+            self.agent = self.spawn([str(APP), "run"], "agent.log", self.env)
+
+            def reconnected():
+                link = self.api("GET", self.device_api).json()["connection"]
+                return link if link["online"] and link["connectionId"] != previous["connectionId"] else None
+
+            self.set_access(self.wait(reconnected)["connectionId"], True)
+
+        grants = self.device_api + "/file-roots"
+        root = self.api("GET", grants + "/" + self.root_id).json()
+        self.api("PUT", grants + "/" + self.root_id, json={"rootKey": root["rootKey"], "label": root["label"],
+                 "writable": False, "enabled": True, "revision": root["revision"]})
+        self.stop(self.agent)
+        enrollment = self.agent_state / "enrollment.json"
+        state = json.loads(enrollment.read_text())
+        state["roots"][0]["writable"] = False
+        enrollment.write_text(json.dumps(state))
+        restart_agent()
+        self.wait(lambda: any(root["primary"] and not root["writable"]
+                              for root in self.api("GET", grants + "/local").json()))
+
+        def mkdir(path, expected=201):
+            return self.api("POST", self.files_api + "/directories", expected, json={"rootId": self.root_id, "path": path})
+
+        self.assertEqual(mkdir("Downloads/fixture", 403).json()["code"], "root_access_denied")
+        self.assertIn("Library", [entry["name"] for entry in self.api("GET", self.files_api + "/entries",
+                      params=self.params()).json()["items"]])
+        self.entry("Library/Keychains", 403)
+        self.entry("Library/Application Support/FileSharingServiceDemo", 403)
+        source = self.transfer("download", library_file)
+        self.assertEqual(self.api("GET", source["downloadUrl"]).content, b"Library fixture")
+
+        job = self.api("POST", self.device_api + "/permissions/requests", 202, json={"kind": "downloads"}).json()
+        permission = self.finished_job(job)["result"]["result"]
+        self.assertEqual((permission["state"], permission["writable"]), ("allowed", True))
+        mkdir("Downloads/fixture")
+        mkdir("downloads/other-spelling", 403)
+        mkdir("Documents/blocked", 403)
+        mkdir("Library/blocked", 403)
+        payload = b"Uploaded after one folder permission request"
+        upload = self.transfer("upload", "Downloads/source.txt", length=len(payload))
+        route = API + "/transfers/" + upload["id"]
+        self.api("PUT", route + "/content", 204, data=payload,
+                 headers={"Upload-Offset": "0", "Content-Type": "application/octet-stream"})
+        written = self.api("POST", route + "/commit").json()
+        renamed = self.api("POST", self.files_api + "/renames", json={"rootId": self.root_id, "path": written["path"],
+                           "newName": "renamed.txt", "version": written["version"]}).json()
+        move = {"rootId": self.root_id, "path": renamed["path"], "version": renamed["version"]}
+        for denied in ("Library/renamed.txt", "Documents/renamed.txt", "renamed.txt"):
+            self.api("POST", self.files_api + "/moves", 403, json=move | {"destination": denied})
+        self.api("POST", self.files_api + "/moves", json=move | {"destination": "Downloads/fixture/renamed.txt"})
+        self.assertEqual((self.home / "Downloads/fixture/renamed.txt").read_bytes(), payload)
+        self.assertFalse(self.api("GET", grants + "/" + self.root_id).json()["writable"])
+        self.stop(self.agent)
+        with closing(sqlite3.connect(self.work / "db" / "filesharing.db")) as data, data:
+            snapshot = json.loads(data.execute("SELECT Payload FROM Snapshots WHERE DeviceId=? AND Topic='permissions'",
+                                               (self.device,)).fetchone()[0])
+            snapshot["documents"].update(state="allowed", phase="completed", checkedAt=permission["checkedAt"])
+            data.execute("UPDATE Snapshots SET Payload=? WHERE DeviceId=? AND Topic='permissions'",
+                         (json.dumps(snapshot), self.device))
+        restart_agent()
+        self.wait(lambda: self.api("GET", self.device_api + "/permissions").json()["value"]["documents"].get("writable") is True)
+        mkdir("Downloads/fixture/after-restart")
+        mkdir("Documents/after-upgrade")
+        mkdir("Library/still-read-only", 403)
 
     def test_permissions_per_device_policy_and_history(self):
         self.setup_device()

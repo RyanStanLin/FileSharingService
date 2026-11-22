@@ -137,8 +137,10 @@ Root 为 `{id,deviceId,rootKey,label,writable,enabled,revision}`。TCC 管理包
 剪贴板请求返回系统报告的应用级设置。`requiresSystemSettings` 对应「每次询问」，单次系统许可后也可能保持这个状态。`allowed` 对应「始终允许」，`denied` 对应「始终拒绝」，`notDetermined` 表示系统尚未建立应用权限条目。剪贴板权限探测回报中只有权限状态和时间。 [Apple 剪贴板权限说明](https://developer.apple.com/documentation/appkit/nspasteboard/accessbehavior-swift.enum)
 
 ```json
-{"topic":"permissions","observedAt":"2026-11-19T08:22:00Z","stale":false,"value":{"documents":{"state":"allowed","phase":"completed","checkedAt":"2026-11-19T08:22:00Z","systemSettingsPane":"Privacy_FilesAndFolders"}}}
+{"topic":"permissions","observedAt":"2026-11-19T08:22:00Z","stale":false,"value":{"documents":{"state":"allowed","phase":"completed","writable":true,"checkedAt":"2026-11-19T08:22:00Z","systemSettingsPane":"Privacy_FilesAndFolders"}}}
 ```
+
+Agent 0.4.7 起，`downloads`、`documents` 和 `desktop` 的权限申请同时检查目录写入能力。`phase:"completed"`、`state:"allowed"`、`writable:true` 生效后，已授权连接可在共享 HOME 的对应目录下新建、上传、改名和移动。移动会检查源路径及目标路径。共享 HOME 中的 `Library` 只读，访问仍取决于目标 Mac 的系统权限。旧版结果可能省略 `writable`。新版 Agent 在接入时重新检查已经获准的目录，确认可写后自动生效。
 
 ## 文件与目录
 

@@ -51,7 +51,10 @@ struct FileItem {
         }
     }
 
-    var hidden: Bool { name.hasPrefix(".") || info.st_flags & UInt32(UF_HIDDEN) != 0 }
+    var hidden: Bool {
+        if root.isHome && relative.caseInsensitiveCompare("Library") == .orderedSame { return false }
+        return name.hasPrefix(".") || info.st_flags & UInt32(UF_HIDDEN) != 0
+    }
     var version: String {
         let fields = [String(info.st_dev), String(info.st_ino), String(info.st_mode), String(info.st_uid),
                       String(info.st_size), String(info.st_mtimespec.tv_sec), String(info.st_mtimespec.tv_nsec),
@@ -79,12 +82,14 @@ struct DirectoryContents {
 
 final class ScopedFiles: @unchecked Sendable {
     private let roots: [String: LocalRoot]
+    private let state: LocalState
     private let queue = DispatchQueue(label: "FileSharing.file-io", qos: .utility)
     static let chunk = 262_144
     private static let workName = ".filesharing-work"
 
-    init(roots: [LocalRoot]) {
+    init(roots: [LocalRoot], state: LocalState) {
         self.roots = Dictionary(uniqueKeysWithValues: roots.map { ($0.rootKey, $0) })
+        self.state = state
     }
 
     static func controlComponent(_ component: Substring) -> Bool {
@@ -119,15 +124,15 @@ final class ScopedFiles: @unchecked Sendable {
         try await withCheckedThrowingContinuation { continuation in
             queue.async {
                 continuation.resume(with: Result {
-                    let root = try self.root(rootKey, write: false)
+                    let root = try self.root(rootKey)
                     return (root, try self.list(root: root, relative: path))
                 })
             }
         }
     }
 
-    private func root(_ key: String, write: Bool) throws -> LocalRoot {
-        guard let root = roots[key], !write || root.writable else { throw AgentError("permission_denied") }
+    private func root(_ key: String) throws -> LocalRoot {
+        guard let root = roots[key] else { throw AgentError("permission_denied") }
         return root
     }
 
@@ -154,10 +159,18 @@ final class ScopedFiles: @unchecked Sendable {
         return descriptor
     }
 
+    private func libraryAccessDenied(_ root: LocalRoot, _ parts: ArraySlice<String>, write: Bool = false) -> Bool {
+        guard root.isHome, parts.first?.caseInsensitiveCompare("Library") == .orderedSame else { return false }
+        if write { return true }
+        let subfolders = parts.dropFirst()
+        if subfolders.first?.caseInsensitiveCompare("Keychains") == .orderedSame { return true }
+        guard subfolders.first?.caseInsensitiveCompare("Application Support") == .orderedSame,
+              let application = subfolders.dropFirst().first?.lowercased() else { return false }
+        return application == "filesharingservicedemo" || application == "filesharingagent"
+    }
+
     private func traverse(_ root: LocalRoot, _ components: ArraySlice<String>) throws -> Descriptor {
-        if root.isHome, let first = components.first, first.caseInsensitiveCompare("Library") == .orderedSame {
-            throw AgentError("permission_denied")
-        }
+        guard !libraryAccessDenied(root, components) else { throw AgentError("permission_denied") }
         var directory = try openRoot(root)
         let deviceNumber = try directory.info().st_dev
         for component in components {
@@ -171,16 +184,21 @@ final class ScopedFiles: @unchecked Sendable {
     private func parent(_ root: LocalRoot, _ relative: String, write: Bool) throws -> (Descriptor, String) {
         let parts = try components(relative, write: write)
         guard let last = parts.last else { throw AgentError("invalid_path") }
-        if root.isHome && parts.count == 1 {
-            if last.caseInsensitiveCompare("Library") == .orderedSame {
-                throw AgentError("permission_denied")
-            }
-            if write && ["desktop", "downloads", "documents", "music", "pictures", "movies", "applications", "public"]
-                .contains(last.lowercased()) {
-                throw AgentError("permission_denied")
-            }
-        }
+        try validateAccess(root, parts, write: write)
         return (try traverse(root, parts.dropLast()), last)
+    }
+
+    private func validateAccess(_ root: LocalRoot, _ parts: [String], write: Bool) throws {
+        guard !libraryAccessDenied(root, parts[...], write: write) else { throw AgentError("permission_denied") }
+        guard write, let component = parts.first else { return }
+        let folder = component.lowercased()
+        let protectedFolder = DevicePermissions.folders[folder] != nil
+        guard root.writable || (root.isHome && parts.count > 1 && DevicePermissions.folders[folder] == component &&
+            DevicePermissions.allowsWriting(folder, state: state)) else { throw AgentError("permission_denied") }
+        if root.isHome, parts.count == 1,
+           protectedFolder || ["music", "pictures", "movies", "applications", "public"].contains(folder) {
+            throw AgentError("permission_denied")
+        }
     }
 
     private func metadata(root: LocalRoot, path: String) throws -> FileItem {
@@ -230,9 +248,10 @@ final class ScopedFiles: @unchecked Sendable {
         let directory = try traverse(root, path[...])
         let before = try directory.info()
         var entries = [FileItem]()
+        let inLibrary = root.isHome && path.first?.caseInsensitiveCompare("Library") == .orderedSame
         for name in try names(directory).sorted() {
             guard (try? components(name)) != nil,
-                  !root.isHome || !relative.isEmpty || name.caseInsensitiveCompare("Library") != .orderedSame
+                  !inLibrary || !libraryAccessDenied(root, (path + [name])[...])
             else { continue }
             let child = relative.isEmpty ? name : relative + "/" + name
             do {
@@ -414,8 +433,7 @@ final class ScopedFiles: @unchecked Sendable {
     }
 
     private func run(_ kind: String, _ input: JSON) throws -> JSON {
-        let writes = ["files.mkdir", "files.move", "files.trash", "files.purge", "files.write", "files.commit", "files.abandon"]
-        let root = try root(input.requireString("root"), write: writes.contains(kind))
+        let root = try root(input.requireString("root"))
         let path = input["path"].string ?? ""
         switch kind {
         case "files.stat":
@@ -458,6 +476,11 @@ final class ScopedFiles: @unchecked Sendable {
         case "files.commit":
             return try commit(root, path, input)
         case "files.abandon":
+            if path.isEmpty {
+                guard root.writable else { throw AgentError("permission_denied") }
+            } else {
+                try validateAccess(root, components(path, write: true), write: true)
+            }
             let directory = try work(root)
             let id = try fileID(input.requireString("transferId"))
             _ = unlinkat(directory.fd, id + ".part", 0)
@@ -474,7 +497,7 @@ final class ScopedFiles: @unchecked Sendable {
         guard before.version == input["version"].string else { throw AgentError("version_mismatch") }
         if before.kind == "file" { try guardedRegular(before.info) }
         let target = try input.requireString("destination")
-        let targetRoot = try self.root(input["destinationRoot"].string ?? root.rootKey, write: true)
+        let targetRoot = try self.root(input["destinationRoot"].string ?? root.rootKey)
         let (destination, targetName) = try parent(targetRoot, target, write: true)
         guard try source.info().st_dev == destination.info().st_dev else { throw AgentError("cross_volume") }
         guard renameatx_np(source.fd, name, destination.fd, targetName, UInt32(RENAME_EXCL)) == 0 else { throw Self.failure() }

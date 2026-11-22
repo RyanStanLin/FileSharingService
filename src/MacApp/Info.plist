@@ -29,10 +29,10 @@
     <key>FileSharingHomeWritable</key>
     <string>$(FILESHARING_ALLOW_HOME_WRITE)</string>
     <key>NSDesktopFolderUsageDescription</key>
-    <string>FileSharingService 请求访问桌面，以便在你授权后浏览此目录。</string>
+    <string>FileSharingService 请求读取和修改桌面文件。</string>
     <key>NSDocumentsFolderUsageDescription</key>
-    <string>FileSharingService 请求访问文稿，以便在你授权后浏览此目录。</string>
+    <string>FileSharingService 请求读取和修改文稿文件。</string>
     <key>NSDownloadsFolderUsageDescription</key>
-    <string>FileSharingService 请求访问下载，以便在你授权后浏览此目录。</string>
+    <string>FileSharingService 请求读取和修改下载文件。</string>
 </dict>
 </plist>

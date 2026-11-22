@@ -23,7 +23,7 @@
 | `apps-installed` | 应用清单，单项 `applicationId,name,bundleId,version,build,installPath,executablePath`。应用图标端点的 PNG 具有 SHA-256 ETag。 |
 | `storage` | 外接存储清单，单项 `id,name,capacityBytes,remainingBytes,fileSystem,mountPath,status,connected,transport,wholeDisk`。ID 为当前连接可见的 BSD 名称。 |
 | `lid` | `{lidClosed}`，布尔值。设备没有提供合盖状态时为 `null`。 |
-| `permissions` | 以 `downloads,documents,desktop,inputMonitoring,pasteboard` 为键，每项为 `{state,phase,checkedAt,systemSettingsPane}`。 |
+| `permissions` | 以 `downloads,documents,desktop,inputMonitoring,pasteboard` 为键，每项为 `{state,phase,checkedAt,systemSettingsPane}`。Agent 0.4.7 起，目录检查另返回 `writable`，表示目标 Mac 已确认目录可写。 |
 | `roots` | 本机目录策略数组，每项 `rootKey,label,writable,primary`。 |
 
 `power.closedLid` 带 `state,configuredByHelper,lidClosed`，辅助服务有新报告时另有 `sleepDisabled,checkedAt`。状态支持 `active`、`idle`、`powerGuard`、`externallyManaged`、`unsupported`、`systemControlled`、`restoreFailed`、`stateUnavailable`，本地隔离测试使用 `testIsolated`。发现设备运行中断时结合最后通信时间判断。

@@ -27,16 +27,16 @@ flowchart LR
 | Mac | 安装包内置 HTTPS 地址。本机首次启动产生并保存 UUID。来自公网的 Agent 可自行连接并即时登记。 | UUID 是设备记录索引。有效连接独占该 UUID，远程操作授权由管理员绑定到当前连接。并发登记容量由部署配置决定。 |
 | FTP/FTPS/SFTP 客户端 | 独立账号、加盐 PBKDF2 口令和专用监听模式。 | 每个账号按修订号校验，使用当前获准访问的在线 Mac 主目录或显式根授权。后台锁定期间继续工作。 |
 
-默认共享根是当前受管账户的 HOME，由 Agent 在首次接入声明、服务端创建一次。受管包可以在构建时批准 HOME 写入。额外企业目录由 IT 在本机设定、管理端授予访问。设备端强制本地范围与读写上限，服务端在每次文件请求和每个下载块重新验证根授权及当前连接。HOME 系统隐私目录、常见凭据目录和 Agent 工作区从列表中排除，受保护 macOS 文件夹按真实文件系统权限与 TCC 状态访问。
+默认共享根是当前受管账户的 HOME，由 Agent 在首次接入声明、服务端创建一次。受管包可以在构建时批准 HOME 写入。Agent 确认下载、文稿或桌面可读写后，已授权连接自动获得对应目录下的写入能力。额外企业目录由 IT 在本机设定、管理端授予访问。设备端强制本地范围与读写上限，服务端在每次文件请求和每个下载块重新验证根授权及当前连接。HOME 下的 Library 只读。常见凭据目录和 Agent 工作区从列表中排除，受保护 macOS 文件夹按真实文件系统权限与 TCC 状态访问。
 
 Agent 使用 `openat`、`fstatat`、`renameatx_np` 和 `unlinkat` 逐级处理路径，校验根 inode 和设备号，拒绝穿越 symlink 和跨挂载点递归，拒绝读取硬链接目标。写操作使用客户端先前取得的版本防止误改，移动默认不覆盖。永久清除非空目录需要显式递归标志。文件操作请求、完成、设备接入和权限变更保留审计。
 
 ## 通信协议
 
-1. Agent 首次启动在本机生成 UUID。连接 `GET /agent/v1/ws`，发送 `{"type":"hello","deviceId":"<UUID>","name":"<设备名>"}`。服务端自动登记、标记在线并回应 `{type:"ready",deviceId}`。握手可直接从公网发起，接入受部署容量及入站速率限制。
+1. Agent 首次启动在本机生成 UUID。连接 `GET /agent/v1/ws`，发送 `{"type":"hello","deviceId":"<UUID>","name":"<设备名>"}`。服务端自动登记、标记在线并回应 `{type:"ready",deviceId}`。有既有目录授权时，握手另返回 `previouslyAllowedFolders`，列出此前已获准的下载、文稿、桌面目录的权限键，供 Agent 复核。握手可直接从公网发起，接入受部署容量及入站速率限制。
 2. 已知 UUID 重连时继续使用原设备记录。设备活跃时重复 UUID 返回 `device_already_connected`。设备被注销时返回 `device_revoked`。设备上报身份和名称来自客户端自报，管理员在开启远程操作前根据现场环境确认连接。
 3. WSS 上服务端推送 `policy`、`ping` 和 `command`，Agent 回发 `pong`、`event` 和 `result`。服务端按 `command.id` 匹配结果，超时和设备离线按标准错误映射。
-4. WSS 暂时不可用时，Agent 向 `POST /agent/v1/connect` 发送同一份 UUID 和名称，自动获得当前 HTTPS 传输通道号。随后在 `X-FileSharing-Channel` 携带通道号，调用 `GET /agent/v1/commands` 长轮询约 20 秒、`POST /agent/v1/frames` 批量回送 `{frames:[...]}`，或用 `GET /agent/v1/policy`、`POST /agent/v1/pulse` 同步策略和 RTT。通道号只在该次连接期存于内存。Agent 感知接口、可达性和代理指纹变化，重连优先尝试 WSS，故障重试采用带抖动的指数退避。
+4. WSS 暂时不可用时，Agent 向 `POST /agent/v1/connect` 发送同一份 UUID 和名称，接收 `{deviceId,channel}` 及可选的 `previouslyAllowedFolders`。随后在 `X-FileSharing-Channel` 携带通道号，调用 `GET /agent/v1/commands` 长轮询约 20 秒、`POST /agent/v1/frames` 批量回送 `{frames:[...]}`，或用 `GET /agent/v1/policy`、`POST /agent/v1/pulse` 同步策略和 RTT。通道号只在该次连接期存于内存。Agent 感知接口、可达性和代理指纹变化，重连优先尝试 WSS，故障重试采用带抖动的指数退避。
 5. 管理后台使用 `PUT /api/v1/devices/{id}/connection-access` 开启或停用当前连接的文件与远程操作。连接关闭、超时或服务重启时该授权结束。设备 UUID、别名、策略和根目录授权保存在原记录中。服务器把命令、进行中的归档、下载和目录监听绑定到各自活跃连接。
 6. 指标用 `event` 帧推送，快照及分页历史落 SQLite。CPU 与内存默认手动刷新，高频采样可单独设为 5–3600 秒。应用生命周期和磁盘连接走系统通知，已安装应用用扫描对账。网络变化与电源信息按事件和低频采样同步。
 

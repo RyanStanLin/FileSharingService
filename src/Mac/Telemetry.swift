@@ -91,7 +91,7 @@ final class Telemetry {
         }
     }
 
-    static let version = "0.4.6"
+    static let version = "0.4.7"
     private static let applicationQueue = DispatchQueue(label: "FileSharing.applications", qos: .utility)
     private let boot = Date()
     private let roots: [LocalRoot]
@@ -128,13 +128,15 @@ final class Telemetry {
     init(roots: [LocalRoot], state: LocalState, emit: @escaping (String, JSON, Bool) -> Void) {
         self.roots = roots
         self.emit = emit
-        self.permissions = DevicePermissions(roots: roots)
+        self.permissions = DevicePermissions(roots: roots, state: state)
         self.lid = LidLease(directory: state.directory)
     }
 
-    func start() async {
+    func start(previouslyAllowedFolders: [String]) async {
         await sample("roots", force: true)
         await sample("agent", force: true)
+        await permissions.restorePreviouslyAllowed(previouslyAllowedFolders)
+        guard !Task.isCancelled else { return }
         publish("permissions", permissions.snapshot(), force: true)
         if !started {
             started = true

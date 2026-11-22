@@ -1,8 +1,8 @@
 # 本机联调
 
-运行 `scripts/demo-server.sh start`，然后访问 `http://localhost:8847/demo`。本机 DMG 的服务端地址为 `http://localhost:8847`。网页、FTP、FTPS 和 SFTP 均只监听回环地址。Agent 使用只读 HOME 和独立本机状态。演示脚本需要 .NET 10、Go 和 OpenSSL。
+运行 `scripts/demo-server.sh start`，然后访问 `http://localhost:8847/demo`。本机 DMG 的服务端地址为 `http://localhost:8847`。网页、FTP、FTPS 和 SFTP 均只监听回环地址。Agent 使用独立本机状态。HOME 默认只读，Downloads、Documents 和 Desktop 通过对应的读写检查后可在网页或 API 中修改。演示脚本需要 .NET 10、Go 和 OpenSSL。
 
-1. 打开 `artifacts/FileSharingService-0.4.6.dmg`，把 `FileSharingService.app` 拖到 `Applications`。升级时替换同名 App。
+1. 打开 `artifacts/FileSharingService-0.4.7.dmg`，把 `FileSharingService.app` 拖到 `Applications`。升级时替换同名 App。
 2. 打开已拖装的 App，也可以在 DMG 里双击 `Open FileSharingService.command`。若 macOS 暂拦首次启动，从「系统设置 → 隐私与安全性」为此 App 选择「仍要打开」。[Apple 的首次打开说明](https://support.apple.com/en-us/102445)
 3. App 会注册内置后台服务。升级后首次打开会将旧注册更新到当前构建。系统要求批准时，在「登录项与扩展」允许 FileSharingService。状态窗口显示注册结果，在线状态在本机测试页确认。客户端或服务端重启后，在 Demo 里为新的设备连接授权。
 4. 首次使用网页时，打开仓库的 `.local/demo/.env`，把 `FILESHARING_BOOTSTRAP_SECRET` 等号后的值粘贴到部署密钥栏，注册 Passkey 并解锁。建议使用系统当前版本的 Safari 或 Chrome。
@@ -21,7 +21,9 @@
 
 网关端口为 FTP 2121、显式 FTPS 2122、隐式 FTPS 2990 和 SFTP 2222。FTPS 客户端可校验或导入本机公共证书 `.local/demo/ftps-cert.pem`。SFTP 主机指纹显示在页面中。页面创建的账号会看到所有已授权在线 Mac 的主目录。
 
-在 Finder 选择「前往 → 连接服务器」，完整输入 `ftp://localhost:2121/`，用 Demo 中的 FTP 账号登录。也可用 `ftp://127.0.0.1:2121/`。macOS 将 FTP 挂载为只读卷，可把文件复制到本机。需要写入时，通过上传 API 写入已启用写权限的共享目录。Royal TSX 等独立客户端可使用端口 2121 的主动或被动 FTP 下载。登录后先列 `/`，进入当前 Mac 的设备目录，再进入 `Downloads` 等子目录。[Apple 的 Finder FTP 说明](https://support.apple.com/guide/mac-help/servers-shared-computers-connect-mac-mchlp3015/mac)
+在 Finder 选择「前往 → 连接服务器」，完整输入 `ftp://localhost:2121/`，用 Demo 中的 FTP 账号登录。也可用 `ftp://127.0.0.1:2121/`。macOS 将 FTP 挂载为只读卷，可把文件复制到本机。写入请通过 File System 网页或文件 API。Royal TSX 等独立客户端可使用端口 2121 的主动或被动 FTP 下载。登录后先列 `/`，进入当前 Mac 的设备目录，再进入 `Downloads` 等子目录。[Apple 的 Finder FTP 说明](https://support.apple.com/guide/mac-help/servers-shared-computers-connect-mac-mchlp3015/mac)
+
+在 [File System 网页](../web/README.md) 进入 Downloads、Documents 或 Desktop，申请一次读写权限。Mac 确认可写后，网页开放新建、上传、改名和移动。升级到 Agent 0.4.7 时会自动复核已有目录授权。`~/Library` 可只读浏览和下载。
 
 升级 Agent 后，历史 HOME 共享记录会迁移到稳定的卷 UUID，已有设备与目录标识可继续使用。若新版返回 `root_identity_changed`，请在 Mac 上核对共享根的实际位置和卷，再重新批准该目录。
 

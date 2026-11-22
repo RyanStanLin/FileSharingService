@@ -1,5 +1,11 @@
 # FileSharing 验收记录
 
+## Agent 0.4.7
+
+`test_folder_permission_enables_scoped_writes_and_library_reads` 在 WebSocket 和 HTTPS 回退下验证只读 HOME。一次 Downloads 授权后，新建目录、上传、改名和移动通过。带隐藏标志的 `~/Library` 可浏览和下载，移入 Library 被拒绝。重启保留新版目录授权，旧版 Documents 授权在新版 Agent 检查可写后生效。
+
+本机由 0.4.6 升级到 0.4.7 后，Downloads、Documents 和 Desktop 三项既有目录授权均由已安装的 Agent 确认可写。网页通过隔离设备和虚拟 Passkey 验证按钮行为。申请前写操作停用。一次授权后，Downloads 的新建和上传可用。进入 Library 后写操作停用。
+
 ## Agent 0.4.6
 
 `submitsPlainTextAndSelectedOption` 在 macOS 27.0 上核对只有「同意」「暂缓」两个按钮，两者同一行，默认按钮位于右侧。单选、遮蔽输入、Escape、超时及重开也通过原生 AppKit 回归。

@@ -85,11 +85,11 @@ internal sealed class FileService(DeviceService devices, AgentBroker broker, Rev
     public async Task<JsonElement> Mutate(Review review, string device, FileMutation input, string kind,
         CancellationToken ct, bool recursive = false)
     {
-        var root = await Allow(review, device, input.RootId, true, ct);
         var path = EntryPath(input.Path);
         var destination = kind == "move" ? EntryPath(input.Destination) : null;
-        var destinationGrant = destination is not null && input.DestinationRootId is { } target && target != root.Id
-            ? await Allow(review, device, target, true, ct, root.ConnectionId) : root;
+        var root = await Allow(review, device, input.RootId, true, ct, path: path);
+        var destinationGrant = destination is not null
+            ? await Allow(review, device, input.DestinationRootId ?? root.Id, true, ct, root.ConnectionId, destination) : root;
         if (root.Id == destinationGrant.Id && (destination == path || destination?.StartsWith(path + "/", StringComparison.Ordinal) == true))
             throw Fault.Bad("invalid_destination");
         RequireVersionIfNeeded(input.Version, kind);
@@ -102,12 +102,13 @@ internal sealed class FileService(DeviceService devices, AgentBroker broker, Rev
         return value;
     }
 
-    public async Task<RootInfo> Allow(Review review, string id, string root, bool write, CancellationToken ct, string? connectionId = null)
+    public async Task<RootInfo> Allow(Review review, string id, string root, bool write, CancellationToken ct, string? connectionId = null,
+        string? path = null)
     {
         if (await reviews.ActiveById(review.Id, ct) is not { } current)
             throw Fault.Unauthorized();
         await reviews.Touch(current.Id, current.LastAccess, ct);
-        return await devices.Scope(id, root, write, ct, connectionId);
+        return await devices.Scope(id, root, write, ct, connectionId, path);
     }
 
     public Task Pump(Review review, string device, string rootId, string path, string version, long start, long size,
@@ -138,7 +139,7 @@ internal sealed class FileService(DeviceService devices, AgentBroker broker, Rev
 
     public async Task Write(Review review, TransferRecord transfer, ReadOnlyMemory<byte> bytes, long offset, CancellationToken ct)
     {
-        var root = await Allow(review, transfer.DeviceId, transfer.RootId, true, ct);
+        var root = await Allow(review, transfer.DeviceId, transfer.RootId, true, ct, path: transfer.Path);
         var result = await broker.Invoke(transfer.DeviceId, "files.write", new
         {
             root = root.RootKey, transfer.Path, transferId = transfer.Id, offset, data = Convert.ToBase64String(bytes.Span)
@@ -149,7 +150,7 @@ internal sealed class FileService(DeviceService devices, AgentBroker broker, Rev
 
     public async Task<FileEntry> Commit(Review review, TransferRecord transfer, CancellationToken ct)
     {
-        var root = await Allow(review, transfer.DeviceId, transfer.RootId, true, ct);
+        var root = await Allow(review, transfer.DeviceId, transfer.RootId, true, ct, path: transfer.Path);
         var value = await broker.Invoke(transfer.DeviceId, "files.commit", new
         {
             root = root.RootKey, transfer.Path, transferId = transfer.Id, length = transfer.Length, transfer.Version
@@ -163,8 +164,9 @@ internal sealed class FileService(DeviceService devices, AgentBroker broker, Rev
         shortWait.CancelAfter(TimeSpan.FromSeconds(2));
         try
         {
-            var root = await Allow(review, transfer.DeviceId, transfer.RootId, true, shortWait.Token);
-            await broker.Invoke(transfer.DeviceId, "files.abandon", new { root = root.RootKey, transferId = transfer.Id }, shortWait.Token, connectionId: root.ConnectionId);
+            var root = await Allow(review, transfer.DeviceId, transfer.RootId, true, shortWait.Token, path: transfer.Path);
+            await broker.Invoke(transfer.DeviceId, "files.abandon", new { root = root.RootKey, transfer.Path, transferId = transfer.Id },
+                shortWait.Token, connectionId: root.ConnectionId);
         }
         catch (Exception error) when (error is Fault or OperationCanceledException)
         {
@@ -203,11 +205,11 @@ internal sealed class TransferService(Database db, FileService files, Settings s
     public async Task<(TransferRecord Transfer, bool IsNew)> Start(Review review, TransferInput body, string idempotency, CancellationToken ct)
     {
         var requestKey = Secrets.Text(idempotency, 128);
-        var access = await files.Allow(review, body.DeviceId, body.RootId, body.Kind == "upload", ct);
         if (body.Kind is not ("download" or "upload" or "archive"))
             throw Fault.Bad("invalid_transfer_kind");
         FileService.RequireVersionIfNeeded(body.Version, body.Kind);
         var path = body.Kind == "archive" ? FileService.PathKey(body.Path) : FileService.EntryPath(body.Path);
+        var access = await files.Allow(review, body.DeviceId, body.RootId, body.Kind == "upload", ct, path: path);
         if (body.Kind == "upload" && body.Length is not (>= 0 and <= FileService.MaximumBytes))
             throw Fault.Bad("invalid_length");
         var entries = body.Kind == "archive" ? (body.Entries is { Count: <= 100 } ? body.Entries.Select(FileService.EntryPath).Distinct().ToArray()

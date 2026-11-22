@@ -142,7 +142,7 @@ actor AgentTransport {
         let name = Host.current().localizedName ?? ProcessInfo.processInfo.hostName
         self.hello = ["type": "hello", "deviceId": .string(enrollment.deviceId), "name": .string(name)]
         self.state = state
-        let files = ScopedFiles(roots: enrollment.roots)
+        let files = ScopedFiles(roots: enrollment.roots, state: state)
         self.files = files
         let reports = OSAllocatedUnfairLock(initialState: LocalReports())
         self.reports = reports
@@ -282,8 +282,9 @@ actor AgentTransport {
         socket?.cancel(with: .goingAway, reason: nil)
     }
 
-    private func reportConnection() async {
-        await telemetry.start()
+    private func reportConnection(_ handshake: JSON) async {
+        let previouslyAllowedFolders = handshake["previouslyAllowedFolders"].array?.compactMap(\.string) ?? []
+        await telemetry.start(previouslyAllowedFolders: previouslyAllowedFolders)
         if let routeState {
             emit(topic: "system.changed", data: ["kind": "networkPath", "reachability": .string(routeState)], snapshot: false)
         }
@@ -344,7 +345,7 @@ actor AgentTransport {
                 changesObserved = true
                 linkReady = true
                 logger.notice("WebSocket connection established.")
-                report = Task { await reportConnection() }
+                report = Task { await reportConnection(value) }
                 wake?.yield()
                 continue
             }
@@ -416,7 +417,7 @@ actor AgentTransport {
         linkReady = true
         pollingHeartbeat = .now
         logger.notice("HTTP polling connection established.")
-        let report = Task { await reportConnection() }
+        let report = Task { await reportConnection(response) }
         defer { report.cancel(); endCommandSession() }
         do {
             try await withThrowingTaskGroup(of: Void.self) { group in

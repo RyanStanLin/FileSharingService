@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Net.WebSockets;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Dapper;
 
 namespace FileSharing;
@@ -12,12 +13,32 @@ internal sealed record LocalRoot(string RootKey, string Label, bool Writable, bo
 internal sealed record AgentFrames(IReadOnlyList<AgentFrame> Frames);
 internal sealed record AgentPulse(double LatencyMs);
 internal sealed record AgentPolicy(string DeviceId, long Revision, bool Inherited, Sampling Settings, bool AccessGranted);
+internal sealed record AgentReady(string Type, string DeviceId,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string[]? PreviouslyAllowedFolders);
+internal sealed record AgentConnected(string DeviceId, string? Channel,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string[]? PreviouslyAllowedFolders);
 
 internal sealed class AgentIngest(Database db, AgentBroker broker, WatchRegistry watches)
 {
     public static readonly string[] SnapshotTopics =
         ["identity", "cpu", "memory", "disk", "battery", "power", "system", "displays", "locale", "network", "agent",
          "apps-running", "apps-installed", "storage", "permissions", "roots", "lid"];
+
+    public async Task<string[]?> PreviouslyAllowedFolders(string device, CancellationToken ct)
+    {
+        var payload = await db.One<string>("SELECT Payload FROM Snapshots WHERE DeviceId=@device AND Topic='permissions'",
+            new { device }, ct);
+        if (payload is null || Wire.Parse(payload) is not { ValueKind: JsonValueKind.Object } permissions)
+            return null;
+
+        string[] folders = ["downloads", "documents", "desktop"];
+        var approved = folders.Where(folder =>
+            permissions.TryGetProperty(folder, out var check) && check.ValueKind == JsonValueKind.Object &&
+            check.TryGetProperty("state", out var state) && state.ValueKind == JsonValueKind.String && state.GetString() == "allowed" &&
+            check.TryGetProperty("phase", out var phase) && phase.ValueKind == JsonValueKind.String && phase.GetString() == "completed"
+        ).ToArray();
+        return approved.Length == 0 ? null : approved;
+    }
 
     public async Task Receive(AgentBroker.Link link, AgentFrame frame, CancellationToken ct)
     {
@@ -124,10 +145,19 @@ internal static class AgentEndpoints
     public static void Map(WebApplication app)
     {
         var group = app.MapGroup("/agent/v1").ExcludeFromDescription();
-        group.MapPost("/connect", async (AgentHello body, HttpContext context, AgentBroker broker, CancellationToken ct) =>
+        group.MapPost("/connect", async (AgentHello body, HttpContext context, AgentBroker broker, AgentIngest ingest, CancellationToken ct) =>
         {
             var link = await broker.Open(body, "https", context, ct);
-            return TypedResults.Ok(new { deviceId = link.Device, channel = link.Channel });
+            try
+            {
+                var previouslyAllowedFolders = await ingest.PreviouslyAllowedFolders(link.Device, ct);
+                return TypedResults.Ok(new AgentConnected(link.Device, link.Channel, previouslyAllowedFolders));
+            }
+            catch
+            {
+                await broker.Close(link, CancellationToken.None);
+                throw;
+            }
         }).RequireRateLimiting("agent-connect");
         group.MapDelete("/connection", async (HttpContext context, AgentBroker broker, CancellationToken ct) =>
         {
@@ -213,7 +243,8 @@ internal static class AgentEndpoints
         var acknowledgements = System.Threading.Channels.Channel.CreateBounded<string>(128);
         try
         {
-            await SocketWire.Send(socket, new { type = "ready", deviceId = link.Device }, life);
+            var previouslyAllowedFolders = await ingest.PreviouslyAllowedFolders(link.Device, life);
+            await SocketWire.Send(socket, new AgentReady("ready", link.Device, previouslyAllowedFolders), life);
             var input = Receive();
             var output = Send();
             await Task.WhenAny(input, output);

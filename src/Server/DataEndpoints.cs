@@ -165,7 +165,7 @@ internal static class DataEndpoints
             await Snapshot(id, "storage", ctx, db, devices, reviews, broker, ct)).WithSummary("Get external storage and mount information");
         devices.MapGet("/permissions", async (string id, HttpContext ctx, Database db, DeviceService devices, ReviewService reviews, AgentBroker broker, CancellationToken ct) =>
             await Snapshot(id, "permissions", ctx, db, devices, reviews, broker, ct)).WithSummary("Get device permission states");
-        devices.MapPost("/permissions/requests", RequestPermission).WithSummary("Ask macOS to evaluate or prompt for a supported permission");
+        devices.MapPost("/permissions/requests", RequestPermission).WithSummary("Ask macOS to check access, including write access for shared folders");
         devices.MapPost("/diagnostics", RunDiagnostic).WithSummary("Run a predefined or custom read-only diagnostic")
             .ProducesProblem(400);
         api.MapGet("/jobs", ListJobs).WithTags("Jobs").WithSummary("List asynchronous jobs");
