@@ -1,4 +1,3 @@
-import {useState} from 'react'
 import {Button, ButtonGroup, Stack} from '@primer/react'
 import {DesktopDownloadIcon} from '@primer/octicons-react'
 import {stat} from '../api/files'
@@ -9,24 +8,9 @@ import {Loading, Retry} from '../ui/Feedback'
 import {useRefreshSignal, useResource} from '../ui/async'
 import type {OpenAction} from './actions'
 import {useEntryThumbnail} from './EntryIcon'
+import {FilePreview} from './FilePreview'
 import {FileTitle, Metadata} from './Metadata'
 import styles from './workspace.module.css'
-
-function FilePreview({entry, url, pending}: {entry: Entry; url?: string; pending: boolean}) {
-  const {t} = useLanguage()
-  const [failed, fail] = useState(false)
-  const canPreview = entry.thumbnail === 'image' || entry.thumbnail === 'pdf'
-  return (
-    <Stack gap="condensed" padding="normal" className={styles.preview}>
-      <strong>{t('preview', {kind: entry.thumbnail === 'pdf' ? 'PDF' : entryKind(entry, t)})}</strong>
-      <div className={styles.previewStage}>
-        {canPreview && pending && !url ? <Loading /> : canPreview && url && !failed
-          ? <img src={url} alt={entry.name} onError={() => fail(true)} />
-          : <p>{t('previewUnavailable')}</p>}
-      </div>
-    </Stack>
-  )
-}
 
 export function FilePanel({device, share, location, revision, onAction, onDownload, downloadBusy}: {
   device: string
@@ -58,7 +42,7 @@ export function FilePanel({device, share, location, revision, onAction, onDownlo
             disabled={entry.kind !== 'file'} onClick={() => onDownload([entry])}>{t('download')}</Button>
         </ButtonGroup>
       </Stack>
-      <FilePreview key={entry.version} entry={entry} {...preview} />
+      <FilePreview key={entry.version} device={device} rootId={share.id} entry={entry} {...preview} />
     </>
   )
 }

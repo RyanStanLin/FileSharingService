@@ -1,6 +1,6 @@
 # File System 的 Primer 与设计核对
 
-核对日期为 2026-11-21。项目使用 `@primer/react` 38.46.0、`@primer/primitives` 11.10.0、`@primer/octicons-react` 19.42.0。`ThemeProvider` 和 `BaseStyles` 使用系统配色，标准和高对比度各有一套亮色与暗色变量。应用会保存对比度偏好。 [Primer 主题](https://primer.style/product/getting-started/react/theming/)
+核对日期为 2026-11-22。项目使用 `@primer/react` 38.46.0、`@primer/primitives` 11.10.0、`@primer/octicons-react` 19.42.0。`ThemeProvider` 和 `BaseStyles` 使用系统配色，标准和高对比度各有一套亮色与暗色变量。应用会保存对比度偏好。 [Primer 主题](https://primer.style/product/getting-started/react/theming/)
 
 ## 文档来源
 
@@ -117,7 +117,7 @@
 ## 样式和组件边界
 
 - 使用 `bgColor-default`、`bgColor-muted`、`bgColor-disabled`、`fgColor-default`、`fgColor-muted`、`borderColor-default`、`treeViewItem-leadingVisual-iconColor-rest`、`text-*-shorthand-*` 等安装版语义变量。
-- 260 px 的命令占位、233 px 的侧栏、129 px 的概要、232 px 的行菜单与 10 px 的路径栏内边距按 Figma 测量设置。查阅过 `size`、`stack` 和 `overlay` 分组，现有配置没有对应的精确值。720 px 的可滚动表格宽度和 180 px 的窄屏预览高度是实现选择。顶栏 108 px 由 64 和 44 两个 Primer size token 合成。
+- 260 px 的命令占位、233 px 的侧栏、129 px 的概要、232 px 的行菜单与 10 px 的路径栏内边距按 Figma 测量设置。查阅过 `size`、`stack` 和 `overlay` 分组，现有配置没有对应的精确值。可滚动表格的最小宽度为 720 px。桌面顶栏 108 px 由 64 和 44 两个 Primer size token 合成，工作区随实际顶栏高度和窗口调整。
 - 自定义表格采用 28 px 列头、36 px 文件行、独立的复选、文件图标与菜单列，以及偶数行的 `bgColor-muted`。选中栏展开至 65 px，取消选择时收起，跟随系统的减少动态效果设置。原生文件选择器通过 Primer Button 打开，Primer 组件目录未提供 FileInput。
 - 按 `list_icons` 和 `get_icon` 核对图标。业务图标使用 Octicons，包括 ThreeBars、FileDirectory、FileDirectoryFill、FileDirectoryOpenFill、File、FileSymlinkFile、Graph、Versions、Shield、ShieldCheck、ShieldX、Eye、EyeClosed、DesktopDownload、ChevronDown、KebabHorizontal、Pencil、FileMoved、Trash、X、Globe 和 ArrowLeft。命令占位用 Terminal，设计中的 command-palette 没有可用的当前 Octicon 条目。
 
@@ -126,6 +126,8 @@
 - Agent 的文件 I/O 使用串行队列，Agent 与 Broker 都限制未完成指令数。前端先请求列表，目录树复用当前目录数据，轻量元数据在后台读取。只有在「查看信息」主动触发时才递归扫描目录。订阅回执及相同快照版本会被跳过，实际目录变更合并为一次刷新。
 - 同一页面按设备排队执行列表和轻量元数据读取，优先处理当前操作。读取受限时依照 `Retry-After` 和短退避重试，设备短时超时可自动恢复一次。滚动到列表底部时加载后续页。遇到快照冲突会从首屏刷新，连续失败可以手动重试，已读取项目保留在列表中。
 - 可见文件按版本获取缩略图，同一设备连接内的树、列表和详情复用内存缓存。缩略图优先级低于路径、列表和元数据请求。图片和 PDF 优先渲染内容，其他类型由 Agent 提供 macOS 文件类型图标。
+- 缩略图分别受列表 20 px、树 16 px、详情图标 32 px 的宽高限制，保留原始比例。图片预览内的 Primer Button 按需启动带文件版本校验的传输，将原图直接交给浏览器图像组件。等待或失败期间保留缩略图。 [Primer Loading](https://primer.style/product/ui-patterns/loading/)
+- File System 的分页观察器以右侧列表为根。页面使用视口高度，工作区占用标题栏下方的余高，文件行和加载指示在列表内滚动。
 
 ## 选择和路径跳转
 
@@ -135,14 +137,16 @@
 ## 验收
 
 - `npm --prefix web run build` 完成严格 TypeScript 检查与 Vite 生产构建。Vite 报告 Primer 的客户端指令和包体积提示。
-- 七条隔离 Chromium、ASP.NET Core 和 Swift Agent 浏览器验收通过。原有四条覆盖虚拟 Passkey、权限、隐藏项、排序、建目录、上传、改名、移动、下载、删除、PDF 预览、语言持久化、窄屏焦点和双设备授权。
+- 九条隔离 Chromium、ASP.NET Core 和 Swift Agent 浏览器验收通过。回归覆盖虚拟 Passkey、权限、隐藏项、排序、建目录、上传、改名、移动、下载、删除、PDF 预览、语言持久化、窄屏焦点和双设备授权。
 - 本轮新增场景确认列表和树合计只下载八个可见文件的八份原生 PNG。鼠标单击、⌘ 加选与取消、Shift 范围、按住拖动、空白清空和双击打开均通过。83 项目录首屏只加载 80 项时，⌘A 计数为 83，逐项取消的状态保留到分页完成。
 - 路径对话框验证了快捷键打开和输入聚焦、Tab 补全、Enter 提交、相对与绝对路径、超过首个 200 项分段的候选、菜单入口、Escape 和共享范围外反馈。
+- 本轮新增分页延迟回归，覆盖 320、375、768 和 1280 CSS px。滚动到底、等待加载和翻页完成后，文档高度始终等于窗口高度，标题栏、导航和路径栏坐标保持稳定。
+- 420 × 1600 PNG 的列表缩略图宽高均在 20 px 内，等比显示于 36 px 文件行。浏览器读到原始文件的完整字节和原始尺寸。模拟传输失败时保留缩略图，重试和切换宽窄布局均通过。PDF 继续展示首页预览。
 - 验证了标准和高对比度跟随系统亮暗并保存偏好。桌面分隔线可用鼠标与键盘操作，刷新后保留宽度。浏览器测得 28 px 列头、36 px 文件行、1 px 侧栏标题分隔线、选中栏从 0 展开到 65 px 再收起。已检查隔行颜色与按钮填充宽度。
 - 83 项目录先显示 80 项，滚到底自动追加至 83 项。首屏只有一次列表和一次随后完成的轻量 stat。测试模拟带 `Retry-After` 的 429、设备超时和分页快照冲突，均自动恢复。外部新增文件通过目录订阅触发一次列表刷新。连续切换 12 个目录期间，设备读取并发上限为一，真实 Agent 未返回 429。
 - 浏览器在 1280 × 950 下截图核对三个状态。顶栏分隔线与下方内容位于 y107–108，概要分隔线与下方内容位于 y236–237，路径栏分隔线位于 y909。原尺寸的目录页样本、字体渲染和实时文件内容存在差异。锁定、目录、行菜单、PDF 预览和窄屏截图保存在本机 `.local/frontend-check`。
 - 窄屏检查覆盖 320、375 和 768 CSS px。375 px 下可从内容区打开目录树，页面无横向溢出。
-- 对五个变更的 CSS 模块调用了 `primerdoc.lint_css`。服务对这些样式和此前只含两个官方变量的对照样式都返回「Errors without autofix remaining」，诊断正文为空。独立 PostCSS 检查成功解析全部八份 CSS 模块，并核对了四套主题下的 143 处变量引用。57 个手写前端文件均少于 200 行。
+- 对五个变更的 CSS 模块调用了 `primerdoc.lint_css`。服务对这些样式和此前只含两个官方变量的对照样式都返回「Errors without autofix remaining」，诊断正文为空。独立 PostCSS 检查成功解析全部九份 CSS 模块，并核对了四套主题下的 140 处变量引用。59 个手写前端文件均少于 200 行。
 - 浏览器验收使用隔离 HOME 的权限样本和虚拟验证器。生产硬件 Passkey 与真实受保护目录上的 macOS 弹窗需另行实机核对。
 - 当第二台设备上线时保留当前设备，直到操作者从菜单切换或当前设备从清单移除。此行为已纳入双设备验收。
 - Alt 文本工具需要当前连接未启用的 sampling。人工核对使用空 alt 的装饰文件图标，以及使用实际文件名的内容预览。

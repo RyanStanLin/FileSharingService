@@ -23,6 +23,7 @@
 .tree {
   padding: var(--base-size-8) var(--base-size-16) var(--base-size-16);
   overflow: auto;
+  overscroll-behavior: contain;
   flex: 1;
 }
 

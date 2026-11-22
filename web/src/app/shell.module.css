@@ -16,11 +16,16 @@
 }
 
 .app {
-  min-block-size: 100dvh;
+  position: relative;
+  block-size: 100dvh;
+  overflow: clip;
 }
 
 .main {
   flex: 1;
+  min-block-size: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
 }
 
 .header {
@@ -85,12 +90,10 @@
 
 :global(:root) {
   --filesharing-command-width: 260px;
-  --filesharing-workspace-top: calc(var(--base-size-64) + var(--base-size-44));
   --filesharing-folder-header-height: 129px;
   --filesharing-table-min-width: 720px;
   --filesharing-row-menu-width: 232px;
   --filesharing-path-padding: 10px;
-  --filesharing-preview-min-height: 180px;
 }
 
 @media (width < 64rem) {

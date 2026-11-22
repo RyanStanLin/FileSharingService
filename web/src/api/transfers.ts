@@ -54,12 +54,7 @@ export async function upload(
   }
 }
 
-export async function download(deviceId: string, location: Location, entries: Entry[], signal: AbortSignal) {
-  const entry = entries.length === 1 ? entries[0] : undefined
-  const {rootId, path} = location
-  const input: TransferInput = entry?.kind === 'file'
-    ? {deviceId, rootId, kind: 'download', path: entry.path, version: entry.version}
-    : {deviceId, rootId, kind: 'archive', ...(entries.length ? {entries: entries.map(item => item.path)} : {path})}
+async function prepareDownload(input: TransferInput, signal: AbortSignal) {
   let transfer = await start(input, signal)
   while (transfer.state === 'preparing') {
     await wait(800, signal)
@@ -68,9 +63,23 @@ export async function download(deviceId: string, location: Location, entries: En
   if (transfer.downloadUrl !== '/api/v1/transfers/' + transfer.id + '/content') {
     throw new ApiError(409, transfer.error ?? 'download_unavailable')
   }
+  return {url: transfer.downloadUrl, name: transfer.fileName}
+}
+
+export function prepareFileDownload(deviceId: string, rootId: string, entry: Entry, signal: AbortSignal) {
+  return prepareDownload({deviceId, rootId, kind: 'download', path: entry.path, version: entry.version}, signal)
+}
+
+export async function download(deviceId: string, location: Location, entries: Entry[], signal: AbortSignal) {
+  const entry = entries.length === 1 ? entries[0] : undefined
+  const {rootId, path} = location
+  const source = entry?.kind === 'file'
+    ? await prepareFileDownload(deviceId, rootId, entry, signal)
+    : await prepareDownload({deviceId, rootId, kind: 'archive',
+      ...(entries.length ? {entries: entries.map(item => item.path)} : {path})}, signal)
   const link = document.createElement('a')
-  link.href = transfer.downloadUrl
-  link.download = transfer.fileName
+  link.href = source.url
+  link.download = source.name
   document.body.append(link)
   link.click()
   link.remove()

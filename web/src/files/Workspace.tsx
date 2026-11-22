@@ -113,10 +113,10 @@ export function Workspace({device, refreshDevice, shareManager, setShareManager,
     <ThumbnailProvider>
       <SplitPageLayout className={styles.workspace}>
         {!narrow && sidebarContent && <SplitPageLayout.Sidebar padding="none" divider="line" width={sidebarSize}
-          resizable aria-label={t('folderTree')} widthStorageKey="filesharing.sidebar-width" className={styles.sidePane}>
+          resizable aria-label={t('folderTree')} widthStorageKey="filesharing.sidebar-width">
           {sidebarContent}
         </SplitPageLayout.Sidebar>}
-        <SplitPageLayout.Content width="full" padding="none" className={styles.content}>
+        <SplitPageLayout.Content key="file-content" width="full" padding="none" className={styles.content}>
           <Stack className={styles.pane} gap="none">
             {root && <div className={styles.mobileNavigation}>
               <Button ref={treeButton} size="medium" leadingVisual={FileDirectoryIcon} aria-haspopup="dialog" aria-expanded={mobileTree}

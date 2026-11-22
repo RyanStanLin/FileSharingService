@@ -1,4 +1,4 @@
-import {useId, type DragEvent, type MouseEvent} from 'react'
+import {useId, useRef, type DragEvent, type MouseEvent} from 'react'
 import {Button, Stack} from '@primer/react'
 import {stat} from '../api/files'
 import type {Device, Entry, Location, Share} from '../api/types'
@@ -32,6 +32,7 @@ interface Props {
 export function FolderPanel({device, share, location, explorer, rootEntry, rootPending, onAction, onDownload, downloadBusy}: Props) {
   const {t} = useLanguage()
   const id = useId()
+  const scrollRoot = useRef<HTMLDivElement>(null)
   const {view, visible, sort, direction, toggleColumn, changeSort} = explorer
   const selection = useFileSelection(device, location, explorer)
   const {onGroupClick, ...input} = useExplorerInput(location, selection, () => void view.next())
@@ -39,7 +40,7 @@ export function FolderPanel({device, share, location, explorer, rootEntry, rootP
   const snapshot = view.page?.snapshotRevision
   const statKey = !location.path || snapshot === undefined ? null : JSON.stringify([location.rootId, location.path, snapshot])
   const stamp = useResource(statKey, signal => stat(device.id, location, signal, false, 'background'))
-  const tail = useAutoPage(view)
+  const tail = useAutoPage(view, scrollRoot)
   const info = location.path ? stamp : {data: rootEntry, pending: rootPending}
   const refreshError = view.moreError ?? view.error
 
@@ -54,7 +55,7 @@ export function FolderPanel({device, share, location, explorer, rootEntry, rootP
       }}>
         <SelectionBar count={dragCount ?? selection.count} busy={downloadBusy}
           onDownloadSelected={() => onDownload(selection.downloadEntries)} onDownloadFolder={() => onDownload([])} />
-        <Stack gap="none" className={styles.explorer} aria-busy={view.pending || view.loadingMore} tabIndex={-1}
+        <Stack ref={scrollRoot} gap="none" className={styles.explorer} aria-busy={view.pending || view.loadingMore} tabIndex={-1}
           {...input} onPointerDown={onPointerDown} onClickCapture={onClickCapture}
           onDragStart={(event: DragEvent<HTMLElement>) => {
             if (event.target instanceof Element && event.target.closest('[data-file-row]')) event.preventDefault()

@@ -91,10 +91,9 @@ export function GoToDialog({device, shares, location, rootEntry, hidden, close}:
     const active = highlighted ?? items[0]
     if (!active || active.text === value) return
     event.preventDefault()
+    event.currentTarget.value = active.text
+    event.currentTarget.setSelectionRange(active.text.length, active.text.length)
     change(active.text)
-    requestAnimationFrame(() => {
-      input.current?.setSelectionRange(active.text.length, active.text.length)
-    })
   }
 
   return <Modal title={t('goTo')} width="large" initialFocusRef={input} onClose={close} footerButtons={[

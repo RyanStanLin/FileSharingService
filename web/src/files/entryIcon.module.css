@@ -7,16 +7,16 @@
 }
 
 .entryThumbnail {
+  --file-thumbnail-size: var(--base-size-20);
   display: inline-grid;
   place-items: center;
-  inline-size: var(--base-size-20);
-  block-size: var(--base-size-20);
+  inline-size: var(--file-thumbnail-size);
+  block-size: var(--file-thumbnail-size);
   vertical-align: middle;
 }
 
 .entryThumbnail[data-compact='true'] {
-  inline-size: var(--base-size-16);
-  block-size: var(--base-size-16);
+  --file-thumbnail-size: var(--base-size-16);
 }
 
 .fileIcon,
@@ -26,13 +26,13 @@
 }
 
 .fileIcon {
-  inline-size: 100%;
-  block-size: 100%;
+  max-inline-size: var(--file-thumbnail-size);
+  max-block-size: var(--file-thumbnail-size);
 }
 
 .largeFileIcon {
-  inline-size: var(--base-size-32);
-  block-size: var(--base-size-32);
+  max-inline-size: var(--base-size-32);
+  max-block-size: var(--base-size-32);
 }
 
 .folderIcon {
