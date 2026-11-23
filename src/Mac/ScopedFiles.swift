@@ -136,6 +136,10 @@ final class ScopedFiles: @unchecked Sendable {
         return root
     }
 
+    func terminalDirectory(rootKey: String, path: String) throws -> Descriptor {
+        try traverse(root(rootKey), components(path)[...])
+    }
+
     private func components(_ input: String, write: Bool = false) throws -> [String] {
         if input.isEmpty { return [] }
         let split = input.split(separator: "/", omittingEmptySubsequences: false)

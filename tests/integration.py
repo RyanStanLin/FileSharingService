@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import plistlib
 import secrets
+import select
 import sqlite3
 import socket
 import ssl
@@ -1499,6 +1500,124 @@ print(json.dumps({"payload": result}, ensure_ascii=False))
                     self.assertEqual(self.api("GET", output, params={"after": page["cursor"]}).json(),
                                      {"items": [], "cursor": page["cursor"]})
                     self.api("GET", output, 401, session=self.client())
+
+    def test_terminal_session_keeps_native_cwd_and_streams_on_wss_and_https(self):
+        self.setup_device()
+        folder = self.home / "Project Files"
+        folder.mkdir()
+        (self.home / "Local Link").symlink_to(folder, target_is_directory=True)
+        base = self.device_api + "/diagnostics/sessions"
+
+        for protocol in ("wss", "https"):
+            with self.subTest(protocol=protocol):
+                if protocol == "https":
+                    self.stop(self.agent)
+                    self.stop(self.server)
+                    self.start_server(polling=True)
+                    self.agent = self.spawn([str(APP), "run"], "agent.log", self.env)
+
+                    def connected():
+                        result = self.api("GET", self.device_api).json()["connection"]
+                        return result if result["protocol"] == protocol else None
+
+                    self.set_access(self.wait(connected)["connectionId"], True)
+
+                view = self.api("POST", base, 201, json={}).json()
+                self.assertEqual(view["rootId"], self.root_id)
+                path = f"{base}/{view['id']}"
+                output_path = path + "/output"
+                self.api("POST", base, 409, json={"rootId": self.root_id})
+                self.api("GET", output_path, 401, session=self.client())
+                other = self.client()
+                self.unlock(session=other)
+                self.assertEqual(self.api("GET", output_path, 404, session=other).json()["code"], "terminal_not_found")
+                for line in ("uname -m | uname -n", "sysctl -a", "cd `date`"):
+                    self.api("POST", path + "/commands", 400, json={"line": line})
+
+                def submit(line):
+                    return self.api("POST", path + "/commands", 202, json={"line": line}).json()["commandId"]
+
+                def assert_result(pages, command_id, expected_text=None, status=0):
+                    selected = [item for item in pages if item["commandId"] == command_id]
+                    self.assertEqual(selected[0]["kind"], "command")
+                    self.assertEqual((selected[-1]["kind"], selected[-1]["exitCode"]), ("exit", status))
+                    if expected_text is not None:
+                        joined = b"".join(base64.b64decode(item["data"]) for item in selected if item["kind"] == "output")
+                        self.assertTrue(joined.endswith(b"\r\n"), "Output should come from the macOS PTY")
+                        self.assertEqual(joined.decode().strip(), expected_text)
+                    return selected[-1]["index"]
+
+                cookie = "; ".join(f"{entry.name}={entry.value}" for entry in self.browser.cookies)
+                with connect(self.origin.replace("http:", "ws:") + path + "/ws", origin=self.origin,
+                             additional_headers={"Cookie": cookie}, proxy=None, open_timeout=6) as socket:
+                    ready = json.loads(socket.recv(timeout=6))
+                    self.assertEqual([item["kind"] for item in ready["items"]], ["ready"])
+                    command_id = submit("pwd")
+                    frames = []
+                    while not any(item["kind"] == "exit" for item in frames):
+                        page = json.loads(socket.recv(timeout=6))
+                        frames.extend(page["items"])
+                    cursor = assert_result(frames, command_id, str(self.home.resolve()))
+
+                def run(line, expected_text=None, status=0):
+                    nonlocal cursor
+                    command_id = submit(line)
+
+                    def complete():
+                        items = self.api("GET", output_path, params={"after": cursor}).json()["items"]
+                        return items if any(item["kind"] == "exit" for item in items) else None
+
+                    items = self.wait(complete)
+                    self.assertEqual(items[0]["index"], cursor + 1)
+                    cursor = assert_result(items, command_id, expected_text, status)
+
+                run('cd "Project Files"')
+                run("pwd", str(folder.resolve()))
+                run("uname -m", subprocess.check_output(["/usr/bin/uname", "-m"], text=True).strip())
+                run('cd "/Local Link"', status=1)
+                run("pwd", str(folder.resolve()))
+                run("cd ..")
+                run("cd ..", status=1)
+                run("pwd", str(self.home.resolve()))
+                self.api("DELETE", path, 204)
+                closed = self.api("GET", output_path, params={"after": cursor}).json()
+                self.assertTrue(closed["closed"])
+                self.assertEqual([item["kind"] for item in closed["items"]], ["closed"])
+                self.api("POST", path + "/commands", 409, json={"line": "pwd"})
+                replacement = self.api("POST", base, 201, json={}).json()
+                self.assertNotEqual(replacement["id"], view["id"])
+                self.api("DELETE", f"{base}/{replacement['id']}", 204)
+
+    def test_terminal_helper_enforces_the_allowlist_and_scope_independently(self):
+        self.setup_device()
+        key = json.loads((self.agent_state / "enrollment.json").read_text())["roots"][0]["rootKey"]
+        master, slave = os.openpty()
+        self.addCleanup(os.close, master)
+        try:
+            helper = subprocess.Popen([str(APP), "terminal-helper", key], env=self.env,
+                                      stdin=subprocess.PIPE, stdout=slave, stderr=subprocess.PIPE)
+        finally:
+            os.close(slave)
+        self.addCleanup(helper.stderr.close)
+        self.addCleanup(helper.stdin.close)
+        self.addCleanup(self.stop, helper)
+
+        def frame():
+            self.assertTrue(select.select([helper.stderr], [], [], 5)[0], "No response from terminal helper")
+            return json.loads(helper.stderr.readline())
+
+        self.assertEqual(frame(), {"kind": "ready"})
+        for payload, code in (
+            ({"kind": "run", "executable": "uname", "arguments": ["-invalid"]}, "invalid_diagnostic_command"),
+            ({"kind": "run", "executable": "unknown-diagnostic", "arguments": []}, "invalid_diagnostic_command"),
+            ({"kind": "cd", "path": ".."}, "invalid_path"),
+        ):
+            command_id = str(uuid.uuid4())
+            helper.stdin.write(json.dumps(payload | {"commandId": command_id}).encode() + b"\n")
+            helper.stdin.flush()
+            self.assertEqual(frame(), {"kind": "exit", "commandId": command_id, "exitCode": 1, "code": code})
+        helper.stdin.close()
+        self.assertEqual(helper.wait(timeout=5), 0)
 
     def test_stderr_progress_precedes_exit_and_duplicate_is_ignored(self):
         self.register()

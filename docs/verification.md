@@ -1,5 +1,9 @@
 # FileSharing 验收记录
 
+## Agent 0.5.5
+
+`test_terminal_session_keeps_native_cwd_and_streams_on_wss_and_https` 验证真实 PTY 输出、退出顺序、跨命令目录状态、符号链接限制、Passkey 会话隔离和会话关闭。 `test_terminal_helper_enforces_the_allowlist_and_scope_independently` 验证 Mac helper 独立拒绝非法程序、参数和越界目录。 `test_browser_terminal_streams_then_resumes_over_rest` 在 Chrome 中连接同一个终端，关闭浏览器 WebSocket 后通过 REST 游标继续运行命令并显示输出。 [终端 API](api.md#远程终端会话)
+
 ## Agent 0.5.4
 
 `test_home_writes_follow_the_shared_path_permissions` 验证旧默认 HOME 授权保留根 ID 并升级可写。WebSocket 和 HTTPS 回退均验证了 HOME 根下新建，以及普通目录的新建、上传、改名和移动。测试也覆盖了 macOS 拒绝写入的目录、受保护目录和手动设为只读的共享。浏览器回归通过 File System 的工具栏实际新建目录，并确认进入 Library 后新建按钮停用。

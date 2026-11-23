@@ -121,6 +121,7 @@ actor AgentTransport {
     private var seen = [String: Date]()
     private var operations = [String: Task<Void, Never>]()
     private var managedOperations = Set<String>()
+    private var terminals = [String: TerminalProcess]()
     private var activeOrigin: URL?
     private let interactions: DeviceInteractions
     private var recent = [(id: String, value: JSON)]()
@@ -631,7 +632,7 @@ actor AgentTransport {
         }
         let input = command["payload"]
         let notificationWatch = kind == "files.watch" && input["purpose"].string == "notification"
-        let managed = ["diagnostics.run", "interaction.dialog", "interaction.dialog.masked", "interaction.dialog.form",
+        let managed = ["diagnostics.run", "terminal.open", "terminal.input", "interaction.dialog", "interaction.dialog.masked", "interaction.dialog.form",
                        "interaction.notification"].contains(kind)
             || notificationWatch
         if managed { managedOperations.insert(id) }
@@ -683,6 +684,24 @@ actor AgentTransport {
             return try await DiagnosticRunner.run(name, input: input, data: data) { part in
                 try await self.diagnosticProgress(part, id: id)
             }
+        case "terminal.open":
+            try Task.checkCancellation()
+            guard terminals.isEmpty else { throw AgentError("terminal_busy") }
+            let terminal = try TerminalProcess(root: input.requireString("root"))
+            terminals[id] = terminal
+            defer {
+                terminal.close()
+                terminals.removeValue(forKey: id)
+            }
+            for try await part in terminal.events {
+                try diagnosticProgress(part, id: id)
+            }
+            return [:]
+        case "terminal.input":
+            try Task.checkCancellation()
+            guard let terminal = terminals[try input.requireString("sessionId")] else { throw AgentError("terminal_closed") }
+            try terminal.send(input)
+            return [:]
         case "permissions.request":
             return try await telemetry.permission(input.requireString("permission"))
         case "interaction.dialog", "interaction.dialog.masked", "interaction.dialog.form":

@@ -275,6 +275,35 @@ SFTP 客户端首次连接时校验 `hostKeyFingerprint`，格式为 `SHA256:…
 
 更新后在 Demo 执行 `arch` 并核对架构输出和退出码。再提交带额外参数的 `arch -x`，核对 `400 invalid_diagnostic_command`。
 
+### 远程终端会话
+
+Agent 0.5.5 起支持 Mac 原生 PTY。终端子进程在会话期间保持运行，`cd` 通过 macOS 改变进程的工作目录。会话由创建时的 Passkey 会话、共享根和设备连接共同授权。每台 Mac 可打开一个终端，每次可运行一条命令。撤销授权、结束 Passkey 会话、设备断开或空闲 30 分钟会结束终端。命令与输出仅保存在内存中。
+
+以下路由均相对于 `/api/v1/devices/{id}/diagnostics/sessions`。
+
+| 方法 | 路径 | 请求与响应 |
+| --- | --- | --- |
+| POST | `/` | 发送 `{}` 使用 HOME 共享根，或发送 `{"rootId":"<UUID>"}` 选择已授权共享根。PTY 就绪后返回 `201` 及 `{id,deviceId,rootId,connectionId}`。 |
+| POST | `/{sessionId}/commands` | 发送 `{"line":"uname -m"}`，通过校验后返回 `202 {commandId}`。 |
+| POST | `/{sessionId}/interrupt` | 中断当前命令，返回 `204`。退出帧报告实际退出码。 |
+| GET | `/{sessionId}/ws?after=0` | 通过 WebSocket 接收新增输出页。需要与 Passkey 页面同源的 `Origin` 和会话 cookie。 |
+| GET | `/{sessionId}/output?after=0` | 返回相同的输出页及最新游标。 |
+| DELETE | `/{sessionId}` | 关闭终端并返回 `204`。 |
+
+可运行上表的诊断程序和参数，以及内置 `cd` 和 `pwd`。例如 `cd "Project Files"` 和 `cd ..`。 `cd`、`cd ~` 和 `cd /` 回到共享根，带前导斜线的输入也从共享根解析。设备端拒绝越界、受保护路径、符号链接和跨卷跳转。两端各自检查程序及参数，会话仅接受一行命令。外部程序限时约 10 秒，超时退出码为 124。
+
+WebSocket 与 REST 输出采用 `{items,cursor,closed,truncated}`。帧的 `index` 从 1 递增，各类型如下。
+
+| `kind` | 其余字段 |
+| --- | --- |
+| `ready` | PTY 已就绪。 |
+| `command` | `commandId` 和 `line`。 |
+| `output` | `commandId` 和 Base64 `data`，承载合流的 PTY STDOUT/STDERR 原始字节。 |
+| `exit` | `commandId`、`exitCode` 和可选错误 `code`。 |
+| `closed` | 原因 `code`。 |
+
+浏览器按 `index` 处理输出，按字节增量解码 UTF-8，断开 WebSocket 时通过 REST 从最近的 `cursor` 续读。服务端最多保留 256 帧，游标早于缓存时 `truncated` 为 `true`。会话结束后至多保留 30 秒，重新开会话时清除上一会话的帧。终端专用 WebSocket 不发布到全局事件订阅。 [AsyncAPI](asyncapi.yaml)
+
 ## Bark 与 Telegram 通知
 
 `/notifications` 提供渠道、事件目录、规则、预览、目录监听状态、测试消息和投递历史。管理 WebSocket 可订阅全局 `notifications.changed`，配合通知自己的回放游标和 REST 数据。完整请求、变量及授权语义见 [Milestone 3 通知 API](notifications.md)。

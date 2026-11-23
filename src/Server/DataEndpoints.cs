@@ -184,6 +184,7 @@ internal static class DataEndpoints
             .WithSummary("Poll ordered stdout and stderr segments for a diagnostic");
         api.MapGet("/events", Events).WithTags("Events").WithSummary("Read a page of live-event history over REST");
         api.MapGet("/events/ws", BrowserEvents.Handle).WithTags("Events").WithSummary("Subscribe to events using WebSocket");
+        TerminalEndpoints.Map(devices);
         WindowEndpoints.Map(devices);
         RecordEndpoints.Map(devices);
         InteractionEndpoints.Map(devices);
@@ -265,12 +266,17 @@ internal static class DataEndpoints
             throw Fault.Bad("unsupported_diagnostic");
         if (body.Kind != "custom" && body.Command is not null)
             throw Fault.Bad("invalid_diagnostic_command");
-        var payload = body.Kind == "custom" ? ParseDiagnostic(body.Command) : new { diagnostic = body.Kind };
+        object payload = body.Kind == "custom" ? ParseDiagnostic(body.Command) : new { diagnostic = body.Kind };
         var job = await jobs.Start(review, id, "diagnostics.run", payload, ct);
         return TypedResults.Accepted($"/api/v1/jobs/{job.Id}", job);
     }
 
-    private static object ParseDiagnostic(string? line)
+    internal sealed record DiagnosticCommand(string Executable, string[] Arguments)
+    {
+        public string Diagnostic => "custom";
+    }
+
+    internal static DiagnosticCommand ParseDiagnostic(string? line)
     {
         if (line is null || line.Length > 160)
             throw Fault.Bad("invalid_diagnostic_command");
@@ -292,7 +298,7 @@ internal static class DataEndpoints
         };
         if (!safe)
             throw Fault.Bad("invalid_diagnostic_command");
-        return new { diagnostic = "custom", executable, arguments };
+        return new(executable, arguments);
     }
 
     private static bool DiagnosticFlags(string argument, string allowed) =>

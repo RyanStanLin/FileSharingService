@@ -104,6 +104,10 @@ struct LocalState: Sendable {
         try JSONDecoder().decode(Enrollment.self, from: Data(contentsOf: directory.appendingPathComponent("enrollment.json")))
     }
 
+    func configuredRoots() throws -> [LocalRoot] {
+        try withEnrollmentLock { try enrollment().roots }
+    }
+
     func loadOrCreate(homeWritable: Bool) throws -> Enrollment {
         try withEnrollmentLock {
             let stored: Enrollment

@@ -2,7 +2,7 @@ import Darwin
 import Foundation
 
 enum DiagnosticRunner {
-    private struct Command: Sendable {
+    struct Command: Sendable {
         let path: String
         let arguments: [String]
     }
@@ -59,7 +59,7 @@ enum DiagnosticRunner {
     }
 
     // Validate independently of the server. Only fixed executable paths and reviewed arguments reach Process.
-    private static func customCommand(_ input: JSON) throws -> Command {
+    static func customCommand(_ input: JSON) throws -> Command {
         guard let executable = input["executable"].string, let values = input["arguments"].array, values.count <= 8 else {
             throw AgentError("invalid_diagnostic_command")
         }

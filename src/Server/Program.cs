@@ -60,6 +60,7 @@ public static class Program
         builder.Services.AddSingleton<TransferService>();
         builder.Services.AddSingleton<JobService>();
         builder.Services.AddSingleton<JobOutputs>();
+        builder.Services.AddSingleton<TerminalSessions>();
         builder.Services.AddHostedService<Maintenance>();
         builder.Services.AddExceptionHandler<FaultHandler>();
         builder.Services.AddProblemDetails();

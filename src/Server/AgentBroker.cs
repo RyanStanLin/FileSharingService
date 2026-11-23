@@ -445,6 +445,7 @@ internal sealed class AgentBroker(Database db, AgentRegistration registration, N
     private static Fault RemoteFault(string? code) => code switch
     {
         "invalid_diagnostic_command" => Fault.Bad(code),
+        "terminal_busy" or "terminal_closed" => Fault.Conflict(code),
         "permission_denied" or "filesystem_access_denied" or "invalid_path" or "notification_permission_required" or "interactive_session_required" => Fault.Forbidden(code),
         "not_found" => Fault.Missing(code),
         "version_mismatch" => new Fault(412, code),

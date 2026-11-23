@@ -1,6 +1,7 @@
 import {deviceData} from "./device-data.js"
 import {deviceJobs} from "./device-jobs.js"
 import {deviceRecords} from "./device-records.js"
+import {diagnosticTerminal} from "./diagnostic-terminal.js"
 import {gatewayPanel} from "./gateway.js"
 import {dateText, duration, element, eventSocket, status} from "./ui.js"
 
@@ -33,6 +34,13 @@ const errors = { authentication_required: "请先解锁后台。",
     local_authentication_unavailable: "这台 Mac 当前无法进行系统身份验证。",
     diagnostic_already_running: "这台 Mac 上已有诊断在运行。",
     invalid_diagnostic_command: "请输入受支持的只读命令及参数，例如 uname -m。",
+    invalid_path: "目录路径无效或已超出共享根目录。",
+    terminal_busy: "这台 Mac 的终端会话或命令正在运行。",
+    terminal_closed: "终端已结束。",
+    terminal_not_found: "终端已结束。",
+    terminal_idle: "终端因空闲超时而结束。",
+    terminal_unavailable: "Mac 无法打开终端。",
+    diagnostic_timeout: "命令运行超时。",
     unsupported: "设备当前版本不支持这项操作。",
     job_limit: "当前操作过多，请稍后重试。",
     review_ended: "当前 Passkey 管理会话已结束。",
@@ -74,6 +82,7 @@ let jobPollInProgress = false
 let pane = "files"
 const tabs = [...document.querySelectorAll("[data-pane]")]
 const jobs = deviceJobs({call, perform, errorText, collectCompleted: () => data.refresh()})
+const terminal = diagnosticTerminal({call, perform, errorText})
 const data = deviceData({call, perform, submitCollection: topics => jobs.collect(topics)})
 const records = deviceRecords({call, perform})
 const gateway = gatewayPanel({call, perform, authenticate})
@@ -82,6 +91,7 @@ function updatePanes() {
     const device = unlocked ? selected() : undefined
     data.bind(device, pane)
     jobs.bind(device)
+    terminal.bind(device)
     records.bind(pane === "records" ? device?.id : undefined)
     gateway.bind(unlocked && pane === "gateway")
 }

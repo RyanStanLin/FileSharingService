@@ -190,6 +190,25 @@
             <div><h3>STDERR</h3><pre id="diagnostic-stderr" tabindex="0" aria-label="标准错误"></pre></div>
           </div>
         </section>
+        <section aria-labelledby="terminal-heading">
+          <div class="section-title">
+            <h2 id="terminal-heading">远程终端</h2>
+            <div class="row">
+              <button id="terminal-open" type="button" class="primary" disabled>新建会话</button>
+              <button id="terminal-close" type="button" disabled>结束会话</button>
+            </div>
+          </div>
+          <p id="terminal-status" class="muted" role="status"></p>
+          <pre id="terminal-output" tabindex="0" aria-label="终端输出"></pre>
+          <form id="terminal-form" class="row">
+            <label for="terminal-command">命令</label>
+            <input id="terminal-command" autocomplete="off" autocapitalize="off" spellcheck="false"
+                   maxlength="3005" aria-describedby="terminal-examples" required disabled>
+            <button id="terminal-run" type="submit" disabled>执行</button>
+            <button id="terminal-interrupt" type="button" disabled>中断</button>
+          </form>
+          <p id="terminal-examples" class="muted">可输入 <code>pwd</code>、<code>cd Downloads</code> 或 <code>uname -m</code>。</p>
+        </section>
         <section aria-labelledby="dialog-heading">
           <h2 id="dialog-heading">远程原生对话框</h2>
           <p class="muted">请求会显示在所选 Mac 的已解锁用户会话中。自定义输入框需要 Agent 0.5.1 或更新版本。</p>

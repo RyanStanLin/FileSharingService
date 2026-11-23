@@ -63,6 +63,8 @@ td:last-child button + button { margin-left: 6px; }
 .thumbnail { display: grid; place-items: center; width: 48px; height: 48px; border-radius: 5px; background: var(--page); color: var(--muted); }
 .thumbnail img { display: block; width: 44px; height: 44px; object-fit: contain; }
 pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow: auto; background: var(--page); padding: 12px; border-radius: 5px; }
+#terminal-output { min-height: 184px; max-height: 420px; font-family: ui-monospace, Menlo, monospace; }
+#terminal-command { flex: 1 1 240px; font-family: ui-monospace, Menlo, monospace; }
 #next-page { margin-top: 10px; }
 
 .muted { color: var(--muted); }

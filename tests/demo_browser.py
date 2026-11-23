@@ -293,6 +293,37 @@ class LocalDemoBrowser(unittest.TestCase):
         browser.wait("document.querySelector('#workspace').hidden")
         self.assertEqual(browser.evaluate("document.querySelector('#gateway-visible-password').value"), "")
 
+    def test_browser_terminal_streams_then_resumes_over_rest(self):
+        browser = self.start_browser()
+        browser.evaluate("""
+            window.WebSocket = class extends WebSocket {
+                constructor(...args) {
+                    super(...args)
+                    if (String(args[0]).includes('/diagnostics/sessions/')) window.fixtureTerminalSocket = this
+                }
+            };
+            document.querySelector('#tab-actions').click();
+            document.querySelector('#terminal-open').click()
+        """)
+        browser.wait("document.querySelector('#terminal-status').textContent.endsWith('WebSocket')")
+
+        def run(line, exit_count):
+            browser.evaluate(f"""
+                document.querySelector('#terminal-command').value = {json.dumps(line)};
+                document.querySelector('#terminal-form').requestSubmit()
+            """)
+            browser.wait(f"document.querySelector('#terminal-output').textContent.split('[退出码 0]').length === {exit_count + 1}")
+
+        run("pwd", 1)
+        self.assertIn(str(self.fixture.home.resolve()), browser.evaluate("document.querySelector('#terminal-output').textContent"))
+        browser.evaluate("window.fixtureTerminalSocket.close()")
+        browser.wait("document.querySelector('#terminal-status').textContent.endsWith('HTTP 续读')")
+        run("cd Downloads", 2)
+        run("pwd", 3)
+        self.assertIn(str(self.downloads.resolve()), browser.evaluate("document.querySelector('#terminal-output').textContent"))
+        browser.evaluate("document.querySelector('#terminal-close').click()")
+        browser.wait("document.querySelector('#terminal-command').disabled && !document.querySelector('#terminal-open').disabled")
+
     def test_browser_streams_application_activity_and_recovers_dialog_and_diagnostics_over_rest(self):
         fixture = self.fixture
         device = str(uuid.uuid4())

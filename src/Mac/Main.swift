@@ -18,6 +18,10 @@ struct FileSharingAgent {
         guard getuid() >= 501 else { return }
         if let user = EndpointProfile.managedUser, user != NSUserName() { return }
         #endif
+        if arguments.count == 2, arguments.first == "terminal-helper" {
+            TerminalHelper.serve(rootKey: arguments[arguments.index(after: arguments.startIndex)])
+            return
+        }
         #if FILESHARING_APP || FILESHARING_TEST
         if arguments.isEmpty || arguments == ["run"] || arguments == ["dialog-helper"] {
             let app = NSApplication.shared
