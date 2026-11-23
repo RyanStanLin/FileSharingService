@@ -1,10 +1,11 @@
 import {useEffect, useRef, useState, type ReactNode} from 'react'
 import {Button, Heading, Stack, TreeView} from '@primer/react'
-import {EyeClosedIcon, EyeIcon, FileDirectoryFillIcon, FileDirectoryOpenFillIcon, ShieldCheckIcon, ShieldIcon, ShieldXIcon} from '@primer/octicons-react'
+import {EyeClosedIcon, EyeIcon, FileDirectoryFillIcon, ShieldCheckIcon, ShieldIcon, ShieldXIcon} from '@primer/octicons-react'
 import type {Entry, Location, Permission, Permissions, Share} from '../api/types'
 import {useLanguage, type Translate} from '../i18n'
 import {useRefreshSignal} from '../ui/async'
-import {ListEntryIcon} from './EntryIcon'
+import {EntryIcon, ListEntryIcon} from './EntryIcon'
+import entryStyles from './entryIcon.module.css'
 import {homeLocation, locationOf, navigate, permissionFor} from './navigation'
 import {useAutoPage} from './useAutoPage'
 import {useDirectory, type DirectoryView} from './useDirectory'
@@ -63,12 +64,10 @@ function BranchItem({entry, marker, ...props}: BranchProps & {entry: Entry; mark
       onSelect={activate} expanded={isFolder ? !blocked && expanded : null}
       onExpandedChange={next => { if (blocked && next) activate(); else expand(next) }}>
       <TreeView.LeadingVisual>
-        {isFolder ? ({isExpanded}) => isExpanded
-          ? <FileDirectoryOpenFillIcon className={styles.folderIcon} size={16} />
-          : <FileDirectoryFillIcon className={styles.folderIcon} size={16} />
+        {isFolder ? ({isExpanded}) => <EntryIcon entry={entry} expanded={isExpanded} />
           : <ListEntryIcon device={props.deviceId} rootId={scope.id} entry={entry} compact />}
       </TreeView.LeadingVisual>
-      <span title={entry.name}>{entry.name}{marker}</span>
+      <span className={entry.hidden ? entryStyles.hiddenName : undefined} title={entry.name}>{entry.name}{marker}</span>
       {kind && target.path.indexOf('/') === -1 && permissionIcon(permission, t)}
       {isFolder && (
         <TreeView.SubTree state={!blocked && expanded ? "done" : "initial"}>

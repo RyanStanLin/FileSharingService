@@ -15,6 +15,10 @@
   overflow-wrap: anywhere;
 }
 
+.title[data-muted] {
+  color: var(--fgColor-muted);
+}
+
 .caption {
   color: var(--fgColor-muted);
   font: var(--text-body-shorthand-small);

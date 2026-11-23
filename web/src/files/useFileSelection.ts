@@ -83,8 +83,7 @@ export function useFileSelection(device: Device, location: Location, {view, list
     current.current = anchor.current
   }
 
-  async function downloadEntries(signal: AbortSignal) {
-    if (count > archiveLimit) throw new ApiError(400, 'too_many_entries')
+  async function resolveEntries(signal: AbortSignal) {
     const result = entries.filter(entry => includes(entry.path))
     if (!selected.all || !page || result.length === count) return result
     let next = page
@@ -95,7 +94,12 @@ export function useFileSelection(device: Device, location: Location, {view, list
     return result
   }
 
-  return {selected, includes, count, clear, selectAll, select, moveFocus, marquee, finishMarquee, downloadEntries,
+  async function downloadEntries(signal: AbortSignal) {
+    if (count > archiveLimit) throw new ApiError(400, 'too_many_entries')
+    return resolveEntries(signal)
+  }
+
+  return {selected, includes, count, clear, selectAll, select, moveFocus, marquee, finishMarquee, resolveEntries, downloadEntries,
     restore: setSelection, total: page?.total ?? 0, entries}
 }
 

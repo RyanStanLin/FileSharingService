@@ -9,7 +9,7 @@ import styles from '../ui/explorerTable.module.css'
 import type {OpenAction} from './actions'
 import {optionalColumns, type ColumnKey} from './columns'
 import {ListEntryIcon} from './EntryIcon'
-import {EntryMenu} from './EntryMenu'
+import {EntryMenu, type ClipboardMenu} from './EntryMenu'
 import {href, locationOf} from './navigation'
 import type {FileSelection} from './useFileSelection'
 
@@ -25,10 +25,11 @@ interface Props {
   onSort: (sort: SortKey, direction: Direction) => void
   onAction: OpenAction
   onDownload: (entries: Entry[]) => void
+  clipboard: ClipboardMenu
 }
 
 export function FileTable({titleId, device, selection, visible, location, share, sort, direction, onSort,
-  onAction, onDownload}: Props) {
+  onAction, onDownload, clipboard}: Props) {
   const {t} = useLanguage()
   const columns = optionalColumns.filter(column => visible.includes(column.key))
   const {entries, count, total} = selection
@@ -66,11 +67,11 @@ export function FileTable({titleId, device, selection, visible, location, share,
             <td aria-hidden="true" className={styles.iconCell}><ListEntryIcon device={device} rootId={share.id} entry={entry} /></td>
             <th scope="row">
               <Link className={styles.entryName} href={href(locationOf(location.rootId, entry))} title={entry.name}
-                data-file-link="" draggable={false}>{entry.name}</Link>
+                data-file-link="" data-hidden-entry={entry.hidden || undefined} draggable={false}>{entry.name}</Link>
             </th>
             {columns.map(({key}) => <FileValue key={key} field={key} entry={entry} />)}
             <td className={styles.menuCell}>
-              <EntryMenu entry={entry} share={share} open={onAction} download={onDownload} />
+              <EntryMenu entry={entry} share={share} open={onAction} download={onDownload} clipboard={clipboard} />
             </td>
           </tr>
         ))}

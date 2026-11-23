@@ -11,12 +11,13 @@ import {FileTitle} from './Metadata'
 import {basename, canWriteFolder} from './navigation'
 import selection from './selection.module.css'
 
-export function FolderHeader({device, location, titleId, share, overview, open, visible, setVisible}: {
+export function FolderHeader({device, location, titleId, share, overview, open, visible, setVisible, hiddenTitle}: {
   device: Device
   location: Location
   titleId: string
   share: Share
   overview: ReactNode
+  hiddenTitle?: boolean
   open: OpenAction
   visible: ColumnKey[]
   setVisible: (column: ColumnKey) => void
@@ -25,7 +26,7 @@ export function FolderHeader({device, location, titleId, share, overview, open, 
   const label = location.path ? basename(location.path) : share.primary ? t('userFolder') : share.label
   const writable = canWriteFolder(share, location.path)
   return (
-    <ExplorerHeader title={<FileTitle id={titleId} title={label} detail={t('folderOn', {device: device.name})} />}
+    <ExplorerHeader title={<FileTitle id={titleId} title={label} detail={t('folderOn', {device: device.name})} muted={hiddenTitle} />}
       facts={overview}
       actions={<Stack direction="horizontal" align="center" wrap="wrap" gap="condensed">
         <ButtonGroup>

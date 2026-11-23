@@ -9,8 +9,10 @@ import styles from '../ui/explorer.module.css'
 import {EntryIcon} from './EntryIcon'
 import iconStyles from './entryIcon.module.css'
 
-export function FileTitle({id, title, detail, entry, thumbnail}: {id?: string; title: string; detail?: string; entry?: Entry; thumbnail?: string}) {
-  return <ExplorerTitle id={id} title={title} detail={detail}
+export function FileTitle({id, title, detail, entry, thumbnail, muted = entry?.hidden}: {
+  id?: string; title: string; detail?: string; entry?: Entry; thumbnail?: string; muted?: boolean
+}) {
+  return <ExplorerTitle id={id} title={title} detail={detail} muted={muted}
     visual={entry && <span className={iconStyles.thumbnail}><EntryIcon entry={entry} url={thumbnail} detail /></span>} />
 }
 

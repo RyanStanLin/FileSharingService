@@ -9,14 +9,14 @@ import {FilePanel} from './FilePanel'
 import {FolderPanel} from './FolderPanel'
 import {locationOf, navigate, parent} from './navigation'
 import type {Explorer} from './useExplorer'
+import type {MoveClipboard} from './useMoveClipboard'
 import styles from './workspace.module.css'
 
-export function LocationView({device, share, location, visibleRoots, hidden, revision, explorer, refresh, rootEntry, rootPending}: {
+export function LocationView({device, share, location, clipboard, revision, explorer, refresh, rootEntry, rootPending}: {
   device: Device
   share: Share
   location: Location
-  visibleRoots: Share[]
-  hidden: boolean
+  clipboard: MoveClipboard
   revision: number
   explorer: Explorer
   rootEntry?: Entry
@@ -39,7 +39,7 @@ export function LocationView({device, share, location, visibleRoots, hidden, rev
     refresh()
     if (location.kind !== 'file') return
     if (action?.kind === 'rename' && updated) navigate(locationOf(share.id, updated))
-    if (action?.kind === 'remove' || action?.kind === 'trash' || action?.kind === 'move') {
+    if (action?.kind === 'remove' || action?.kind === 'trash') {
       navigate({...location, kind: 'folder', path: parent(location.path)})
     }
   }
@@ -50,9 +50,9 @@ export function LocationView({device, share, location, visibleRoots, hidden, rev
       {task.error != null && <div className={styles.pageAction}><ErrorText error={task.error} /></div>}
       {location.kind === 'file'
         ? <FilePanel device={device.id} {...common} />
-        : <FolderPanel device={device} explorer={explorer} rootEntry={rootEntry} rootPending={rootPending} {...common} />}
-      {action && <FileDialog action={action} deviceId={device.id} share={share} location={location} hidden={hidden}
-        roots={visibleRoots} directoryEntries={explorer.view.entries} close={() => setAction(undefined)} changed={changed} refresh={refresh} />}
+        : <FolderPanel device={device} explorer={explorer} clipboard={clipboard} rootEntry={rootEntry} rootPending={rootPending} {...common} />}
+      {action && <FileDialog action={action} deviceId={device.id} share={share} location={location}
+        directoryEntries={explorer.view.entries} close={() => setAction(undefined)} changed={changed} refresh={refresh} />}
     </>
   )
 }

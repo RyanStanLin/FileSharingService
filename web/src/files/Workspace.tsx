@@ -10,6 +10,7 @@ import {Modal} from '../ui/Modal'
 import {Loading, Retry, State} from '../ui/Feedback'
 import {useRefresh, useResource} from '../ui/async'
 import {ThumbnailProvider} from '../ui/thumbnails'
+import feedbackStyles from '../ui/ui.module.css'
 import {GoToDialog} from './GoToDialog'
 import {LocationView} from './LocationView'
 import {basename, homeLocation, permissionFor, useLocation} from './navigation'
@@ -19,6 +20,7 @@ import {ShareManager} from './ShareManager'
 import {permissionBlocks, Sidebar} from './Sidebar'
 import {useExplorer} from './useExplorer'
 import {useLiveFolder} from './useLiveFolder'
+import {useMoveClipboard} from './useMoveClipboard'
 import styles from './workspace.module.css'
 
 const sidebarSize = {min: '176px', default: '233px', max: '480px'} as const
@@ -63,6 +65,7 @@ export function Workspace({device, refreshDevice, shareManager, setShareManager,
     ['filesystem_access_denied', 'permission_denied'].includes(explorer.view.error.code)
   const rootInfo = useResource(root?.id ?? null, signal => stat(device.id, homeLocation(root!), signal, false, 'background'))
   const refreshCurrent = folder ? explorer.view.refresh : refreshFile
+  const clipboard = useMoveClipboard(device.id, visibleRoots, refreshAfterEdit)
   useLiveFolder({
     device: device.id, location: blockedByMac ? undefined : activeLocation, ready: Boolean(explorer.view.page || activeLocation?.kind === 'file'),
     snapshotRevision: explorer.view.page?.snapshotRevision, refreshCurrent,
@@ -100,8 +103,8 @@ export function Workspace({device, refreshDevice, shareManager, setShareManager,
       }} displayName={basename(location.path.split('/')[0])} />
   } else {
     view = <LocationView key={root.id + ':' + location.kind + ':' + location.path}
-      device={device} share={root} location={location} hidden={hidden} revision={fileRevision} explorer={explorer}
-      visibleRoots={visibleRoots} refresh={refreshAfterEdit}
+      device={device} share={root} location={location} revision={fileRevision} explorer={explorer}
+      clipboard={clipboard} refresh={refreshAfterEdit}
       rootEntry={rootInfo.data} rootPending={rootInfo.pending} />
   }
 
@@ -129,6 +132,10 @@ export function Workspace({device, refreshDevice, shareManager, setShareManager,
               <Button ref={treeButton} size="medium" leadingVisual={FileDirectoryIcon} aria-haspopup="dialog" aria-expanded={mobileTree}
                 aria-controls={sidebar} onClick={() => setMobileTree(open => !open)}>{t('folderTree')}</Button>
             </div>}
+            <div className={clipboard.status || clipboard.error ? styles.pageAction : undefined}>
+              <div role="status">{clipboard.status}</div>
+              {clipboard.error && <div role="alert" className={feedbackStyles.error}>{clipboard.error}</div>}
+            </div>
             {view}
             {root && location && <PathBar location={location} share={root} />}
           </Stack>

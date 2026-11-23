@@ -3,11 +3,13 @@ import {Heading, Stack} from '@primer/react'
 import {useLanguage, type Message} from '../i18n'
 import styles from './explorer.module.css'
 
-export function ExplorerTitle({id, title, detail, visual}: {id?: string; title: string; detail?: string; visual?: ReactNode}) {
+export function ExplorerTitle({id, title, detail, visual, muted}: {
+  id?: string; title: string; detail?: string; visual?: ReactNode; muted?: boolean
+}) {
   return <Stack direction="horizontal" align="center" gap="normal">
     {visual}
     <Stack.Item grow className={styles.titleArea}>
-      <Heading as="h1" id={id} className={styles.title}>{title}</Heading>
+      <Heading as="h1" id={id} className={styles.title} data-muted={muted || undefined}>{title}</Heading>
       {detail && <div className={styles.caption}>{detail}</div>}
     </Stack.Item>
   </Stack>

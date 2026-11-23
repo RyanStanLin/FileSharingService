@@ -9,6 +9,7 @@ import {Modal} from '../ui/Modal'
 import {useResource, useTask} from '../ui/async'
 import {readSharedPaths, resolvePath, suggestPaths, type PathCache} from './goToPaths'
 import {locationOf, navigate} from './navigation'
+import entryStyles from './entryIcon.module.css'
 import styles from './goTo.module.css'
 
 interface Props {
@@ -45,6 +46,7 @@ export function GoToDialog({device, shares, location, rootEntry, hidden, close}:
   const suggestions = useResource(suggestKey, signal => suggestPaths(device, value, context, hidden, cache, signal))
   const items = (suggestions.data ?? []).map((suggestion, index) => ({
     id: `${formId}-path-${index}`, text: suggestion.text, metadata: suggestion.target,
+    children: suggestion.hidden ? <span className={entryStyles.hiddenName}>{suggestion.text}</span> : undefined,
   }))
   const waitingForRoots = absolute && !rootPaths.data && !rootPaths.error
 

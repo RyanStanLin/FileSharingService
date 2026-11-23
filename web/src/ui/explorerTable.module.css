@@ -120,6 +120,10 @@
   font-weight: var(--base-text-weight-semibold);
 }
 
+.table .entryName[data-hidden-entry] {
+  color: var(--fgColor-muted);
+}
+
 .rowLink {
   max-inline-size: 100%;
   font-family: inherit;

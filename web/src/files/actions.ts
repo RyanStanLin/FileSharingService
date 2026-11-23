@@ -5,7 +5,6 @@ export type FileAction =
   | {kind: 'upload'; folder?: Entry}
   | {kind: 'info'; entry?: Entry}
   | {kind: 'rename'; entry: Entry}
-  | {kind: 'move'; entry: Entry}
   | {kind: 'trash'; entry: Entry}
   | {kind: 'remove'; entry: Entry}
 
@@ -14,8 +13,6 @@ export interface FileDialogProps<Action extends FileAction = FileAction> {
   deviceId: string
   share: Share
   location: Location
-  hidden: boolean
-  roots: Share[]
   directoryEntries: Entry[]
   close: () => void
   changed: (entry?: Entry) => void
@@ -23,4 +20,5 @@ export interface FileDialogProps<Action extends FileAction = FileAction> {
 }
 
 export type OpenAction = (action: FileAction) => void
-export type DownloadSelection = (entries: Entry[] | ((signal: AbortSignal) => Promise<Entry[]>)) => void
+export type EntrySource = Entry[] | ((signal: AbortSignal) => Promise<Entry[]>)
+export type DownloadSelection = (entries: EntrySource) => void

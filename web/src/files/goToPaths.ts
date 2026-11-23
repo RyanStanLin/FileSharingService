@@ -12,6 +12,7 @@ export interface PathContext {
 export interface PathSuggestion {
   text: string
   target: Location
+  hidden?: boolean
 }
 
 interface CachedFolder {
@@ -125,7 +126,11 @@ export async function suggestPaths(device: string, value: string, context: PathC
   }
   try {
     const entries = await readMatches(device, target, prefix, hidden, cache, signal)
-    return entries.map(entry => ({text: stem + entry.name + (entry.kind === 'directory' ? '/' : ''), target: locationOf(target.rootId, entry)}))
+    return entries.map(entry => ({
+      text: stem + entry.name + (entry.kind === 'directory' ? '/' : ''),
+      target: locationOf(target.rootId, entry),
+      hidden: entry.hidden,
+    }))
   } catch (error) {
     if (error instanceof ApiError && ['not_found', 'not_directory', 'invalid_path', 'permission_denied',
       'filesystem_access_denied', 'snapshot_changed'].includes(error.code)) return []

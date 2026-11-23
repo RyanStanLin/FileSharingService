@@ -16,3 +16,11 @@
 .folderIcon {
   color: var(--treeViewItem-leadingVisual-iconColor-rest);
 }
+
+.hiddenIcon {
+  opacity: 0.5;
+}
+
+.hiddenName {
+  color: var(--fgColor-muted);
+}

@@ -185,7 +185,7 @@
 
 ## 单选菜单
 
-- FileSharing Web 的五处有限单选复用 `ChoiceMenu`，包括 Data 的读取视图、应用清单和事件类型、File System 移动对话框的共享根，以及 Window Activity 的活动显示器。复核 Primer 38.46.0 的 ActionMenu、ActionList 单选示例与 SelectPanel 用法。使用 medium ActionMenu.Button 和 ActionList 的 `selectionVariant="single"`，触发按钮的无障碍名称包含本地化字段名与当前值。共享根和显示器保留可见的 FormControl 标签。 [ActionMenu](https://primer.style/product/components/action-menu/) · [ActionList](https://primer.style/product/components/action-list/)
+- 该轮将五处有限单选接入 `ChoiceMenu`，包括 Data 的读取视图、应用清单和事件类型、当时的 File System 移动对话框，以及 Window Activity 的活动显示器。复核 Primer 38.46.0 的 ActionMenu、ActionList 单选示例与 SelectPanel 用法。使用 medium ActionMenu.Button 和 ActionList 的 `selectionVariant="single"`，触发按钮的无障碍名称包含本地化字段名与当前值。 [ActionMenu](https://primer.style/product/components/action-menu/) · [ActionList](https://primer.style/product/components/action-list/)
 - Chromium 验证三类 Data 菜单、320 CSS px 下的方向键、Enter、Escape 和浏览器返回、两个授权共享根之间的实际文件移动，以及多屏切换后布局和实时更新。WebKit 验证存储视图和显示器选择、当前选项标记与焦点归还。五处交互均核对了菜单角色和原生 Select 清理结果。
 
 ## 剪贴板档案
@@ -207,3 +207,10 @@
 - 图表轴显示采样的时分，采样详情显示完整时间。文件信息、设备字段、采样详情和事件详情使用 `format="datetime"`，显示星期、年月日、时分秒和浏览器时区偏移。普通事件与剪贴板档案均提供发生和入库时间。更新时间可打开键盘可达的详情对话框。日期统一传入当前应用语言，并使用 `noTitle`。 [无障碍指南](https://primer.style/product/components/relative-time/accessibility/)
 - 在线时长、当前系统和应用运行时长使用 `format="duration"` 从相关时间点计时。历史采样的时长、采样间隔及往返延迟是固定测量值，以对应单位显示。
 - Chromium 使用实际 API 验证了相对时间自动刷新、历史日期、精确到秒及浏览器时区、按真实时间排序、中英文切换、图表轴和窄屏。用浏览器的无障碍树核对更新时间按钮的名称，并用键盘验证详情打开及焦点归还。剪贴板续页、事件高亮、应用清单、文件滚动和窗口动画回归通过。WebKit 验证了剪贴板历史日期、详情与续页，以及窗口计时、采样时间详情和连接恢复。构建通过。Primer CSS 工具报错且未提供诊断，PostCSS 解析成功并核对了四套主题下的 132 处 token 引用。
+
+## 文件复制与粘贴移动
+
+- 复核 Copy 场景、ActionMenu 键盘和右键用法、ActionList 的快捷键尾部内容，以及 Copy 和 Paste Octicons。在文件菜单与文件夹空白处显示「复制」「粘贴」和快捷键提示。文件夹项目的菜单以该文件夹为目标。键盘以打开的目录为目标，编辑字段和对话框保留原生快捷键。 [Copy](https://primer.style/product/scenario-patterns/copy/) · [ActionMenu](https://primer.style/product/components/action-menu/accessibility/)
+- 复制把选中的条目和版本暂存在当前 File System 工作区。全选可读取后续分页，粘贴调用现有移动接口并校验源和目标写权限。批量操作逐项提交，同名或版本冲突会显示项目名，已成功移动的条目从待处理清单移除。 [文件 API](../docs/api.md#文件与目录)
+- 文件列表、侧栏树、标题、信息和路径建议按 Agent 的 `hidden` 标记显示 `fgColor-muted` 名称。缩略图和文件夹、文件图标的透明度为 50%。Primer 11.10.0 未提供对应的图标透明度 token。
+- Chromium 联调覆盖键盘多选、包含续页的 83 项全选、文件夹右键和空白处粘贴、跨共享移动、版本冲突、同名冲突后重试和受限目录。实测点号项目及系统隐藏标记的图标和文件名。WebKit 联调验证了快捷键移动和隐藏样式。构建通过，Primer CSS 工具返回空诊断，PostCSS 成功解析三份样式并核对四套主题下的 232 处 token 引用。

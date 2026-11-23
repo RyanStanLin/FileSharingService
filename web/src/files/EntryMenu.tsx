@@ -1,31 +1,47 @@
 import {useId, useRef} from 'react'
 import {ActionList, ActionMenu, IconButton} from '@primer/react'
 import {
-  DesktopDownloadIcon, FileDirectoryFillIcon, FileDirectoryOpenFillIcon, FileIcon, FileMovedIcon,
-  InfoIcon, KebabHorizontalIcon, PencilIcon, TrashIcon, UploadIcon, XIcon,
+  CopyIcon, DesktopDownloadIcon, FileDirectoryFillIcon, FileDirectoryOpenFillIcon, FileIcon,
+  InfoIcon, KebabHorizontalIcon, PasteIcon, PencilIcon, TrashIcon, UploadIcon, XIcon,
 } from '@primer/octicons-react'
 import type {Entry, Share} from '../api/types'
 import {useLanguage} from '../i18n'
 import type {OpenAction} from './actions'
+import {primaryKeyHint, primaryKeyName} from './explorerInput'
 import {canWriteEntry, canWriteFolder, locationOf, navigate} from './navigation'
 import styles from './fileMenu.module.css'
 
+export type ClipboardMenu = (entry?: Entry) => {copy?: () => void; paste?: () => void}
+
 interface MenuProps {
-  entry: Entry
+  entry?: Entry
   share: Share
   open: OpenAction
   download: (entries: Entry[]) => void
+  clipboard: ClipboardMenu
 }
 
 export interface EntryContext {
-  entry: Entry
+  entry?: Entry
   x: number
   y: number
   trigger: HTMLElement
 }
 
-function EntryActions({entry, share, open, download}: MenuProps) {
+function EntryActions({entry, share, open, download, clipboard}: MenuProps) {
   const {t} = useLanguage()
+  const {copy, paste} = clipboard(entry)
+  const clipboardItems = <>
+    <ActionList.Item disabled={!copy} onSelect={copy} aria-keyshortcuts={`${primaryKeyName}+C`}>
+      <ActionList.LeadingVisual><CopyIcon /></ActionList.LeadingVisual>{t('copyFiles')}
+      <ActionList.TrailingVisual><span aria-hidden="true">{primaryKeyHint}C</span></ActionList.TrailingVisual>
+    </ActionList.Item>
+    <ActionList.Item disabled={!paste} onSelect={paste} aria-keyshortcuts={`${primaryKeyName}+V`}>
+      <ActionList.LeadingVisual><PasteIcon /></ActionList.LeadingVisual>{t('pasteFiles')}
+      <ActionList.TrailingVisual><span aria-hidden="true">{primaryKeyHint}V</span></ActionList.TrailingVisual>
+    </ActionList.Item>
+  </>
+  if (!entry) return <ActionList>{clipboardItems}</ActionList>
   const writable = canWriteEntry(share, entry.path)
   const folder = entry.kind === 'directory'
   const canWriteInside = folder && canWriteFolder(share, entry.path)
@@ -41,15 +57,11 @@ function EntryActions({entry, share, open, download}: MenuProps) {
       {(folder || entry.kind === 'file') && <ActionList.Item onSelect={() => download([entry])}>
         <ActionList.LeadingVisual><DesktopDownloadIcon /></ActionList.LeadingVisual>{t('download')}
       </ActionList.Item>}
-      {(writable || canWriteInside) && <ActionList.Divider />}
-      {writable && <>
-        <ActionList.Item onSelect={() => open({kind: 'rename', entry})}>
-          <ActionList.LeadingVisual><PencilIcon /></ActionList.LeadingVisual>{t('rename')}
-        </ActionList.Item>
-        <ActionList.Item onSelect={() => open({kind: 'move', entry})}>
-          <ActionList.LeadingVisual><FileMovedIcon /></ActionList.LeadingVisual>{t('move')}
-        </ActionList.Item>
-      </>}
+      <ActionList.Divider />
+      {clipboardItems}
+      {writable && <ActionList.Item onSelect={() => open({kind: 'rename', entry})}>
+        <ActionList.LeadingVisual><PencilIcon /></ActionList.LeadingVisual>{t('rename')}
+      </ActionList.Item>}
       {canWriteInside && <>
         <ActionList.Item onSelect={() => open({kind: 'mkdir', folder: entry})}>
           <ActionList.LeadingVisual><FileDirectoryFillIcon /></ActionList.LeadingVisual>{t('newFolder')}
@@ -71,7 +83,7 @@ function EntryActions({entry, share, open, download}: MenuProps) {
   </ActionList>
 }
 
-export function EntryMenu(props: MenuProps) {
+export function EntryMenu(props: MenuProps & {entry: Entry}) {
   const {t} = useLanguage()
   return (
     <ActionMenu>
@@ -98,7 +110,7 @@ export function ContextEntryMenu({context, close, ...props}: Omit<MenuProps, 'en
       anchor.current = node
       node?.style.setProperty('--menu-x', context.x + 'px')
       node?.style.setProperty('--menu-y', context.y + 'px')
-    }}>{t('actions', {name: context.entry.name})}</span>
+    }}>{context.entry ? t('actions', {name: context.entry.name}) : t('filesMenu')}</span>
     <ActionMenu anchorRef={anchor} open onOpenChange={open => { if (!open) close() }}>
       <ActionMenu.Overlay width="small" maxHeight="large" aria-labelledby={label}
         className={styles.entryMenu} returnFocusRef={trigger} displayInViewport>

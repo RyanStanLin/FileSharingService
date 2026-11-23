@@ -7,20 +7,30 @@ import type {FileSelection} from './useFileSelection'
 const doubleClickWindow = 500
 const doubleClickTravel = 5
 
-export function useExplorerInput(location: Location, selection: FileSelection, loadNext: () => void) {
-  const selectAll = useRef(selection.selectAll)
+export function useExplorerInput(location: Location, selection: FileSelection, loadNext: () => void,
+  clipboard: {copy?: () => void; paste?: () => void}) {
+  const commands = useRef({selectAll: selection.selectAll, ...clipboard})
   const lastClick = useRef<{entry: Entry; x: number; y: number; time: number; newlySelected: boolean}>(undefined)
-  useEffect(() => { selectAll.current = selection.selectAll }, [selection.selectAll])
+  useEffect(() => { commands.current = {selectAll: selection.selectAll, ...clipboard} }, [selection.selectAll, clipboard])
   useEffect(() => {
-    function selectWhenPageFocused(event: globalThis.KeyboardEvent) {
-      if (event.target !== document.body || event.defaultPrevented || event.isComposing ||
-        !primaryModifier(event) || event.shiftKey || event.altKey || event.key.toLowerCase() !== 'a' ||
+    function onShortcut(event: globalThis.KeyboardEvent) {
+      if (event.defaultPrevented || event.isComposing || !primaryModifier(event) || event.shiftKey || event.altKey ||
         document.querySelector('[aria-modal="true"]')) return
+      const key = event.key.toLowerCase()
+      if (key === 'a' && event.target === document.body) {
+        event.preventDefault()
+        commands.current.selectAll()
+        return
+      }
+      const action = key === 'c' ? commands.current.copy : key === 'v' ? commands.current.paste : undefined
+      if (!action || event.repeat || !(event.target instanceof Element) ||
+        event.target.closest('input, textarea, select, [contenteditable], [role="textbox"], [role="menu"]') ||
+        (key === 'c' && document.getSelection()?.isCollapsed === false)) return
       event.preventDefault()
-      selectAll.current()
+      action()
     }
-    window.addEventListener('keydown', selectWhenPageFocused)
-    return () => window.removeEventListener('keydown', selectWhenPageFocused)
+    window.addEventListener('keydown', onShortcut)
+    return () => window.removeEventListener('keydown', onShortcut)
   }, [])
 
   function rowEvent(event: MouseEvent<HTMLElement>) {

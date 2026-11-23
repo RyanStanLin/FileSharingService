@@ -12,9 +12,13 @@ export const fileMutationEn = {
   uploadPreparing: 'Checking the destination…',
   uploadCommitting: 'Saving the file on the Mac…',
   replaceExisting: 'Replace the existing file',
-  moveDifferentFolder: 'Choose a folder other than the item’s current folder.',
-  moveInsideSource: 'Choose a destination outside the folder being moved.',
-  moveReadOnly: 'Choose a folder that allows writes.',
+  copyFiles: 'Copy',
+  pasteFiles: 'Paste',
+  fileCopyPreparing: 'Preparing items to move…',
+  filePasteMoving: 'Moving items…',
+  filesCopiedForMove: '{count} copied. Paste in another folder to move.',
+  filesMoved: '{count} moved.',
+  filePasteFailed: 'Could not move {name}. {error}',
 }
 
 export const fileMutationZh: Record<keyof typeof fileMutationEn, string> = {
@@ -31,9 +35,13 @@ export const fileMutationZh: Record<keyof typeof fileMutationEn, string> = {
   uploadPreparing: '正在检查目标位置…',
   uploadCommitting: '正在将文件保存到 Mac…',
   replaceExisting: '替换现有文件',
-  moveDifferentFolder: '请选择与当前位置不同的文件夹。',
-  moveInsideSource: '请选择该文件夹之外的位置。',
-  moveReadOnly: '请选择有写入权限的文件夹。',
+  copyFiles: '复制',
+  pasteFiles: '粘贴',
+  fileCopyPreparing: '正在准备要移动的项目…',
+  filePasteMoving: '正在移动项目…',
+  filesCopiedForMove: '已复制 {count} 项。前往其他文件夹粘贴即可移动。',
+  filesMoved: '已移动 {count} 项。',
+  filePasteFailed: '无法移动 {name}。{error}',
 }
 
 export const fileMutationErrorsEn = {
@@ -53,6 +61,9 @@ export const fileMutationErrorsEn = {
   transfer_conflict: 'The transfer could not be started. Try uploading again.',
   invalid_destination: 'Choose a different destination outside the source folder.',
   read_only: 'This folder is read-only.',
+  move_same_folder: 'Open a different folder to paste these items.',
+  move_source_changed: 'The source changed. Return to its folder and copy it again.',
+  move_source_read_only: 'Some selected items cannot be moved from their shared folder.',
 }
 
 export const fileMutationErrorsZh: Record<keyof typeof fileMutationErrorsEn, string> = {
@@ -72,4 +83,7 @@ export const fileMutationErrorsZh: Record<keyof typeof fileMutationErrorsEn, str
   transfer_conflict: '无法开始传输，请重新上传。',
   invalid_destination: '请选择源文件夹之外的其他位置。',
   read_only: '此文件夹为只读。',
+  move_same_folder: '请前往其他文件夹粘贴这些项目。',
+  move_source_changed: '源项目已变更。请回到源文件夹重新复制。',
+  move_source_read_only: '所选项目中有项目无法从源共享文件夹移出。',
 }
