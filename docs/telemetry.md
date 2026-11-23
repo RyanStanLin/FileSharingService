@@ -51,3 +51,5 @@
 策略采样间隔支持 5–3600 秒或 `0`。设为 `0` 后可以调用刷新 API，系统事件仍会更新相关样本。应用启动和退出通过 `NSWorkspace.runningApplications` 的 KVO 发现，包括 AppKit 注册的后台 App。安装事件来自 FSEvents 触发的安装目录对账，另有周期重扫。清单覆盖 `/Applications`、`/System/Applications`、`~/Applications` 内的 App 包。 [Apple AppKit](https://developer.apple.com/documentation/appkit/nsworkspace/runningapplications)
 
 字段与请求方法见 [API](api.md)。事件协议见 [AsyncAPI](asyncapi.yaml)。
+
+Milestone 3 将部分设备样本和离散设备事件映射到通知规则。可配置事件、阈值与模板变量见 [通知 API](notifications.md#事件规则与模板)。

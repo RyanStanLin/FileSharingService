@@ -82,6 +82,9 @@ internal sealed class NotificationRules(Database db) : INotificationRules
                     throw new Fault(429, "notification_rule_limit");
             }
 
+            if (input.Filter.File is { } file)
+                await ValidateWatch(connection, tx, id, device, file, request.Enabled, ct);
+
             var now = Clock.Now;
             var row = new NotificationRuleRow(id ?? Secrets.Id(), input.Name, device, request.Enabled,
                 (current?.Revision ?? 0) + 1, current?.Created ?? now, now, Wire.Encode(request.Events), Wire.Encode(request.ChannelIds),
@@ -112,6 +115,30 @@ internal sealed class NotificationRules(Database db) : INotificationRules
         await RecordChange(connection, tx, existing, "deleted", actor, ct);
         return true;
     });
+
+    private static async Task ValidateWatch(SqliteConnection connection, SqliteTransaction tx, string? id, string device,
+        NotificationFileFilter file, bool enabled, CancellationToken ct)
+    {
+        if (!enabled && id is not null)
+            return;
+        var scope = new { id, device, file.RootId, file.Path, limit = NotificationFileWatches.MaximumPerDevice };
+        if (!await connection.ExecuteScalarAsync<bool>(new CommandDefinition("""
+            SELECT EXISTS(SELECT 1 FROM Roots WHERE DeviceId=@device AND Id=@RootId AND Enabled=1)
+            """, scope, tx, cancellationToken: ct)))
+            throw Fault.Forbidden("root_access_denied");
+        if (!enabled)
+            return;
+        var available = await connection.ExecuteScalarAsync<bool>(new CommandDefinition("""
+            WITH targets AS (
+                SELECT DISTINCT json_extract(Filter,'$.file.rootId') AS RootId, json_extract(Filter,'$.file.path') AS Path
+                FROM NotificationRules WHERE DeviceId=@device AND Enabled=1 AND Id<>COALESCE(@id,'')
+                    AND json_type(Filter,'$.file')='object'
+            )
+            SELECT (SELECT COUNT(*) FROM targets)<@limit OR EXISTS(SELECT 1 FROM targets WHERE RootId=@RootId AND Path=@Path)
+            """, scope, tx, cancellationToken: ct));
+        if (!available)
+            throw new Fault(429, "notification_watch_limit");
+    }
 
     private static async Task<NotificationRuleRow> Require(SqliteConnection connection, SqliteTransaction tx, string id, CancellationToken ct) =>
         await connection.QuerySingleOrDefaultAsync<NotificationRuleRow>(new CommandDefinition("SELECT * FROM NotificationRules WHERE Id=@id",
@@ -150,7 +177,8 @@ internal sealed class NotificationRules(Database db) : INotificationRules
         {
             BundleId = filter.BundleId is { } bundleId ? Secrets.Text(bundleId, 255) : null,
             ApplicationId = filter.ApplicationId is { } appId ? Secrets.Text(appId, 256) : null,
-            StorageId = filter.StorageId is { } storageId ? Secrets.Text(storageId, 120) : null
+            StorageId = filter.StorageId is { } storageId ? Secrets.Text(storageId, 120) : null,
+            File = NotificationFileEvents.Validate(filter.File, fields.Contains("file"))
         };
         var cooldown = request.CooldownSeconds ?? 0;
         if (cooldown is < 0 or > 86400)

@@ -273,6 +273,10 @@ SFTP 客户端首次连接时校验 `hostKeyFingerprint`，格式为 `SHA256:…
 
 更新后在 Demo 执行 `arch` 并核对架构输出和退出码。再提交带额外参数的 `arch -x`，核对 `400 invalid_diagnostic_command`。
 
+## Bark 与 Telegram 通知
+
+`/notifications` 提供渠道、事件目录、规则、预览、目录监听状态、测试消息和投递历史。管理 WebSocket 可订阅全局 `notifications.changed`，配合通知自己的回放游标和 REST 数据。完整请求、变量及授权语义见 [Milestone 3 通知 API](notifications.md)。
+
 ## 原生对话框和本地通知
 
 两个接口都要求 Passkey 会话和已授权的在线设备连接，并返回 `202 Job` 与作业位置。订阅 `jobs.changed` 接收完成提示，再读取 `GET /jobs/{id}`。WebSocket 不可用时轮询这个作业 API。

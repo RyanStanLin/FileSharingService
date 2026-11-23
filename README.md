@@ -1,6 +1,6 @@
 # FileSharing
 
-FileSharing 是面向企业 macOS 设备的内部文件访问与管理服务。ASP.NET Core 10 LTS 承载 Passkey 管理 API、事件订阅和 FTP/FTPS/SFTP 文件网关。Swift Agent 在受管用户会话内运行，支持设备遥测、只读诊断、原生对话框和本地通知。
+FileSharing 是面向企业 macOS 设备的内部文件访问与管理服务。ASP.NET Core 10 LTS 承载 Passkey 管理 API、事件订阅和 FTP/FTPS/SFTP 文件网关。Swift Agent 在受管用户会话内运行，支持设备遥测、只读诊断、原生对话框和本地通知。服务端可用文件与设备事件触发 Bark 或 Telegram 通知。
 
 Agent 的网络配置只需服务端 HTTPS 地址。公网客户端首次连上即可自动登记，重连沿用本机 UUID。设备上线后，管理员可以为当前连接开启远程文件和管理操作。
 
@@ -9,6 +9,7 @@ Agent 的网络配置只需服务端 HTTPS 地址。公网客户端首次连上�
 | 交付物 | 入口 |
 | --- | --- |
 | 架构与协议 | [docs/architecture.md](docs/architecture.md) |
+| Bark 与 Telegram（Milestone 3） | [通知 API、事件规则与 WebSocket](docs/notifications.md) |
 | File System Web（Milestone 1） | [web/README.md](web/README.md) |
 | 前端 API 与 WebSocket | [docs/api.md](docs/api.md) · [FileSharing.http](FileSharing.http) |
 | ASP.NET Core 服务端 | [src/Server/Program.cs](src/Server/Program.cs) |

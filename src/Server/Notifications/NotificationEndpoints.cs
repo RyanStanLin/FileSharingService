@@ -33,6 +33,7 @@ internal static class NotificationEndpoints
         group.MapPut("/rules/{id}", UpdateRule).WithSummary("Replace a notification rule by revision");
         group.MapDelete("/rules/{id}", DeleteRule).WithSummary("Delete a notification rule by revision");
         group.MapPost("/rules/preview", PreviewRule).WithSummary("Render a notification template with sample values");
+        group.MapGet("/watches", ListWatches).WithSummary("List runtime status of directory watches for enabled rules");
     }
 
     internal static string Actor(HttpContext context) => ((Review)context.Items[typeof(Review)]!).Initiator;
@@ -85,7 +86,7 @@ internal static class NotificationEndpoints
     {
         ct.ThrowIfCancellationRequested();
         return TypedResults.Ok(new NotificationCatalogView(NotificationCatalog.Types, vault.Enabled,
-            NotificationRules.Maximum, NotificationChannels.Maximum, NotificationRules.MaximumChannels));
+            NotificationRules.Maximum, NotificationChannels.Maximum, NotificationRules.MaximumChannels, NotificationFileWatches.MaximumPerDevice));
     }
 
     private static async Task<Ok<Page<NotificationRuleView>>> ListRules(string? cursor, int? limit, string? deviceId, bool? enabled,
@@ -112,6 +113,9 @@ internal static class NotificationEndpoints
         await rules.Delete(id, revision, Actor(context), ct);
         return TypedResults.NoContent();
     }
+
+    private static async Task<Ok<NotificationFileWatchView[]>> ListWatches(string? deviceId, NotificationFileWatches watches, CancellationToken ct) =>
+        TypedResults.Ok(await watches.List(deviceId, ct));
 
     private static Ok<NotificationPreview> PreviewRule(NotificationPreviewRequest body, CancellationToken ct)
     {

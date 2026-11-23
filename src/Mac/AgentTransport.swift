@@ -138,6 +138,7 @@ actor AgentTransport {
     private var reviewLossNoted = false
     private var lastSave = Date.distantPast
     private var windowLease: String?
+    private var notificationWatchOwner = JSON.id()
     private static let windowTopic = "windows.changed"
     @MainActor init(enrollment: Enrollment, state: LocalState) {
         self.id = enrollment.deviceId
@@ -510,6 +511,7 @@ actor AgentTransport {
         linkReady = false
         policyDelivery?.cancel()
         stopWindowStream()
+        stopNotificationWatches()
     }
 
     private func applyPolicy(_ policy: JSON) {
@@ -521,6 +523,7 @@ actor AgentTransport {
         if policy["accessGranted"].bool == false {
             stopWindowStream()
             for id in managedOperations { operations[id]?.cancel() }
+            stopNotificationWatches()
         }
     }
 
@@ -533,6 +536,21 @@ actor AgentTransport {
             return true
         }
         Task { @MainActor [telemetry] in telemetry.stopObservingWindows(id) }
+    }
+
+    private func stopNotificationWatches() {
+        let previous = notificationWatchOwner
+        notificationWatchOwner = JSON.id()
+        Task { @MainActor [observer] in observer.stopNotifications(owner: previous) }
+        reports.withLock {
+            $0.values.removeAll { $0.topic == "files.changed" && $0.data["purpose"].string == "notification" }
+        }
+        outbox.removeAll { item in
+            guard item.value["topic"].string == "files.changed", item.value["payload"]["purpose"].string == "notification"
+            else { return false }
+            if let id = item.value["id"].string { seen.removeValue(forKey: id) }
+            return true
+        }
     }
 
     private func reportWindows(_ id: String, _ sample: JSON) {
@@ -601,7 +619,9 @@ actor AgentTransport {
             return
         }
         let input = command["payload"]
+        let notificationWatch = kind == "files.watch" && input["purpose"].string == "notification"
         let managed = ["diagnostics.run", "interaction.dialog", "interaction.dialog.masked", "interaction.notification"].contains(kind)
+            || notificationWatch
         if managed { managedOperations.insert(id) }
         operations[id] = Task {
             let response: JSON
@@ -617,7 +637,7 @@ actor AgentTransport {
                             "code": .string((error as? AgentError)?.code ?? "device_operation_failed")]
             }
             let fileWrite = ["files.mkdir", "files.move", "files.trash", "files.purge", "files.commit"].contains(kind)
-            if managed && !Task.isCancelled || fileWrite && response["ok"].bool == true {
+            if managed && !notificationWatch && !Task.isCancelled || fileWrite && response["ok"].bool == true {
                 recent.append((id, response))
                 if recent.count > 24 { recent.removeFirst() }
             }
@@ -678,7 +698,9 @@ actor AgentTransport {
             }
             if windowLease != watchId { await telemetry.stopObservingWindows(watchId) }
             return [:]
-        case "files.watch": return try await observer.start(input)
+        case "files.watch":
+            let owner = input["purpose"].string == "notification" ? notificationWatchOwner : nil
+            return try await observer.start(input, notificationOwner: owner)
         case "files.unwatch": return try await observer.stop(input)
         case "files.list", "files.stat", "files.thumbnail", "files.read", "files.mkdir", "files.move", "files.trash",
              "files.purge", "files.write", "files.commit", "files.abandon":

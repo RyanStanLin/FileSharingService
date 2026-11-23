@@ -10,15 +10,17 @@ internal sealed record NotificationSignal(string Type, DateTimeOffset At, IReadO
 internal static class NotificationMatcher
 {
     public static async Task Match(SqliteConnection connection, SqliteTransaction tx, string device, long source, long now,
-        IReadOnlyList<NotificationSignal> signals, CancellationToken ct)
+        IReadOnlyList<NotificationSignal> signals, CancellationToken ct, NotificationWatchTarget? watch = null)
     {
         if (signals.Count == 0)
             return;
         var rules = (await connection.QueryAsync<NotificationRuleRow>(new CommandDefinition("""
             SELECT r.* FROM NotificationRules r JOIN Devices d ON d.Id=r.DeviceId AND d.Revoked IS NULL
             WHERE r.DeviceId=@device AND r.Enabled=1 AND EXISTS (SELECT 1 FROM json_each(r.Events) WHERE value IN @types)
+                AND (@root IS NULL OR (json_extract(r.Filter,'$.file.rootId')=@root AND json_extract(r.Filter,'$.file.path')=@path))
             ORDER BY r.Id
-            """, new { device, types = signals.Select(signal => signal.Type).Distinct().ToArray() }, tx, cancellationToken: ct))).AsList();
+            """, new { device, types = signals.Select(signal => signal.Type).Distinct().ToArray(), root = watch?.RootId, path = watch?.Path },
+            tx, cancellationToken: ct))).AsList();
         if (rules.Count == 0)
             return;
 
@@ -61,7 +63,7 @@ internal static class NotificationMatcher
                 if (signal.Current is not null && filter.ThresholdPercent is { } threshold)
                     fields["metric.thresholdPercent"] = threshold.ToString(CultureInfo.InvariantCulture);
                 var content = NotificationTemplates.Render(template, fields).Message;
-                var work = new NotificationWork(rule.Id, rule.Revision, device, null, signal.Type, source,
+                var work = new NotificationWork(rule.Id, rule.Revision, device, watch?.RootId, signal.Type, source,
                     signal.At.ToUnixTimeSeconds(), Wire.Encode(fields), content);
                 var delivered = false;
                 foreach (var target in destinations)
@@ -96,6 +98,8 @@ internal static class NotificationMatcher
 
     private static bool Matches(NotificationSignal signal, NotificationFilter filter)
     {
+        if (signal.Type.StartsWith("file.", StringComparison.Ordinal))
+            return NotificationFileEvents.Matches(signal, filter.File);
         if (signal.Type.StartsWith("application.", StringComparison.Ordinal))
             return Equal(filter.BundleId, "app.bundleId", StringComparison.OrdinalIgnoreCase) &&
                 Equal(filter.ApplicationId, "app.id", StringComparison.Ordinal);

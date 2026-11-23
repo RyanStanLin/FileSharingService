@@ -1767,7 +1767,7 @@ precondition(board.setString("ISOLATED_CLIPBOARD_CONTENT", forType: .string))
             return result if result["state"] != "queued" else None
         return self.wait(complete)
 
-    def notification_fixture(self):
+    def notification_fixture(self, polling=False):
         fixture = NotificationFixture()
         worker = threading.Thread(target=fixture.serve_forever, daemon=True)
         worker.start()
@@ -1780,7 +1780,7 @@ precondition(board.setString("ISOLATED_CLIPBOARD_CONTENT", forType: .string))
             "FileSharing__Notifications__TestTelegramOrigin": fixture.origin,
         })
         self.stop(self.server)
-        self.start_server()
+        self.start_server(polling=polling)
         return fixture
 
     def wait_delivery(self, delivery, state="sent"):
@@ -2003,6 +2003,103 @@ precondition(board.setString("ISOLATED_CLIPBOARD_CONTENT", forType: .string))
             proof, = data.execute("SELECT ProofHash FROM NotificationDevices WHERE DeviceId=?", (hello["deviceId"],)).fetchone()
             self.assertEqual(proof, hashlib.sha256(hello["notificationKey"].encode()).hexdigest().upper())
 
+    def file_notification_rule(self, channel_id, events, template, *, path="watched", **file_filters):
+        return {"name": "Watched files", "deviceId": self.device, "enabled": True,
+                "events": events, "channelIds": [channel_id],
+                "filter": {"file": {"rootId": self.root_id, "path": path} | file_filters}, "template": template}
+
+    def wait_file_watch(self, state):
+        def reached():
+            rows = self.api("GET", NOTIFICATIONS + "/watches", params={"deviceId": self.device}).json()
+            return next((view for view in rows if view["state"] == state), None)
+        return self.wait(reached, seconds=20)
+
+    def wait_rule_event(self, rule, kind, *, name=None):
+        def reached():
+            return next((row for row in self.rule_deliveries(rule["id"]) if row["event"] == kind
+                         and (name is None or row["context"].get("file.name") == name)), None)
+        return self.wait(reached, seconds=18)
+
+    def test_notification_file_watches_apply_scope_and_run_while_locked(self):
+        fixture = self.notification_fixture()
+        registration = self.setup_device()
+        connection_id = registration["connection"]["connectionId"]
+        folder = self.home / "watched"
+        folder.mkdir()
+        (self.home / "sibling").mkdir()
+        phone = self.notification_channel(fixture)
+        rule_body = self.file_notification_rule(phone["id"], ["file.added", "file.removed", "file.renamed", "file.modified"],
+                                                {"title": "{{device.name}}", "body": "{{event.type}} {{file.oldName}} → {{file.name}}"},
+                                                nameGlob="*.txt", entryKind="file")
+        rules = NOTIFICATIONS + "/rules"
+        self.api("POST", rules, 400, json=rule_body | {"filter": {"file": {"rootId": self.root_id, "path": "../"}}})
+        self.api("POST", rules, 403, json=rule_body | {
+            "filter": {"file": {"rootId": str(uuid.uuid4()), "path": "watched"}}
+        })
+        self.api("POST", rules, 400, json=rule_body | {"filter": {}})
+        rule = self.api("POST", rules, 201, json=rule_body).json()
+        aggregate = self.api("POST", rules, 201, json=self.file_notification_rule(
+            phone["id"], ["file.directoryChanged"], {"body": "{{directory.path}} {{directory.changeKind}} {{directory.changeCount}}"})).json()
+        watch = self.wait_file_watch("active")
+        self.assertEqual(set(watch["ruleIds"]), {rule["id"], aggregate["id"]})
+        self.assertEqual(self.rule_deliveries(rule["id"]), [])
+        self.assertEqual(self.rule_deliveries(aggregate["id"]), [])
+
+        self.api("POST", API + "/auth/lock", 204)
+        self.api("GET", NOTIFICATIONS + "/watches", 401)
+        (self.home / "sibling" / "outside.txt").write_text("outside")
+        (folder / ".env.txt").write_text("hidden by local scope")
+        (folder / "old.txt").write_text("one")
+
+        def pushed_while_locked():
+            with fixture.guard:
+                return any(body["body"] == "file.added  → old.txt" for _, body in fixture.received)
+        self.wait(pushed_while_locked, seconds=18)
+        self.unlock()
+        added = self.wait_rule_event(rule, "file.added", name="old.txt")
+        self.assertEqual(added["context"]["file.path"], "watched/old.txt")
+        self.assertEqual(added["context"]["file.size"], "3")
+        self.assertNotIn(str(self.home), json.dumps(added))
+        batch = self.wait_rule_event(aggregate, "file.directoryChanged")
+        self.assertEqual((batch["message"]["body"], batch["sourceSequence"]), ("watched delta 1", added["sourceSequence"]))
+
+        (folder / "old.txt").write_text("modified data")
+        changed = self.wait_rule_event(rule, "file.modified", name="old.txt")
+        self.assertEqual(changed["context"]["file.size"], str(len("modified data")))
+        (folder / "old.txt").rename(folder / "renamed.txt")
+        renamed = self.wait_rule_event(rule, "file.renamed", name="renamed.txt")
+        self.assertEqual(renamed["context"]["file.oldPath"], "watched/old.txt")
+        self.assertEqual(renamed["message"]["body"], "file.renamed old.txt → renamed.txt")
+        (folder / "renamed.txt").unlink()
+        removed = self.wait_rule_event(rule, "file.removed", name="renamed.txt")
+        self.assertEqual(removed["rootId"], self.root_id)
+        self.assertEqual([row["event"] for row in self.rule_deliveries(rule["id"])],
+                         ["file.added", "file.modified", "file.renamed", "file.removed"])
+
+        self.set_access(connection_id, False)
+        self.wait_file_watch("awaitingAuthorization")
+        (folder / "while-unauthorized.txt").write_text("no access")
+        self.set_access(connection_id, True)
+        self.wait_file_watch("active")
+        (folder / "authorized.txt").write_text("access")
+        self.wait_rule_event(rule, "file.added", name="authorized.txt")
+        paths = {row["context"]["file.path"] for row in self.rule_deliveries(rule["id"])}
+        self.assertEqual(paths, {"watched/old.txt", "watched/renamed.txt", "watched/authorized.txt"})
+
+    def test_notification_directory_watch_delivers_over_https(self):
+        fixture = self.notification_fixture(polling=True)
+        registration = self.setup_device()
+        self.assertEqual(registration["connection"]["protocol"], "https")
+        folder = self.home / "watched"
+        folder.mkdir()
+        phone = self.notification_channel(fixture)
+        body = self.file_notification_rule(phone["id"], ["file.added"], {"body": "{{file.name}}"})
+        rule = self.api("POST", NOTIFICATIONS + "/rules", 201, json=body).json()
+        self.wait_file_watch("active")
+        (folder / "報告.txt").write_text("hello")
+        added = self.wait_rule_event(rule, "file.added", name="報告.txt")
+        self.assertEqual(self.wait_delivery(added)["message"]["body"], "報告.txt")
+
     def test_openapi_contract(self):
         contract = self.api("GET", "/openapi/v1.json").json()
         paths = contract["paths"]
@@ -2015,7 +2112,7 @@ precondition(board.setString("ISOLATED_CLIPBOARD_CONTENT", forType: .string))
                          "/api/v1/ftp/accounts/{id}/password/reveal", "/api/v1/devices/{id}/windows",
                          NOTIFICATIONS + "/channels/{id}/verify", NOTIFICATIONS + "/channels/{id}/test",
                          NOTIFICATIONS + "/deliveries", NOTIFICATIONS + "/updates",
-                         NOTIFICATIONS + "/event-types", NOTIFICATIONS + "/rules", NOTIFICATIONS + "/rules/preview"):
+                         NOTIFICATIONS + "/event-types", NOTIFICATIONS + "/rules", NOTIFICATIONS + "/rules/preview", NOTIFICATIONS + "/watches"):
             self.assertIn(expected, paths)
         self.assertNotIn("/api/v1/enrollments", paths)
         self.assertIn("101", paths["/api/v1/events/ws"]["get"]["responses"])

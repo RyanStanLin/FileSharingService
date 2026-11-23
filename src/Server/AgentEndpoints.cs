@@ -18,7 +18,8 @@ internal sealed record AgentReady(string Type, string DeviceId,
 internal sealed record AgentConnected(string DeviceId, string? Channel,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string[]? PreviouslyAllowedFolders);
 
-internal sealed class AgentIngest(Database db, AgentBroker broker, WatchRegistry watches, WindowFeed windows)
+internal sealed class AgentIngest(Database db, AgentBroker broker, WatchRegistry watches, WindowFeed windows,
+    NotificationFileWatches notificationWatches)
 {
     public static readonly string[] SnapshotTopics =
         ["identity", "cpu", "memory", "disk", "battery", "power", "system", "displays", "locale", "network", "agent",
@@ -60,9 +61,11 @@ internal sealed class AgentIngest(Database db, AgentBroker broker, WatchRegistry
             !Guid.TryParseExact(id, "D", out var frameId))
             throw Fault.Bad("invalid_event");
 
-        if (topic == "files.changed")
+        if (topic == NotificationFileEvents.Topic)
         {
-            if (broker.HasAccess(link))
+            if (NotificationSignals.Text(payload, "purpose") == NotificationFileEvents.Purpose)
+                await notificationWatches.Receive(link, frameId.ToString("D"), payload, ct);
+            else if (broker.HasAccess(link))
                 await watches.Ingest(device, link.Id, payload, ct);
             return;
         }

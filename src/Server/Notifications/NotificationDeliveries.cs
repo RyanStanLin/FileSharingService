@@ -180,6 +180,7 @@ internal sealed class NotificationDeliveries(Database db, NotificationVault vaul
             WHERE c.Id=@ChannelId AND c.Enabled=1 AND c.Revision=@ChannelRevision AND (@RuleId IS NULL OR EXISTS(
                 SELECT 1 FROM NotificationRules r JOIN Devices d ON d.Id=r.DeviceId AND d.Revoked IS NULL
                 WHERE r.Id=@RuleId AND r.Enabled=1 AND r.Revision=@RuleRevision AND r.DeviceId=@DeviceId))
+            AND (@RootId IS NULL OR EXISTS(SELECT 1 FROM Roots WHERE Id=@RootId AND DeviceId=@DeviceId AND Enabled=1))
             """, row, ct);
 
     public Task Complete(NotificationDeliveryRow row, NotificationProviderResult outcome, bool cancelled, CancellationToken ct) =>

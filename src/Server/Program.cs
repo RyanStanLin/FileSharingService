@@ -35,6 +35,8 @@ public static class Program
         builder.Services.AddSingleton<INotificationDeliveries>(services => services.GetRequiredService<NotificationDeliveries>());
         builder.Services.AddSingleton<NotificationUpdates>();
         builder.Services.AddHostedService<NotificationWorker>();
+        builder.Services.AddSingleton<NotificationFileWatches>();
+        builder.Services.AddHostedService(services => services.GetRequiredService<NotificationFileWatches>());
         builder.Services.AddHttpClient(NotificationProviders.Client, client =>
         {
             client.Timeout = TimeSpan.FromSeconds(8);

@@ -1,4 +1,3 @@
-using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace FileSharing;
@@ -12,11 +11,12 @@ internal sealed record NotificationEventType(string Type, string Description, IR
 
 /// <summary>The notification event catalogue and relevant configuration limits.</summary>
 internal sealed record NotificationCatalogView(IReadOnlyList<NotificationEventType> Events, bool CredentialsEnabled,
-    int MaximumRules, int MaximumChannels, int MaximumChannelsPerRule);
+    int MaximumRules, int MaximumChannels, int MaximumChannelsPerRule, int MaximumDirectoriesPerDevice);
 
 /// <summary>Optional exact-match fields and a sampled-metric crossing threshold.</summary>
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-internal sealed record NotificationFilter(string? BundleId, string? ApplicationId, string? StorageId, int? ThresholdPercent);
+internal sealed record NotificationFilter(string? BundleId, string? ApplicationId, string? StorageId, int? ThresholdPercent,
+    NotificationFileFilter? File = null);
 
 /// <summary>Plain-text title and body with allowlisted double-brace variable substitution.</summary>
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
@@ -93,7 +93,7 @@ internal static class NotificationCatalog
         new("connection.lastSeenAt", "Last observed communication in ISO 8601 UTC.")
     ];
 
-    private static NotificationEventType Entry(string type, string description, NotificationVariable[]? variables = null,
+    internal static NotificationEventType Entry(string type, string description, NotificationVariable[]? variables = null,
         string[]? filters = null) => new(type, description, [.. Common, .. variables ?? []], filters ?? []);
 
     private static NotificationEventType App(string kind, string description) =>
@@ -145,7 +145,8 @@ internal static class NotificationCatalog
         Entry("memory.usageAbove", "Sampled memory usage reached or exceeded the configured threshold.", Metric, ["thresholdPercent"]),
         Entry("memory.usageBelow", "Sampled memory usage moved below the configured threshold.", Metric, ["thresholdPercent"]),
         Entry("clipboard.changed", "The clipboard ownership count changed."),
-        Entry("telemetry.gap", "The Agent reported lost buffered telemetry.")
+        Entry("telemetry.gap", "The Agent reported lost buffered telemetry."),
+        .. NotificationFileEvents.Catalogue()
     ];
 
     private static readonly Dictionary<string, NotificationEventType> ByType = Types.ToDictionary(x => x.Type, StringComparer.Ordinal);

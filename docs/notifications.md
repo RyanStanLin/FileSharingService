@@ -105,7 +105,7 @@ Base URL 为 `/api/v1/notifications`。所有请求使用已解锁的 Passkey �
 | --- | --- |
 | `device.online/offline` | 服务端观测到获信连接断开及恢复，包括心跳到期。首次绑定建立基线。 |
 | `lid.closed/opened` | Agent 观测到盖状态改变。 |
-| `system.sleeping/woke/locked/unlocked`、`display.slept/woke` | macOS 休眠、唤醒、会话和屏幕事件。网络来不及送达的休眠事件可随 Agent 重连补报。 |
+| `system.sleeping/woke/locked/unlocked`、`display.slept/woke` | macOS 休眠、唤醒、会话和屏幕事件。Agent 被系统暂停时，网络来不及送达的事件可在唤醒后补报。 |
 | `application.*` | 启动、退出、激活、停用、隐藏、取消隐藏、安装、移除及升级。 |
 | `storage.*` | 外接存储插入、移除、挂载和卸载。 |
 | `battery.*`、`power.*` | 充电、外接电源和低电模式切换，以及电量跨阈值。 |
@@ -114,3 +114,40 @@ Base URL 为 `/api/v1/notifications`。所有请求使用已解锁的 Passkey �
 | `clipboard.changed`、`telemetry.gap` | 剪贴板变化只提供时间。遥测积压丢失可单独订阅。 |
 
 更新到支持通知的 Agent 后，给它的当前连接授权一次。服务器只保存 Agent 安装凭据的哈希。此后识别同一安装的在线恢复与系统事件，文件与远程控制仍走各自连接授权。旧 Agent 的系统事件需要它的当前连接已授权。重新安装导致凭据变化时，核对并授权新连接即可重新绑定。服务离线期间无实时观测，服务重启后只基于已记录的离线状态判断恢复。系统离散事件超过 10 分钟才送达时只保留在普通设备历史中，采样及连接事件使用服务端接收时间。
+
+## 目录通知
+
+使用已授予的根目录 ID 和相对路径。空字符串监听根目录本身。详情事件针对所选目录的直接子项，子目录可用自己的规则独立监听。多条规则选同一个设备、根和目录时共用一个监听。每台设备最多配置 8 个启用的通知目录，Agent 为通知和现有文件浏览各自保留监听容量。
+
+```json
+{
+  "name": "报告变动",
+  "deviceId": "1a4e2b2d-fc00-4187-b47a-dfe35c4e7b52",
+  "enabled": true,
+  "events": ["file.added", "file.removed", "file.renamed", "file.modified"],
+  "channelIds": ["55032126-ea7a-49a1-a849-54f8553c40ab"],
+  "filter": {
+    "file": {
+      "rootId": "eb3e6cd2-f602-4194-a60b-8c1af3f7644c",
+      "path": "Documents/Reports",
+      "entryKind": "file",
+      "nameGlob": "*.pdf"
+    }
+  },
+  "template": {
+    "title": "{{device.name}} · 报告",
+    "body": "{{event.type}} · {{file.name}} · {{file.path}}"
+  }
+}
+```
+
+- `file.added` 和 `file.removed` 表示子项出现或消失。将文件移出目录也会产生 `file.removed`。
+- `file.renamed` 从同一批次的 inode 对账取得原名和新名，可插入 `{{file.oldName}}` 与 `{{file.name}}`。跨目录移动通常在两端各表现为一条移除与新增。
+- `file.modified` 依据文件或条目版本变化，覆盖内容、大小、时间和模式变化。
+- `file.directoryChanged` 每批提供一次目录级通知。正常对账包含 `directory.changeKind=delta` 和 `directory.changeCount`。系统合并事件或目录条目太多时会报 `coalesced`，目录无法再次读取时报 `unavailable`。初次建立基线不会通知。
+- `entryKind` 可选 `file,directory,symlink,other`。可选的 `nameGlob` 区分大小写，支持 `*` 和 `?`，对重命名匹配任一端名称。两者只筛选子项详情事件。目录级事件统计整个目录的观察批次。
+- 变量包含根 ID、相对目录和文件路径、文件名、旧路径/名称、类型、扩展名、大小和修改时间。Agent 使用现有本机目录限制，事件只携带相对路径与适量元数据。FSEvents 批次与目录快照可能合并短时间内的多次操作。
+
+`GET /watches?deviceId={id}` 返回启用规则且至少有一个启用目标的目录，每项含 `deviceId,rootId,path,ruleIds,state,checkedAt,error`。状态为 `checking,starting,active,waitingForConnection,awaitingAuthorization,unavailable`。连接恢复后，重新授权当前连接以恢复目录监听。监听由服务器后台续约，管理员锁定会话、关闭浏览器、停止订阅均不会终止监听。规则停用、最后一个启用渠道停用、目录授权撤销或 Agent 断开时停止对应监听。目录不可访问的原因在 `error`，如 `root_access_denied` 或 `notification_watch_requires_agent_upgrade`。使用 Agent 0.5.0 及以上版本接收文件通知。
+
+关联投递的 `context` 为可渲染变量的字符串字典。 `sourceSequence` 指向同一批来源并可用于关联；对目录批次，多个投递可共享同一个来源序号。浏览器现有 `files.changed` 订阅仍使用自己的目录租约。全局 `notifications.changed` 提供通知配置和投递状态变动，需要完整状态或消息正文时按 ID 查询 REST。

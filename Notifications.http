@@ -110,3 +110,17 @@ Content-Type: application/json
 DELETE {{notifications}}/rules/{{ruleId}}?revision=2
 Origin: {{base}}
 Cookie: {{cookie}}
+
+@rootId = 00000000-0000-0000-0000-000000000000
+
+### Watch PDF changes in an authorized directory
+POST {{notifications}}/rules
+Origin: {{base}}
+Cookie: {{cookie}}
+Content-Type: application/json
+
+{"name":"PDF changes","deviceId":"{{deviceId}}","enabled":true,"events":["file.added","file.removed","file.renamed","file.modified"],"channelIds":["{{channelId}}"],"filter":{"file":{"rootId":"{{rootId}}","path":"Documents/Reports","nameGlob":"*.pdf","entryKind":"file"}},"template":{"title":"{{device.name}} reports","body":"{{event.type}}: {{file.path}}"}}
+
+### List active and waiting notification directory watches
+GET {{notifications}}/watches?deviceId={{deviceId}}
+Cookie: {{cookie}}
