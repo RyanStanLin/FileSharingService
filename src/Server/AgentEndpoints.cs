@@ -83,14 +83,19 @@ internal sealed class AgentIngest(Database db, AgentBroker broker, WatchRegistry
             throw new Fault(413, "event_too_large");
 
         DateTimeOffset? clipboardTime = null;
+        string? clipboardContent = null;
         if (topic == InteractionRecords.ClipboardEvent)
         {
-            // Persist a freshly typed timestamp, never an arbitrary pasteboard payload.
             if (frame.Snapshot == true || payload.ValueKind != JsonValueKind.Object ||
-                payload.EnumerateObject().Count() != 1 || !payload.TryGetProperty("occurredAt", out var timestamp) ||
+                !payload.TryGetProperty("occurredAt", out var timestamp) ||
                 timestamp.ValueKind != JsonValueKind.String || !timestamp.TryGetDateTimeOffset(out var occurredAt))
                 throw Fault.Bad("invalid_clipboard_event");
+            var hasContent = payload.TryGetProperty("content", out var content);
+            if (payload.EnumerateObject().Count() != (hasContent ? 2 : 1) || hasContent && content.ValueKind != JsonValueKind.String)
+                throw Fault.Bad("invalid_clipboard_event");
             clipboardTime = occurredAt.ToUniversalTime();
+            clipboardContent = hasContent ? content.GetString() : null;
+            // Publish timestamp metadata; the archive stores the agent's text separately.
             payload = Wire.Element(new { occurredAt = clipboardTime.Value });
         }
 
@@ -127,7 +132,7 @@ internal sealed class AgentIngest(Database db, AgentBroker broker, WatchRegistry
                 INSERT INTO Events(DeviceId,Topic,At,Payload) VALUES(@device,@topic,@now,@Payload) RETURNING Sequence
                 """, json, tx, cancellationToken: ct));
             if (clipboardTime is { } occurredAt)
-                await InteractionRecords.AddClipboard(connection, tx, source, device, id, occurredAt, now, ct);
+                await InteractionRecords.AddClipboard(connection, tx, source, device, id, occurredAt, clipboardContent, now, ct);
             if (broker.CanNotify(link))
             {
                 var signals = await NotificationSignals.FromFrame(connection, tx, device, topic, snapshot, payload, now, ct);

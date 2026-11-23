@@ -74,7 +74,7 @@
                 CODE_SIGN_STYLE = "Manual";
                 CODE_SIGN_IDENTITY = "-";
                 CODE_SIGNING_REQUIRED = "YES";
-                CURRENT_PROJECT_VERSION = "16";
+                CURRENT_PROJECT_VERSION = "17";
                 DEVELOPMENT_TEAM = "";
                 ENABLE_APP_SANDBOX = "NO";
                 FILESHARING_ALLOW_HOME_WRITE = "NO";
@@ -84,7 +84,7 @@
                 GENERATE_INFOPLIST_FILE = "NO";
                 INFOPLIST_FILE = "src/MacApp/Info.plist";
                 MACOSX_DEPLOYMENT_TARGET = "15.0";
-                MARKETING_VERSION = "0.5.1";
+                MARKETING_VERSION = "0.5.2";
                 PRODUCT_BUNDLE_IDENTIFIER = "in.ryanl.filesharing.agent";
                 PRODUCT_NAME = "FileSharingService";
                 SDKROOT = "macosx";
@@ -100,7 +100,7 @@
                 CODE_SIGN_STYLE = "Manual";
                 CODE_SIGN_IDENTITY = "-";
                 CODE_SIGNING_REQUIRED = "YES";
-                CURRENT_PROJECT_VERSION = "16";
+                CURRENT_PROJECT_VERSION = "17";
                 DEVELOPMENT_TEAM = "";
                 ENABLE_APP_SANDBOX = "NO";
                 FILESHARING_ALLOW_HOME_WRITE = "NO";
@@ -110,7 +110,7 @@
                 GENERATE_INFOPLIST_FILE = "NO";
                 INFOPLIST_FILE = "src/MacApp/Info.plist";
                 MACOSX_DEPLOYMENT_TARGET = "15.0";
-                MARKETING_VERSION = "0.5.1";
+                MARKETING_VERSION = "0.5.2";
                 PRODUCT_BUNDLE_IDENTIFIER = "in.ryanl.filesharing.agent";
                 PRODUCT_NAME = "FileSharingService";
                 SDKROOT = "macosx";

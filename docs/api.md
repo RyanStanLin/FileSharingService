@@ -330,7 +330,7 @@ Agent 0.5.1 起，可在同一个 NSAlert 中按顺序显示 1–6 个输入框�
 
 表单提交、取消和超时的有效设备答复都会入档。`result` 保留 `outcome`、`choiceId`、`text` 和 `respondedAt`，有自定义文本答复时另含 `textValues`。通过本机身份确认时含 `locallyAuthenticated`。详情中的字段配置包含 `id`、`hintText`、`disabled`、`required` 和 `maskText`。预填值只用于原始请求。WebSocket `jobs.changed` 仍发送作业状态，用它的 `payload.id` 查询详情。失败、服务端撤销等无设备答复的状态仍从作业 API 查询。
 
-剪贴板详情示例。`id` 等于 `clipboard.changed` 通知里的 `item.sequence`。`occurredAt` 为客户端发现变化的时间，`recordedAt` 为服务端入库时间。Agent 仅上报时间，`content` 由服务端固定填写 `N/A`。
+剪贴板详情中的 `id` 等于 `clipboard.changed` 实时事件的 `item.sequence`。`occurredAt` 为客户端发现变化的时间，`recordedAt` 为服务端入库时间。Agent 0.5.2 起随时间上报固定字符串 `"N/A"`，服务端原样保存和返回 `content`。旧版 Agent 继续上报时间，其新记录的 `content` 为 `null`。此前已保存的档案保留原值。 [设备上报格式](architecture.md#通信协议)
 
 ```json
 {"id":"1203","deviceId":"144bae60-503d-45e3-8a17-ec7a64886c20","event":"clipboard.changed","occurredAt":"2026-11-19T08:22:00Z","recordedAt":"2026-11-19T08:22:01Z","content":"N/A"}

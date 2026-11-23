@@ -378,7 +378,7 @@ components:
           description: Present for predefined and custom diagnostics that returned a process exit code.
     ClipboardChange:
       type: object
-      description: Timestamp-only update. Use the enclosing event sequence to read the persistent clipboard record over REST.
+      description: Timestamp metadata. Use the enclosing event sequence to retrieve the agent-supplied text from the clipboard archive over REST.
       additionalProperties: false
       required: [occurredAt]
       properties:

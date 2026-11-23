@@ -52,6 +52,8 @@ SFTP 使用独立的 SSH TCP 入口，只需发布一个端口。Compose 在服�
 
 先备份 SQLite，再同步升级服务与 Agent。数据库在启动时迁移并保留设备 UUID、别名、目录授权、历史及管理员 Passkey。Agent 使用早期版本的本机 `enrollment.json` 继续识别已登记的设备。新协议使用 WSS hello 或公开的 HTTPS connect 接口。升级后，在新连接上重新开启远程操作。恢复旧版时使用升级前的数据库备份。
 
+升级到 Agent 0.5.2 时，先启动支持 `clipboard.changed.payload.content` 的服务端。新服务端兼容还在发送时间字段的旧 Agent，并保留已归档的剪贴板记录。 [设备上报格式](architecture.md#通信协议)
+
 ## 服务验收和备份
 
 - 管理域名验证证书、Passkey 建立和重置、关闭管理会话后 HTTP 受限及 WSS 退出。

@@ -47,6 +47,12 @@ Agent 使用 `openat`、`fstatat`、`renameatx_np` 和 `unlinkat` 逐级处理�
 
 Agent 返回 `{type:"result",id,ok:true,payload}` 或 `{type:"result",id,ok:false,code}`。遥测帧为 `{type:"event",id,topic,snapshot,payload}`。WSS 的收到确认使用 `{type:"ack",id}`。带网络中断的结果可能未知，修改请求返回设备超时时，前端应重新读取目标状态和版本。
 
+Agent 0.5.2 起，剪贴板事件通过 WSS 发送以下帧，HTTPS 回退通过 `POST /agent/v1/frames` 的 `frames` 数组发送同样的帧。服务端原样归档 `content` 字符串，浏览器实时订阅只接收事件序号及时间等元数据。旧版 Agent 可以省略 `content`。 [剪贴板档案 API](api.md#交互与剪贴板历史)
+
+```json
+{"type":"event","id":"9eed1660-cebc-44eb-9e5c-7d92bf1d5126","topic":"clipboard.changed","snapshot":false,"payload":{"occurredAt":"2026-11-19T08:22:00Z","content":"N/A"}}
+```
+
 诊断可在最终 `result` 前发送 `{type:"progress",id,payload:{index,stream,data}}`。`id` 与作业及诊断命令相同。服务端只从该作业所属、尚获准执行的连接接收进度，按作业和分片编号去重，再向浏览器发布 `jobs.output`。HTTPS 以同一个帧结构按顺序推送，输出可经 REST 作业接口读回。
 
 `interaction.dialog` 和 `interaction.notification` 复用具有连接权限的命令通道。原生对话框由 AppKit 的事件循环显示。响应直接进入已认证的作业结果。会话锁定时服务端向设备发送 `{type:"cancel",id}`，设备停止等待本地输入。Agent 策略帧的 `accessGranted:false` 同样停止正在等待的交互。通知由本机 UserNotifications 调度，使用 App 的本机通知权限。
@@ -68,7 +74,7 @@ Agent 返回 `{type:"result",id,ok:true,payload}` 或 `{type:"result",id,ok:fals
 
 ## macOS 约束
 
-Agent 在 Aqua 用户会话内运行，锁屏期间仍在该会话。FileVault 预启动状态与用户注销期间由 macOS 管理。文件夹权限请求通过本机原生文件访问触发可能的系统提示，结果包括最近观测时间和设置页。Input Monitoring 提供状态和本机设置引导。Pasteboard 权限只查询 `accessBehavior`。更新事件只观察 `changeCount`，载荷只有观测时间。应用清单读取和权限探测在工作队列执行，长轮询心跳独立于首次遥测收集。诊断目录限定 `osVersion`、`uptime`、`diskSpace` 和 `agentHealth`。
+Agent 在 Aqua 用户会话内运行，锁屏期间仍在该会话。FileVault 预启动状态与用户注销期间由 macOS 管理。文件夹权限请求通过本机原生文件访问触发可能的系统提示，结果包括最近观测时间和设置页。Input Monitoring 提供状态和本机设置引导。Pasteboard 权限只查询 `accessBehavior`。剪贴板观察器只读取 `changeCount`。应用清单读取和权限探测在工作队列执行，长轮询心跳独立于首次遥测收集。诊断目录限定 `osVersion`、`uptime`、`diskSpace` 和 `agentHealth`。
 
 电源辅助服务依据当前连接获准执行的 Agent 策略租约、AC 电源、至少 40% 电池、低电量模式和热状态执行。它仅管理自己取得的 `SleepDisabled` 设置，租约失效时恢复，并在重启时检查恢复标记。用户态 IOKit 断言处理防空闲睡眠。显示器、屏保及锁屏密码由 macOS 或 MDM 控制。硬件合盖行为仍须在目标 Mac 验收。设计参考 [Capsomnia 的电源实现说明](https://github.com/fuji-mak/Capsomnia#security) 与 [Apple 的 IOKit 断言说明](https://developer.apple.com/documentation/iokit/kiopmassertiontypepreventuseridlesystemsleep)。
 

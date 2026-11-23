@@ -445,7 +445,7 @@ class LocalDemoBrowser(unittest.TestCase):
 
         fixture.api("POST", "/agent/v1/frames", 204, headers=header, json={"frames": [{
             "type": "event", "id": str(uuid.uuid4()), "topic": "clipboard.changed", "snapshot": False,
-            "payload": {"occurredAt": datetime.now(timezone.utc).isoformat()},
+            "payload": {"occurredAt": datetime.now(timezone.utc).isoformat(), "content": "N/A"},
         }]})
         browser.evaluate("document.querySelector('#tab-records').click()")
         browser.wait("document.querySelector('#records-rows').textContent.includes('维护确认')")

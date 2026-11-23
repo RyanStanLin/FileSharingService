@@ -5,9 +5,9 @@ using Microsoft.Data.Sqlite;
 
 namespace FileSharing;
 
-/// <summary>A clipboard change and its fixed content placeholder.</summary>
+/// <summary>A clipboard change and the optional opaque text supplied by the agent.</summary>
 internal sealed record ClipboardRecord(string Id, string DeviceId, string Event, DateTimeOffset OccurredAt,
-    DateTimeOffset RecordedAt, string Content);
+    DateTimeOffset RecordedAt, string? Content);
 
 /// <summary>Metadata for one archived dialog response.</summary>
 internal sealed record DialogRecord(string Id, string Sequence, string DeviceId, string? Title, string Outcome, string? ChoiceId,
@@ -23,7 +23,7 @@ internal sealed record ArchivedDialogRequest(string Title, string Message, IRead
 /// <summary>A dialog record with its validated reply and available request context.</summary>
 internal sealed record DialogRecordDetail(DialogRecord Record, ArchivedDialogRequest? Request, DialogResult Result);
 
-internal sealed record ClipboardRecordRow(long Sequence, string DeviceId, string Event, string OccurredAt, long RecordedAt, string Content)
+internal sealed record ClipboardRecordRow(long Sequence, string DeviceId, string Event, string OccurredAt, long RecordedAt, string? Content)
 {
     public ClipboardRecord View => new(Sequence.ToString(CultureInfo.InvariantCulture), DeviceId, Event,
         DateTimeOffset.Parse(OccurredAt, CultureInfo.InvariantCulture).ToUniversalTime(), Clock.At(RecordedAt), Content);
@@ -49,11 +49,11 @@ internal static class InteractionRecords
     internal const string ClipboardEvent = "clipboard.changed";
 
     internal static Task AddClipboard(SqliteConnection connection, SqliteTransaction tx, long sequence, string device, string frameId,
-        DateTimeOffset occurredAt, long now, CancellationToken ct) =>
+        DateTimeOffset occurredAt, string? content, long now, CancellationToken ct) =>
         connection.ExecuteAsync(new CommandDefinition("""
-            INSERT INTO ClipboardRecords(Sequence,DeviceId,FrameId,OccurredAt,RecordedAt)
-            VALUES(@sequence,@device,@frameId,@timestamp,@now)
-            """, new { sequence, device, frameId, timestamp = occurredAt.ToString("O", CultureInfo.InvariantCulture), now }, tx,
+            INSERT INTO ClipboardRecords(Sequence,DeviceId,FrameId,OccurredAt,RecordedAt,Content)
+            VALUES(@sequence,@device,@frameId,@timestamp,@now,@content)
+            """, new { sequence, device, frameId, timestamp = occurredAt.ToString("O", CultureInfo.InvariantCulture), now, content }, tx,
             cancellationToken: ct));
 
     internal static Task AddDialog(SqliteConnection connection, SqliteTransaction tx, JobRecord job, DialogRequest request,
@@ -95,5 +95,18 @@ internal static class InteractionRecords
         WHERE Kind='interaction.dialog' AND State='completed' AND Finished IS NOT NULL AND CASE WHEN json_valid(Result) THEN
             json_extract(Result,'$.outcome') IN ('submitted','dismissed','expired') ELSE 0 END
         ORDER BY Finished,Id;
+        """;
+
+    internal const string ClipboardContentMigration = """
+        CREATE TABLE ClipboardRecordsNext(
+            Sequence INTEGER PRIMARY KEY, DeviceId TEXT NOT NULL REFERENCES Devices(Id), FrameId TEXT,
+            Event TEXT NOT NULL DEFAULT 'clipboard.changed' CHECK(Event='clipboard.changed'), OccurredAt TEXT NOT NULL,
+            RecordedAt INTEGER NOT NULL, Content TEXT);
+        INSERT INTO ClipboardRecordsNext(Sequence,DeviceId,FrameId,Event,OccurredAt,RecordedAt,Content)
+        SELECT Sequence,DeviceId,FrameId,Event,OccurredAt,RecordedAt,Content FROM ClipboardRecords;
+        DROP TABLE ClipboardRecords;
+        ALTER TABLE ClipboardRecordsNext RENAME TO ClipboardRecords;
+        CREATE INDEX ClipboardRecordsByDevice ON ClipboardRecords(DeviceId,Sequence);
+        CREATE UNIQUE INDEX ClipboardRecordsByFrame ON ClipboardRecords(DeviceId,FrameId) WHERE FrameId IS NOT NULL;
         """;
 }

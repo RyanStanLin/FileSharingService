@@ -11,7 +11,7 @@ internal static class RecordEndpoints
     {
         var clipboard = devices.MapGroup("/clipboard/records").WithTags("Device records");
         clipboard.MapGet("", ListClipboard).WithSummary("List durable clipboard changes in newest-first order");
-        clipboard.MapGet("/{recordId}", GetClipboard).WithSummary("Read a clipboard change and its fixed placeholder");
+        clipboard.MapGet("/{recordId}", GetClipboard).WithSummary("Read a clipboard change and the text supplied by the agent");
         var dialogs = devices.MapGroup("/interactions/dialogs").WithTags("Device records");
         dialogs.MapGet("", ListDialogs).WithSummary("List the administrator's archived dialog replies");
         dialogs.MapGet("/{recordId}", GetDialog).WithSummary("Get an archived dialog reply and its field configuration");

@@ -40,6 +40,7 @@ internal sealed class Database(Settings settings)
             case 5:
             case 6:
             case 7:
+            case 8:
                 break;
             default:
                 throw new InvalidOperationException($"Unsupported database version {version}");
@@ -54,10 +55,12 @@ internal sealed class Database(Settings settings)
             connection.Execute(NotificationStorage.RulesMigration, transaction: transaction);
         if (version < 7)
             connection.Execute(InteractionRecords.Migration, transaction: transaction);
+        if (version < 8)
+            connection.Execute(InteractionRecords.ClipboardContentMigration, transaction: transaction);
         connection.Execute("UPDATE NotificationDevices SET ConnectionId=NULL WHERE ConnectionId IS NOT NULL", transaction: transaction);
         if (connection.Query("PRAGMA foreign_key_check", transaction: transaction).Any())
             throw new InvalidOperationException("Database foreign key check failed.");
-        connection.Execute("PRAGMA user_version=7", transaction: transaction);
+        connection.Execute("PRAGMA user_version=8", transaction: transaction);
         transaction.Commit();
         connection.Execute("PRAGMA foreign_keys=ON");
     }

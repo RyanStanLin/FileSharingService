@@ -637,7 +637,7 @@ class Acceptance(unittest.TestCase):
         item = self.api("GET", self.device_api + f"/clipboard/records/{clipboard_id}").json()
         self.assertEqual((item["occurredAt"], item["content"]), (stamp, "N/A"))
         with closing(sqlite3.connect(self.work / "db" / "filesharing.db")) as data, data:
-            self.assertEqual(data.execute("PRAGMA user_version").fetchone()[0], 7)
+            self.assertEqual(data.execute("PRAGMA user_version").fetchone()[0], 8)
             self.assertEqual(data.execute("PRAGMA foreign_key_check").fetchall(), [])
             self.assertNotIn("PublicKey", [row[1] for row in data.execute("PRAGMA table_info(Devices)")])
             self.assertEqual(data.execute("SELECT COUNT(*) FROM sqlite_master WHERE name IN ('AgentTokens','Activations')").fetchone()[0], 0)
@@ -1599,26 +1599,33 @@ precondition(board.setString("ISOLATED_CLIPBOARD_CONTENT", forType: .string))
         route = API + "/devices/" + device
         clipboard = route + "/clipboard/records"
         dialogs = route + "/interactions/dialogs"
+        opaque = "  sealed/+/Q=\n密文样例  "
         first = {"type": "event", "id": str(uuid.uuid4()), "topic": "clipboard.changed", "snapshot": False,
-                 "payload": {"occurredAt": "2026-11-20T10:30:00.123+02:00"}}
-        second = first | {"id": str(uuid.uuid4()), "payload": {"occurredAt": "2026-11-20T08:31:00+00:00"}}
+                 "payload": {"occurredAt": "2026-11-20T10:30:00.123+02:00", "content": "N/A"}}
+        second = first | {"id": str(uuid.uuid4()),
+                          "payload": {"occurredAt": "2026-11-20T08:31:00+00:00", "content": opaque}}
+        legacy = first | {"id": str(uuid.uuid4()), "payload": {"occurredAt": "2026-11-20T08:29:00+00:00"}}
 
         def send(*frames, expected=204):
             return self.api("POST", "/agent/v1/frames", expected, headers=header, json={"frames": frames})
 
-        send(first, first, second)
-        forbidden = first | {"id": str(uuid.uuid4()), "payload": first["payload"] | {"content": "N/A"}}
-        self.assertEqual(send(forbidden, expected=400).json()["code"], "invalid_clipboard_event")
+        send(legacy, first, first, second)
+        invalid = first | {"id": str(uuid.uuid4()), "payload": first["payload"] | {"content": {"value": opaque}}}
+        self.assertEqual(send(invalid, expected=400).json()["code"], "invalid_clipboard_event")
         newest = self.api("GET", clipboard, params={"limit": 1}).json()
-        oldest = self.api("GET", clipboard, params={"limit": 1, "cursor": newest["nextCursor"]}).json()
+        oldest = self.api("GET", clipboard, params={"limit": 2, "cursor": newest["nextCursor"]}).json()
         latest, = newest["items"]
-        earlier, = oldest["items"]
-        self.assertEqual((latest["occurredAt"], earlier["occurredAt"]), (
-            "2026-11-20T08:31:00+00:00", "2026-11-20T08:30:00.123+00:00"))
+        earlier, old_agent = oldest["items"]
+        self.assertEqual([item["occurredAt"] for item in (latest, earlier, old_agent)], [
+            "2026-11-20T08:31:00+00:00", "2026-11-20T08:30:00.123+00:00", "2026-11-20T08:29:00+00:00"])
         self.assertIsNone(oldest["nextCursor"])
-        self.assertEqual([(item["event"], item["content"]) for item in (latest, earlier)],
-                         [("clipboard.changed", "N/A")] * 2)
-        self.assertEqual(self.api("GET", clipboard + "/" + earlier["id"]).json(), earlier)
+        self.assertEqual([(item["event"], item["content"]) for item in (latest, earlier, old_agent)],
+                         [("clipboard.changed", value) for value in (opaque, "N/A", None)])
+        self.assertEqual(self.api("GET", clipboard + "/" + latest["id"]).json(), latest)
+        self.assertEqual(self.api("GET", clipboard + "/" + old_agent["id"]).json(), old_agent)
+        live = self.api("GET", route + "/history", params={"topic": "clipboard.changed"}).json()["items"]
+        self.assertEqual([item["payload"] for item in live],
+                         [{"occurredAt": item["occurredAt"]} for item in (old_agent, earlier, latest)])
         self.api("GET", clipboard + "/" + earlier["id"], 401, self.client())
 
         connection = self.api("GET", route).json()["connection"]
@@ -1651,8 +1658,8 @@ precondition(board.setString("ISOLATED_CLIPBOARD_CONTENT", forType: .string))
         self.api("GET", clipboard, 401)
         self.stop(self.server)
         with closing(sqlite3.connect(self.work / "db" / "filesharing.db")) as db, db:
-            with self.assertRaises(sqlite3.IntegrityError):
-                db.execute("UPDATE ClipboardRecords SET Content='SYNTHETIC' WHERE DeviceId=?", (device,))
+            persisted = db.execute("SELECT Content FROM ClipboardRecords WHERE DeviceId=? ORDER BY Sequence DESC", (device,))
+            self.assertEqual(persisted.fetchall(), [(opaque,), ("N/A",), (None,)])
             db.execute("UPDATE Events SET At=1 WHERE DeviceId=? AND Topic='clipboard.changed'", (device,))
             db.execute("UPDATE Jobs SET Created=1 WHERE Id=?", (job["id"],))
             db.execute("UPDATE AgentReceipts SET At=1 WHERE DeviceId=?", (device,))
@@ -1662,12 +1669,12 @@ precondition(board.setString("ISOLATED_CLIPBOARD_CONTENT", forType: .string))
         self.assertFalse(self.api("GET", route).json()["connection"]["online"])
         self.assertEqual(self.api("GET", route + "/history", params={"topic": "clipboard.changed"}).json()["items"], [])
         self.assertEqual(self.api("GET", dialogs + "/" + job["id"]).json(), archive)
-        self.assertEqual(self.api("GET", clipboard).json()["items"], [latest, earlier])
+        self.assertEqual(self.api("GET", clipboard).json()["items"], [latest, earlier, old_agent])
 
         agent = self.api("POST", "/agent/v1/connect", json=hello).json()
         header = {"X-FileSharing-Channel": agent["channel"]}
         send(first)
-        self.assertEqual(self.api("GET", clipboard).json()["items"], [latest, earlier])
+        self.assertEqual(self.api("GET", clipboard).json()["items"], [latest, earlier, old_agent])
         self.assertEqual(self.api("GET", route + "/history", params={"topic": "clipboard.changed"}).json()["items"], [])
 
     def test_folder_permission_enables_scoped_writes_and_library_reads(self):

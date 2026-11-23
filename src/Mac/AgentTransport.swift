@@ -500,7 +500,10 @@ actor AgentTransport {
     }
 
     private func emitClipboardChange(_ observedAt: Date) {
-        emit(topic: "clipboard.changed", data: ["occurredAt": .date(observedAt)], snapshot: false)
+        emit(topic: "clipboard.changed", data: [
+            "occurredAt": .date(observedAt),
+            "content": .string("N/A"),
+        ], snapshot: false)
     }
 
     private func endCommandSession() {

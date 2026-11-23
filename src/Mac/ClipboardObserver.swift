@@ -15,7 +15,7 @@ struct ClipboardObserver {
         #endif
     }
 
-    // changeCount is an ownership counter. Neither the counter nor any contents go on the wire.
+    // The ownership counter detects changes without reading the pasteboard contents.
     mutating func detectChange() -> Date? {
         let current = pasteboard.changeCount
         defer { previous = current }
