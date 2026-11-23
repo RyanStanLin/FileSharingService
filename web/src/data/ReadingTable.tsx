@@ -44,9 +44,11 @@ export function ReadingTable({headingId, nameTitle, columns, rows, icons, curren
       </th>
       {columns.map(({key}) => {
         const value = row.values[key]
-        return <td key={key} title={value?.text}><span className={styles.cell}>
-          {value?.label ? <Label>{value.text}</Label> : value?.text ?? t('missing')}
-        </span></td>
+        return <td key={key} title={value?.preview ? undefined : value?.text}>
+          <span className={value?.preview ? `${styles.cell} ${styles.previewCell}` : styles.cell}>
+            {value?.label ? <Label>{value.text}</Label> : value?.text ?? t('missing')}
+          </span>
+        </td>
       })}
       {open && <td className={styles.menuCell}>{row.value && <ActionMenu>
         <ActionMenu.Anchor>

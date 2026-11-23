@@ -166,3 +166,10 @@
 .readingNotice {
   flex: none;
 }
+
+.clipboardText {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: var(--text-body-shorthand-medium);
+}

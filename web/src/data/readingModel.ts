@@ -8,6 +8,7 @@ export interface ReadingCell {
   text: string
   order?: string | number | null
   label?: boolean
+  preview?: boolean
 }
 
 export interface ReadingRow {
@@ -34,7 +35,7 @@ export interface ReadingDataset {
   icons?: boolean
   details?: boolean
   sort?: {key: string; direction: 'asc' | 'desc'}
-  empty?: string
+  empty?: string | null
   pending?: boolean
 }
 

@@ -1,6 +1,6 @@
 import {useEffect, useRef, useState, type RefObject} from 'react'
 
-export function useTableEnd(cursor: number | undefined, advance: () => void, scrollRoot?: RefObject<HTMLElement | null>) {
+export function useTableEnd(cursor: string | number | undefined, advance: () => void, scrollRoot?: RefObject<HTMLElement | null>) {
   const [sentinel, setSentinel] = useState<HTMLElement | null>(null)
   const load = useRef(advance)
   useEffect(() => { load.current = advance }, [advance])

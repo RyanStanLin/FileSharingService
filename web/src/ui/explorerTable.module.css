@@ -119,3 +119,13 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.table .previewCell {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  max-block-size: var(--base-size-80);
+  margin-block: var(--base-size-4);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}

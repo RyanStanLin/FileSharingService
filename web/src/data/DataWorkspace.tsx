@@ -35,6 +35,7 @@ export default function DataWorkspace({device, hash, refreshDevice, authorize, a
   const {t} = useLanguage()
   const category = categoryFromHash(hash)
   const parameters = new URLSearchParams(hash.split('?')[1])
+  const view = parameters.get('view')
   const heading = useId()
   const sidebarId = useId()
   const menu = useRef<HTMLButtonElement>(null)
@@ -45,7 +46,8 @@ export default function DataWorkspace({device, hash, refreshDevice, authorize, a
   const {connection, pending, error} = telemetry
   const stream = connection.online ? telemetry.stream : 'offline'
   const streamText = t(streamLabels[stream])
-  const {history, trends, activity} = useTelemetryHistory(device.id, telemetry.history, stream === 'live', category === 'events')
+  const showActivity = category === 'events' && view !== 'clipboard.changed'
+  const {history, trends, activity} = useTelemetryHistory(device.id, telemetry.history, stream === 'live', showActivity)
   const task = useTask()
 
   useEffect(() => { if (!narrow) setShowNavigation(false) }, [narrow])
@@ -55,7 +57,7 @@ export default function DataWorkspace({device, hash, refreshDevice, authorize, a
     telemetry.refresh()
     refreshDevice()
     trends.refresh()
-    if (category === 'events') activity.refresh()
+    if (showActivity) activity.refresh()
   }
 
   function sample() {
@@ -69,7 +71,7 @@ export default function DataWorkspace({device, hash, refreshDevice, authorize, a
   }
 
   const hasTrends = ['overview', 'performance', 'power', 'network', 'storage'].includes(category)
-  const historyError = category === 'events' ? activity.data?.error ?? activity.error : hasTrends && (trends.data?.error ?? trends.error)
+  const historyError = showActivity ? activity.data?.error ?? activity.error : hasTrends && (trends.data?.error ?? trends.error)
   const operationError = task.error ?? authorizationError
   const action = connection.online && connection.accessGranted
     ? <Button size="medium" leadingVisual={SyncIcon} loading={task.busy} onClick={sample}>{t('dataSample')}</Button>
@@ -104,9 +106,11 @@ export default function DataWorkspace({device, hash, refreshDevice, authorize, a
   } else if (category === 'applications') {
     content = <ApplicationInventory deviceId={device.id} telemetry={telemetry} installed={parameters.get('inventory') === 'installed'} chrome={chrome} />
   } else if (category === 'events') {
-    content = <ActivityList history={history} pending={activity.pending && !activity.data} chrome={chrome} />
+    content = <ActivityList deviceId={device.id} view={view} streaming={stream === 'live'}
+      newestClipboard={telemetry.history['clipboard.changed']?.at(-1)?.sequence} history={history}
+      pending={activity.pending && !activity.data} chrome={chrome} />
   } else {
-    content = <TelemetryReading key={category} category={category} view={parameters.get('view')}
+    content = <TelemetryReading key={category} category={category} view={view}
       device={device} telemetry={telemetry} history={history} chrome={chrome} />
   }
 

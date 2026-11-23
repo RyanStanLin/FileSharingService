@@ -1,9 +1,9 @@
 import {useEffect, useMemo, useRef, useState, type ReactNode} from 'react'
-import {Stack} from '@primer/react'
+import {Button, Stack} from '@primer/react'
 import {useLanguage} from '../i18n'
 import {date} from '../i18n/format'
 import {ExplorerFacts, ExplorerHeader, ExplorerTitle} from '../ui/ExplorerHeader'
-import {Loading} from '../ui/Feedback'
+import {ErrorText, Loading} from '../ui/Feedback'
 import {Modal} from '../ui/Modal'
 import {useTableEnd} from '../ui/useTableEnd'
 import styles from '../ui/explorer.module.css'
@@ -27,6 +27,8 @@ interface Props {
   controls?: ReactNode
   filter?: string
   rowAction?: (row: ReadingRow) => ReactNode
+  rowDetails?: (row: ReadingRow) => ReactNode
+  pagination?: {cursor?: string; loading: boolean; error?: unknown; next: () => void}
 }
 
 const pageSize = 80
@@ -39,7 +41,7 @@ export function ReadingPane({chrome, dataset, controls, ...table}: Props) {
     <ExplorerHeader title={<ExplorerTitle id={chrome.heading} title={dataset.title}
       detail={[t('dataOnDevice', {name: chrome.deviceName}), dataset.description].filter(Boolean).join(' · ')} />}
       facts={<ExplorerFacts items={[
-        ['dataListCount', decimal(dataset.rows.length, locale)],
+        [table.pagination ? 'dataLoadedRecords' : 'dataListCount', decimal(dataset.rows.length, locale)],
         ['dataUpdated', observedAt ? <time dateTime={observedAt}>{date(observedAt, locale)}</time> : t('missing')],
         ['dataStatus', <span role="status">{outdated ? t('dataStale') : chrome.stream}</span>],
       ]} />}
@@ -51,7 +53,7 @@ export function ReadingPane({chrome, dataset, controls, ...table}: Props) {
   </>
 }
 
-function TableViewport({chrome, dataset, filter, rowAction}: Props) {
+function TableViewport({chrome, dataset, filter, rowAction, rowDetails, pagination}: Props) {
   const {t, locale} = useLanguage()
   const scroll = useRef<HTMLDivElement>(null)
   const region = useRef<HTMLDivElement>(null)
@@ -59,9 +61,12 @@ function TableViewport({chrome, dataset, filter, rowAction}: Props) {
   const [limit, setLimit] = useState(pageSize)
   const [sort, setSort] = useState<NonNullable<ReadingDataset['sort']>>(dataset.sort ?? {key: 'name', direction: 'asc'})
   const collator = useMemo(() => new Intl.Collator(locale, {numeric: true, sensitivity: 'base'}), [locale])
-  const rows = useMemo(() => sortRows(dataset.rows, sort.key, sort.direction, collator), [dataset.rows, sort, collator])
-  const more = rows.length > limit
-  const tail = useTableEnd(more ? limit : undefined, () => setLimit(value => value + pageSize), scroll)
+  const serverPaged = pagination !== undefined
+  const rows = useMemo(() => serverPaged ? dataset.rows : sortRows(dataset.rows, sort.key, sort.direction, collator),
+    [serverPaged, dataset.rows, sort, collator])
+  const shown = serverPaged ? rows : rows.slice(0, limit)
+  const cursor = pagination ? pagination.cursor : rows.length > limit ? limit : undefined
+  const tail = useTableEnd(cursor, pagination?.next ?? (() => setLimit(value => value + pageSize)), scroll)
   const pending = (chrome.pending || dataset.pending) && !rows.length
   const active = selected && (dataset.rows.find(row => row.id === selected.id) ?? selected)
 
@@ -74,29 +79,35 @@ function TableViewport({chrome, dataset, filter, rowAction}: Props) {
     {chrome.notices}
     <div ref={region} className={styles.tableScroll} tabIndex={0} role="region" aria-label={dataset.title}>
       <ReadingTable headingId={chrome.heading} nameTitle={dataset.nameTitle} columns={dataset.columns}
-        rows={rows.slice(0, limit)} icons={dataset.icons} current={selected?.id} sort={sort}
+        rows={shown} icons={dataset.icons} current={selected?.id} sort={serverPaged ? undefined : sort}
         onSort={(key, direction) => setSort({key, direction})} open={dataset.details ? setSelected : undefined} />
     </div>
-    {pending ? <Loading /> : !rows.length && <p className={styles.empty}>{dataset.empty ?? t('dataNoSample')}</p>}
-    {more && <span className={styles.pageEnd} ref={tail} aria-hidden="true" />}
+    {pending ? <Loading /> : !rows.length && dataset.empty !== null && <p className={styles.empty}>{dataset.empty ?? t('dataNoSample')}</p>}
+    {pagination?.loading && <Loading />}
+    {pagination?.error != null && <Stack direction="horizontal" wrap="wrap" align="center" gap="condensed" padding="normal">
+      <ErrorText error={pagination.error} />
+      <Button size="medium" onClick={pagination.next}>{t('retry')}</Button>
+    </Stack>}
+    {cursor !== undefined && <span className={styles.pageEnd} ref={tail} aria-hidden="true" />}
     {active?.value && <ReadingDialog row={active} action={rowAction?.(active)} close={() => setSelected(undefined)}
-      region={region} restoreToRegion={!rows.slice(0, limit).some(row => row.id === active.id)} />}
+      region={region} restoreToRegion={!shown.some(row => row.id === active.id)} details={rowDetails?.(active)} />}
   </Stack>
 }
 
-function ReadingDialog({row, action, close, region, restoreToRegion}: {
+function ReadingDialog({row, action, close, region, restoreToRegion, details}: {
   row: ReadingRow
   action?: ReactNode
   close: () => void
   region: React.RefObject<HTMLDivElement | null>
   restoreToRegion: boolean
+  details?: ReactNode
 }) {
   const {t, locale} = useLanguage()
-  const dataset = objectDataset(row.id, row.name.text, row.value, locale, t)
+  const dataset = details ? undefined : objectDataset(row.id, row.name.text, row.value, locale, t)
   return <Modal title={row.name.text} onClose={close} returnFocusRef={restoreToRegion ? region : undefined}
     footerButtons={[{size: 'medium', content: t('close'), onClick: close}]}>
     <Stack gap="normal">
-      <ReadingTable nameTitle={dataset.nameTitle} columns={dataset.columns} rows={dataset.rows} dialog />
+      {dataset ? <ReadingTable nameTitle={dataset.nameTitle} columns={dataset.columns} rows={dataset.rows} dialog /> : details}
       {action}
     </Stack>
   </Modal>

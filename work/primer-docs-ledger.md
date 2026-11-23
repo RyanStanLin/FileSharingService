@@ -187,3 +187,9 @@
 
 - FileSharing Web 的五处有限单选复用 `ChoiceMenu`，包括 Data 的读取视图、应用清单和事件类型、File System 移动对话框的共享根，以及 Window Activity 的活动显示器。复核 Primer 38.46.0 的 ActionMenu、ActionList 单选示例与 SelectPanel 用法。使用 medium ActionMenu.Button 和 ActionList 的 `selectionVariant="single"`，触发按钮的无障碍名称包含本地化字段名与当前值。共享根和显示器保留可见的 FormControl 标签。 [ActionMenu](https://primer.style/product/components/action-menu/) · [ActionList](https://primer.style/product/components/action-list/)
 - Chromium 验证三类 Data 菜单、320 CSS px 下的方向键、Enter、Escape 和浏览器返回、两个授权共享根之间的实际文件移动，以及多屏切换后布局和实时更新。WebKit 验证存储视图和显示器选择、当前选项标记与焦点归还。五处交互均核对了菜单角色和原生 Select 清理结果。
+
+## 剪贴板档案
+
+- Data 的事件菜单进入 `#data?section=events&view=clipboard.changed`。复用 File Explorer 的标题栏、隔行表格和列表底部观察器。列表按入库顺序从新到旧，每次读取 50 条，并原样传递 `nextCursor`。实时事件通知刷新首段，已读内容与重叠的首段合并。离线时也可通过 Passkey 会话读取档案。 [档案 API](../docs/api.md#交互与剪贴板历史)
+- 正文列保留原始换行和空白，并在可用宽度换行。以 `base-size-80` 限定预览高度，显示最多四行。详情使用 Primer Dialog，读取单条档案以展示全部元数据和未截断的正文。 [Progressive disclosure](https://primer.style/product/ui-patterns/progressive-disclosure/) · [Dialog](https://primer.style/product/components/dialog/)
+- Chromium 使用实际 API 验证三页档案、失败重试、实时新增、锁定及离线重新读取。WebKit 验证正文换行、完整详情和自动续页。Primer CSS 工具报错且诊断为空。PostCSS 成功解析两份变更样式并核对四套主题下的 232 处 token 引用。
