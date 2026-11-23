@@ -61,7 +61,7 @@ export function dialogFieldEditor() {
 export function dialogFieldResults(fields, values) {
     return fields.flatMap(field => {
         if (!Object.hasOwn(values, field.id)) return []
-        const label = field.hintText?.trim() || "输入框 " + field.id.slice("field-".length)
+        const label = field.hintText?.trim() || (field.id.startsWith("field-") ? "输入框 " + field.id.slice("field-".length) : field.id)
         const value = values[field.id]
         if (!field.maskText || !value) return [[label, value]]
         const row = node("div", null, "row")

@@ -97,7 +97,7 @@ internal sealed class JobService(Database db, AgentBroker broker, ReviewService 
             if (await reviews.ActiveById(job.ReviewId, ct) is null)
                 await Finish(job, "cancelled", null, "review_ended");
             else
-                await Finish(job, "completed", payload, null);
+                await Finish(job, "completed", payload, null, data as DialogRequest);
         }
         catch (Exception error)
         {
@@ -125,7 +125,7 @@ internal sealed class JobService(Database db, AgentBroker broker, ReviewService 
 
     private static bool Exclusive(string kind) => kind is "diagnostics.run" or InteractionEndpoints.Dialog or InteractionEndpoints.Notification;
 
-    private Task Finish(JobRecord job, string state, JsonElement? payload, string? error) =>
+    private Task Finish(JobRecord job, string state, JsonElement? payload, string? error, DialogRequest? dialog = null) =>
         db.Write(async (connection, tx) =>
         {
             var stop = Clock.Now;
@@ -140,10 +140,13 @@ internal sealed class JobService(Database db, AgentBroker broker, ReviewService 
             var saved = await connection.ExecuteAsync(new CommandDefinition("""
                 UPDATE Jobs SET State=@state,Result=@result,Error=@error,Finished=@stop WHERE Id=@Id AND State='queued'
                 """, new { state, result = payload?.GetRawText(), error, stop, job.Id }, tx));
-            if (saved == 1)
-                await connection.ExecuteAsync(new CommandDefinition("""
-                    INSERT INTO Events(DeviceId,Topic,At,Payload) VALUES(@DeviceId,'jobs.changed',@stop,@value)
-                    """, new { job.DeviceId, stop, value = Wire.Encode(new JobChanged(job.Id, state, job.Kind, exitCode)) }, tx));
+            if (saved != 1)
+                return saved;
+            if (dialog is not null && payload is { } result)
+                await InteractionRecords.AddDialog(connection, tx, job, dialog, result, stop);
+            await connection.ExecuteAsync(new CommandDefinition("""
+                INSERT INTO Events(DeviceId,Topic,At,Payload) VALUES(@DeviceId,'jobs.changed',@stop,@value)
+                """, new { job.DeviceId, stop, value = Wire.Encode(new JobChanged(job.Id, state, job.Kind, exitCode)) }, tx));
             return saved;
         });
 }
@@ -179,6 +182,7 @@ internal static class DataEndpoints
         api.MapGet("/events", Events).WithTags("Events").WithSummary("Read a page of live-event history over REST");
         api.MapGet("/events/ws", BrowserEvents.Handle).WithTags("Events").WithSummary("Subscribe to events using WebSocket");
         WindowEndpoints.Map(devices);
+        RecordEndpoints.Map(devices);
         InteractionEndpoints.Map(devices);
         FileEndpoints.Map(devices, api);
     }

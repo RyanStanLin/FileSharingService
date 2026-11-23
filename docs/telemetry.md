@@ -44,7 +44,7 @@
 | `jobs.output` | `{jobId,index,stream,data}`，诊断标准输出或错误流分片。 |
 | `transfers.changed` | `{id,state,offset,length}`。 |
 
-剪贴板实现见 [ClipboardObserver.swift](../src/Mac/ClipboardObserver.swift) 与 [AgentTransport.swift](../src/Mac/AgentTransport.swift)。剪贴板载荷仅含 ISO 8601 时间，服务端在写库前校验唯一字段并重新序列化。服务器添加设备 ID 和事件序号。初次观测只建立本机基线。客户端仅在内存排队，服务端使用通用事件保留期限。
+剪贴板载荷仅含 ISO 8601 时间，服务端在写库前校验唯一字段并重新序列化。初次观测只建立本机基线。客户端在内存排队，实时推送及补读遵循通用事件保留期限。服务端同时按设备 ID 与事件序号持久化档案，档案的 `content` 固定为 `N/A`。实时事件清理后仍可查询档案。 [采集代码](../src/Mac/ClipboardObserver.swift) · [上传代码](../src/Mac/AgentTransport.swift) · [查询 API](api.md#交互与剪贴板历史)
 
 窗口观察按需启动。存在 WS 订阅或 REST 请求时，服务端按设备连接合并并续期 20 秒采集租约。Agent 在独立队列约每 250 毫秒采样，窗口属性或 Foreground 变化时上报最新完整快照。服务端只在内存保留当前租约内的最新值。实际更新延迟包含采样、设备传输与浏览器订阅投递。 [窗口接口和字段](api.md#窗口实时状态)
 

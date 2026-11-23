@@ -1,5 +1,6 @@
 import {deviceData} from "./device-data.js"
 import {deviceJobs} from "./device-jobs.js"
+import {deviceRecords} from "./device-records.js"
 import {gatewayPanel} from "./gateway.js"
 import {dateText, duration, element, eventSocket, status} from "./ui.js"
 
@@ -23,6 +24,7 @@ const errors = { authentication_required: "请先解锁后台。",
     root_identity_changed: "共享目录的卷或目录身份已变化。请在 Mac 上确认目录并重新批准该共享根。",
     root_access_denied: "当前连接没有此目录授权。",
     not_found: "当前目录或文件不存在。",
+    record_not_found: "这条历史记录不存在。",
     snapshot_unavailable: "设备状态正在同步。",
     limit_reached: "刚发出过同项申请，请稍后重试。",
     interactive_session_required: "请先让 Mac 登录并解锁当前用户会话。",
@@ -73,12 +75,14 @@ let pane = "files"
 const tabs = [...document.querySelectorAll("[data-pane]")]
 const jobs = deviceJobs({call, perform, errorText, collectCompleted: () => data.refresh()})
 const data = deviceData({call, perform, submitCollection: topics => jobs.collect(topics)})
+const records = deviceRecords({call, perform})
 const gateway = gatewayPanel({call, perform, authenticate})
 
 function updatePanes() {
     const device = unlocked ? selected() : undefined
     data.bind(device, pane)
     jobs.bind(device)
+    records.bind(pane === "records" ? device?.id : undefined)
     gateway.bind(unlocked && pane === "gateway")
 }
 

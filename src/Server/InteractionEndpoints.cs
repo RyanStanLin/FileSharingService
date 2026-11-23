@@ -20,6 +20,11 @@ internal sealed record DialogRequest(string Title, string Message, string? Icon,
 /// <summary>Content for one local macOS notification.</summary>
 internal sealed record LocalNotificationRequest(string Title, string Message, bool Sound = false);
 
+/// <summary>The accepted device response to a native dialog.</summary>
+internal sealed record DialogResult(string Outcome, string? ChoiceId, string? Text, DateTimeOffset RespondedAt,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? LocallyAuthenticated,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Dictionary<string, string>? TextValues);
+
 internal static class InteractionEndpoints
 {
     internal const string Dialog = "interaction.dialog";
@@ -163,8 +168,5 @@ internal static class InteractionEndpoints
         return text;
     }
 
-    private sealed record DialogResult(string Outcome, string? ChoiceId, string? Text, DateTimeOffset RespondedAt,
-        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? LocallyAuthenticated,
-        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Dictionary<string, string>? TextValues);
     private sealed record NotificationResult(string Status, DateTimeOffset ScheduledAt);
 }

@@ -317,6 +317,27 @@ Agent 0.5.1 起，可在同一个 NSAlert 中按顺序显示 1–6 个输入框�
 
 向 `POST /devices/D/interactions/notifications` 提交 `{"title":"维护提醒","message":"18:00 开始维护。","sound":false}`。标题最多 100 字符，正文最多 500 字符，声音默认关闭。用户先在已安装 App 选择「启用本地通知」。成功的 `result` 为 `{status:"scheduled",scheduledAt}`，表示系统接受本地通知，展示行为遵从 macOS 设置。未获授权时作业失败并给出 `notification_permission_required`。
 
+### 交互与剪贴板历史
+
+以下查询使用 Passkey 管理会话。设备离线后仍可读取，表单答复限原发起管理员读取。两个列表均按入库顺序从新到旧返回 `{items,nextCursor}`，支持 `limit`（默认 50，范围 1–200）。下一页传上次的 `nextCursor` 作为 `cursor`。列表或详情中的序号使用字符串。设备不存在时返回 `404 device_not_found`，此设备下找不到记录时返回 `404 record_not_found`。
+
+| 方法与路径 | 返回 |
+| --- | --- |
+| `GET /devices/D/interactions/dialogs` | 原生对话框答复摘要 `{id,sequence,deviceId,title,outcome,choiceId,createdAt,recordedAt}`。`id` 等于作业 ID。 |
+| `GET /devices/D/interactions/dialogs/{recordId}` | `{record,request,result}`。`record` 是摘要，`request` 包含标题、提示、选项和字段配置，`result` 是通过校验的原始答复。 |
+| `GET /devices/D/clipboard/records` | 剪贴板变更记录。每项包含 `{id,deviceId,event,occurredAt,recordedAt,content}`。 |
+| `GET /devices/D/clipboard/records/{recordId}` | 单条剪贴板变更记录，字段与列表项相同。 |
+
+表单提交、取消和超时的有效设备答复都会入档。`result` 保留 `outcome`、`choiceId`、`text` 和 `respondedAt`，有自定义文本答复时另含 `textValues`。通过本机身份确认时含 `locallyAuthenticated`。详情中的字段配置包含 `id`、`hintText`、`disabled`、`required` 和 `maskText`。预填值只用于原始请求。WebSocket `jobs.changed` 仍发送作业状态，用它的 `payload.id` 查询详情。失败、服务端撤销等无设备答复的状态仍从作业 API 查询。
+
+剪贴板详情示例。`id` 等于 `clipboard.changed` 通知里的 `item.sequence`。`occurredAt` 为客户端发现变化的时间，`recordedAt` 为服务端入库时间。Agent 仅上报时间，`content` 由服务端固定填写 `N/A`。
+
+```json
+{"id":"1203","deviceId":"144bae60-503d-45e3-8a17-ec7a64886c20","event":"clipboard.changed","occurredAt":"2026-11-19T08:22:00Z","recordedAt":"2026-11-19T08:22:01Z","content":"N/A"}
+```
+
+两类档案独立于作业和实时事件的保留窗口。数据库迁移会导入旧库中仍可用的记录。旧表单答复的原请求配置未保留时，`request` 和 `record.title` 返回 `null`。 [可执行请求示例](../FileSharing.http)
+
 ## WebSocket 订阅
 
 连接 `GET /api/v1/events/ws`，携带同源 Cookie 和 Origin。服务器先发送 `ready`。客户端为每个订阅选一个 1–64 字符的 `id`。订阅所收事件带同一个 id，可按 `sequence` 去重。每条连接最多 16 个订阅。

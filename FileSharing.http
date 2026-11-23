@@ -14,6 +14,7 @@
 @entryVersion = REPLACE
 @transfer = 31b01929-8a3b-4f28-96b4-ab38762ae93e
 @job = af16d625-a9e5-4371-807d-9b8f140099ef
+@clipboardRecord = 1203
 @ftpAccount = fcd35110-9677-4fd7-83db-6f59cd838dc8
 @idempotency = local-example-archive-1
 
@@ -293,6 +294,22 @@ Content-Type: application/json
 
 ### Job result
 GET {{api}}/jobs/{{job}}
+Cookie: {{cookie}}
+
+### List archived dialog responses
+GET {{api}}/devices/{{device}}/interactions/dialogs?limit=30
+Cookie: {{cookie}}
+
+### Read an archived dialog response by job ID
+GET {{api}}/devices/{{device}}/interactions/dialogs/{{job}}
+Cookie: {{cookie}}
+
+### List archived clipboard changes
+GET {{api}}/devices/{{device}}/clipboard/records?limit=30
+Cookie: {{cookie}}
+
+### Read an archived clipboard change by event sequence
+GET {{api}}/devices/{{device}}/clipboard/records/{{clipboardRecord}}
 Cookie: {{cookie}}
 
 ### Resume diagnostic stdout and stderr after a segment

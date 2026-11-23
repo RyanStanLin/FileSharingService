@@ -584,6 +584,9 @@ class Acceptance(unittest.TestCase):
                                                "revision": registration["revision"]})
         legacy = self.api("POST", API + "/ftp/accounts", 201,
                           json={"name": "legacy", "mode": "ftp", "rootIds": [self.root_id]}).json()
+        legacy_dialog_id = str(uuid.uuid4())
+        stamp = "2026-11-20T08:30:00.123+00:00"
+        reply = {"outcome": "submitted", "choiceId": "ok", "text": "Legacy fixture reply", "respondedAt": stamp}
         self.stop(self.agent)
         self.stop(self.server)
         with closing(sqlite3.connect(self.work / "db" / "filesharing.db")) as data, data:
@@ -602,6 +605,8 @@ class Acceptance(unittest.TestCase):
                 DROP TABLE NotificationRules;
                 DROP TABLE NotificationDevices;
                 DROP TABLE NotificationSamples;
+                DROP TABLE ClipboardRecords;
+                DROP TABLE DialogRecords;
                 CREATE TABLE FtpAccountsPrior(
                     Id TEXT PRIMARY KEY, Name TEXT NOT NULL COLLATE NOCASE UNIQUE, Owner TEXT NOT NULL REFERENCES Operators(Id),
                     Mode TEXT NOT NULL CHECK(Mode IN ('ftp','ftps')), SecretHash TEXT NOT NULL,
@@ -612,6 +617,13 @@ class Acceptance(unittest.TestCase):
                 ALTER TABLE FtpAccountsPrior RENAME TO FtpAccounts;
                 PRAGMA user_version=1;
             """)
+            now = int(time.time())
+            data.execute("""
+                INSERT INTO Jobs(Id,Owner,DeviceId,Kind,State,Created,Finished,Result,ReviewId)
+                SELECT ?,Id,?,'interaction.dialog','completed',?,?,?,'legacy-review' FROM Operators
+                """, (legacy_dialog_id, self.device, now - 10, now, json.dumps(reply)))
+            clipboard_id = data.execute("INSERT INTO Events(DeviceId,Topic,At,Payload) VALUES(?,'clipboard.changed',?,?)",
+                                        (self.device, now, json.dumps({"occurredAt": stamp}))).lastrowid
         self.start_server()
         existing = self.api("GET", self.device_api).json()
         self.assertEqual(existing["name"], "Existing Mac")
@@ -619,8 +631,13 @@ class Acceptance(unittest.TestCase):
         account = self.api("GET", API + "/ftp/accounts/" + legacy["account"]["id"]).json()
         self.assertEqual((account["scope"], account["rootIds"], account["passwordRetrievable"]), ("grants", [self.root_id], False))
         self.api("POST", f"{API}/ftp/accounts/{account['id']}/password/reveal", 409)
+        dialog = self.api("GET", self.device_api + "/interactions/dialogs/" + legacy_dialog_id).json()
+        self.assertEqual(dialog["result"], reply)
+        self.assertIsNone(dialog["request"])
+        item = self.api("GET", self.device_api + f"/clipboard/records/{clipboard_id}").json()
+        self.assertEqual((item["occurredAt"], item["content"]), (stamp, "N/A"))
         with closing(sqlite3.connect(self.work / "db" / "filesharing.db")) as data, data:
-            self.assertEqual(data.execute("PRAGMA user_version").fetchone()[0], 6)
+            self.assertEqual(data.execute("PRAGMA user_version").fetchone()[0], 7)
             self.assertEqual(data.execute("PRAGMA foreign_key_check").fetchall(), [])
             self.assertNotIn("PublicKey", [row[1] for row in data.execute("PRAGMA table_info(Devices)")])
             self.assertEqual(data.execute("SELECT COUNT(*) FROM sqlite_master WHERE name IN ('AgentTokens','Activations')").fetchone()[0], 0)
@@ -1335,8 +1352,14 @@ app.run()
                         if expected == "completed":
                             self.assertEqual(finished["result"]["textValues"], values)
                             self.assertIsNone(finished["result"]["text"])
+                            archive = self.api("GET", dialogs + "/" + job["id"]).json()
+                            self.assertEqual(archive["result"], finished["result"])
+                            self.assertEqual(archive["request"]["textFields"][2], {
+                                "id": "approval", "hintText": "Approval code", "required": True, "disabled": False, "maskText": True,
+                            })
                         else:
                             self.assertEqual((finished["error"], finished["result"]), ("invalid_dialog_result", None))
+                            self.api("GET", dialogs + "/" + job["id"], 404)
 
                 protected = {key: value for key, value in request.items() if key not in ("icon", "askText", "textRequired")}
                 protected["requireLocalAuthentication"] = True
@@ -1550,6 +1573,10 @@ precondition(board.setString("ISOLATED_CLIPBOARD_CONTENT", forType: .string))
                                   params={"topic": "clipboard.changed", "after": ready["cursor"]}).json()
                 self.assertEqual(replay["items"], [clipboard_event])
                 self.assertNotIn("ISOLATED_CLIPBOARD_CONTENT", json.dumps(replay))
+                record = self.api("GET", self.device_api + "/clipboard/records/" + clipboard_event["sequence"]).json()
+                self.assertEqual(record["occurredAt"], clipboard_event["payload"]["occurredAt"])
+                self.assertEqual((record["event"], record["content"]), ("clipboard.changed", "N/A"))
+                self.assertNotIn("ISOLATED_CLIPBOARD_CONTENT", json.dumps(record))
 
         outsider = self.client()
         registered = self.api("POST", "/agent/v1/connect", session=outsider,
@@ -1561,6 +1588,87 @@ precondition(board.setString("ISOLATED_CLIPBOARD_CONTENT", forType: .string))
         self.assertEqual(reply.json()["code"], "invalid_clipboard_event")
         self.assertEqual(self.api("GET", API + "/events",
                                   params={"deviceId": registered["deviceId"], "topic": "clipboard.changed"}).json()["items"], [])
+
+    def test_durable_interaction_records_keep_details_after_cleanup_and_relogin(self):
+        self.register()
+        self.unlock()
+        device = str(uuid.uuid4())
+        hello = {"deviceId": device, "name": "History fixture"}
+        agent = self.api("POST", "/agent/v1/connect", json=hello).json()
+        header = {"X-FileSharing-Channel": agent["channel"]}
+        route = API + "/devices/" + device
+        clipboard = route + "/clipboard/records"
+        dialogs = route + "/interactions/dialogs"
+        first = {"type": "event", "id": str(uuid.uuid4()), "topic": "clipboard.changed", "snapshot": False,
+                 "payload": {"occurredAt": "2026-11-20T10:30:00.123+02:00"}}
+        second = first | {"id": str(uuid.uuid4()), "payload": {"occurredAt": "2026-11-20T08:31:00+00:00"}}
+
+        def send(*frames, expected=204):
+            return self.api("POST", "/agent/v1/frames", expected, headers=header, json={"frames": frames})
+
+        send(first, first, second)
+        forbidden = first | {"id": str(uuid.uuid4()), "payload": first["payload"] | {"content": "N/A"}}
+        self.assertEqual(send(forbidden, expected=400).json()["code"], "invalid_clipboard_event")
+        newest = self.api("GET", clipboard, params={"limit": 1}).json()
+        oldest = self.api("GET", clipboard, params={"limit": 1, "cursor": newest["nextCursor"]}).json()
+        latest, = newest["items"]
+        earlier, = oldest["items"]
+        self.assertEqual((latest["occurredAt"], earlier["occurredAt"]), (
+            "2026-11-20T08:31:00+00:00", "2026-11-20T08:30:00.123+00:00"))
+        self.assertIsNone(oldest["nextCursor"])
+        self.assertEqual([(item["event"], item["content"]) for item in (latest, earlier)],
+                         [("clipboard.changed", "N/A")] * 2)
+        self.assertEqual(self.api("GET", clipboard + "/" + earlier["id"]).json(), earlier)
+        self.api("GET", clipboard + "/" + earlier["id"], 401, self.client())
+
+        connection = self.api("GET", route).json()["connection"]
+        self.api("PUT", route + "/connection-access", json={"connectionId": connection["connectionId"], "enabled": True})
+        form = {"title": "Archived confirmation", "message": "Provide an approval code.",
+                "choices": [{"id": "yes", "label": "Confirm"}],
+                "textFields": [{"id": "approval", "hintText": "Approval code", "defaultText": "preset",
+                                "required": True, "maskText": True}]}
+        reply = {"outcome": "submitted", "choiceId": "yes", "text": None,
+                 "respondedAt": "2026-11-20T08:30:00+00:00", "textValues": {"approval": "  00-APP-42  "}}
+        job = self.api("POST", dialogs, 202, json=form).json()
+        command, = self.api("GET", "/agent/v1/commands", headers=header).json()
+        self.assertEqual(command["kind"], "interaction.dialog.form")
+        send({"type": "result", "id": job["id"], "ok": True, "payload": reply})
+        self.assertEqual(self.finished_job(job)["result"], reply)
+        archive = self.api("GET", dialogs + "/" + job["id"]).json()
+        self.assertEqual(archive["result"], reply)
+        self.assertEqual(archive["request"]["textFields"], [
+            {"id": "approval", "hintText": "Approval code", "disabled": False, "required": True, "maskText": True}])
+        self.assertEqual(self.api("GET", dialogs).json()["items"], [archive["record"]])
+        self.assertNotIn("00-APP-42", json.dumps(archive["record"]))
+        self.api("GET", dialogs + "/" + job["id"], 401, self.client())
+        other = str(uuid.uuid4())
+        self.api("POST", "/agent/v1/connect", json={"deviceId": other, "name": "Other device"})
+        self.api("GET", f"{API}/devices/{other}/interactions/dialogs/{job['id']}", 404)
+        self.api("GET", f"{API}/devices/{other}/clipboard/records/{earlier['id']}", 404)
+
+        self.api("POST", API + "/auth/lock", 204)
+        self.api("GET", dialogs, 401)
+        self.api("GET", clipboard, 401)
+        self.stop(self.server)
+        with closing(sqlite3.connect(self.work / "db" / "filesharing.db")) as db, db:
+            with self.assertRaises(sqlite3.IntegrityError):
+                db.execute("UPDATE ClipboardRecords SET Content='SYNTHETIC' WHERE DeviceId=?", (device,))
+            db.execute("UPDATE Events SET At=1 WHERE DeviceId=? AND Topic='clipboard.changed'", (device,))
+            db.execute("UPDATE Jobs SET Created=1 WHERE Id=?", (job["id"],))
+            db.execute("UPDATE AgentReceipts SET At=1 WHERE DeviceId=?", (device,))
+        self.start_server()
+        self.unlock()
+        self.wait(lambda: self.browser.get(self.origin + API + "/jobs/" + job["id"], timeout=5).status_code == 404)
+        self.assertFalse(self.api("GET", route).json()["connection"]["online"])
+        self.assertEqual(self.api("GET", route + "/history", params={"topic": "clipboard.changed"}).json()["items"], [])
+        self.assertEqual(self.api("GET", dialogs + "/" + job["id"]).json(), archive)
+        self.assertEqual(self.api("GET", clipboard).json()["items"], [latest, earlier])
+
+        agent = self.api("POST", "/agent/v1/connect", json=hello).json()
+        header = {"X-FileSharing-Channel": agent["channel"]}
+        send(first)
+        self.assertEqual(self.api("GET", clipboard).json()["items"], [latest, earlier])
+        self.assertEqual(self.api("GET", route + "/history", params={"topic": "clipboard.changed"}).json()["items"], [])
 
     def test_folder_permission_enables_scoped_writes_and_library_reads(self):
         for folder in ("Downloads", "Documents", "Library/Preferences", "Library/Keychains",
@@ -2217,6 +2325,8 @@ precondition(board.setString("ISOLATED_CLIPBOARD_CONTENT", forType: .string))
                          "/api/v1/devices/{id}/files/trash", "/api/v1/devices/{id}/files/renames",
                          "/api/v1/ftp/accounts/{id}/password", "/api/v1/transfers/{id}/content", "/api/v1/events/ws",
                          "/api/v1/jobs/{id}/output", "/api/v1/devices/{id}/interactions/dialogs",
+                         "/api/v1/devices/{id}/interactions/dialogs/{recordId}",
+                         "/api/v1/devices/{id}/clipboard/records", "/api/v1/devices/{id}/clipboard/records/{recordId}",
                          "/api/v1/devices/{id}/interactions/notifications", "/api/v1/ftp/connections",
                          "/api/v1/ftp/accounts/{id}/password/reveal", "/api/v1/devices/{id}/windows",
                          NOTIFICATIONS + "/channels/{id}/verify", NOTIFICATIONS + "/channels/{id}/test",

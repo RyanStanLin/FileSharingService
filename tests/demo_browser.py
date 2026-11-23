@@ -443,6 +443,32 @@ class LocalDemoBrowser(unittest.TestCase):
         browser.evaluate("document.querySelector('#dialog-result button').click()")
         self.assertEqual(browser.evaluate("document.querySelector('#dialog-result input').type"), "password")
 
+        fixture.api("POST", "/agent/v1/frames", 204, headers=header, json={"frames": [{
+            "type": "event", "id": str(uuid.uuid4()), "topic": "clipboard.changed", "snapshot": False,
+            "payload": {"occurredAt": datetime.now(timezone.utc).isoformat()},
+        }]})
+        browser.evaluate("document.querySelector('#tab-records').click()")
+        browser.wait("document.querySelector('#records-rows').textContent.includes('维护确认')")
+        self.assertNotIn(approval, browser.evaluate("document.querySelector('#records-rows').textContent"))
+        browser.evaluate("document.querySelector('#records-rows button').click()")
+        browser.wait("!document.querySelector('#record-detail').hidden && "
+                     "document.querySelector('#record-detail-fields input')?.type === 'password'")
+        self.assertEqual(browser.evaluate("document.querySelector('#record-detail-fields input').value"), approval)
+        self.assertIn("  Confirmed  ", browser.evaluate("document.querySelector('#record-detail-fields').textContent"))
+        browser.evaluate("""
+            const kind = document.querySelector('#record-kind')
+            kind.value = 'clipboard'
+            kind.dispatchEvent(new Event('change'))
+        """)
+        browser.wait("document.querySelector('#records-rows').textContent.includes('N/A')")
+        self.assertTrue(browser.evaluate("document.querySelector('#record-detail').hidden"))
+        browser.evaluate("document.querySelector('#records-rows button').click()")
+        browser.wait("document.querySelector('#record-detail-fields').textContent.includes('clipboard.changed') && "
+                     "document.querySelector('#record-detail-fields').textContent.includes('N/A')")
+        browser.evaluate("document.querySelector('#lock').click()")
+        browser.wait("document.querySelector('#workspace').hidden && "
+                     "document.querySelector('#record-detail-fields').childElementCount === 0")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

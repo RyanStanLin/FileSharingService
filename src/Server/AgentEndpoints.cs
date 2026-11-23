@@ -82,14 +82,16 @@ internal sealed class AgentIngest(Database db, AgentBroker broker, WatchRegistry
         if (payload.GetRawText().Length > 1_250_000)
             throw new Fault(413, "event_too_large");
 
-        if (topic == "clipboard.changed")
+        DateTimeOffset? clipboardTime = null;
+        if (topic == InteractionRecords.ClipboardEvent)
         {
             // Persist a freshly typed timestamp, never an arbitrary pasteboard payload.
             if (frame.Snapshot == true || payload.ValueKind != JsonValueKind.Object ||
                 payload.EnumerateObject().Count() != 1 || !payload.TryGetProperty("occurredAt", out var timestamp) ||
                 timestamp.ValueKind != JsonValueKind.String || !timestamp.TryGetDateTimeOffset(out var occurredAt))
                 throw Fault.Bad("invalid_clipboard_event");
-            payload = Wire.Element(new { occurredAt = occurredAt.ToUniversalTime() });
+            clipboardTime = occurredAt.ToUniversalTime();
+            payload = Wire.Element(new { occurredAt = clipboardTime.Value });
         }
 
         LocalRoot[]? roots = null;
@@ -111,7 +113,8 @@ internal sealed class AgentIngest(Database db, AgentBroker broker, WatchRegistry
             var accepted = await connection.ExecuteAsync(new CommandDefinition("""
                 INSERT OR IGNORE INTO AgentReceipts(DeviceId,FrameId,At)
                 SELECT @device,@id,@now WHERE EXISTS(SELECT 1 FROM Devices WHERE Id=@device AND Revoked IS NULL)
-                """, new { device, id, now }, tx, cancellationToken: ct));
+                AND (@clipboard=0 OR NOT EXISTS(SELECT 1 FROM ClipboardRecords WHERE DeviceId=@device AND FrameId=@id))
+                """, new { device, id, now, clipboard = clipboardTime.HasValue }, tx, cancellationToken: ct));
             if (accepted == 0)
                 return false;
             var json = new { device, topic, now, Payload = payload.GetRawText() };
@@ -123,6 +126,8 @@ internal sealed class AgentIngest(Database db, AgentBroker broker, WatchRegistry
             var source = await connection.QuerySingleAsync<long>(new CommandDefinition("""
                 INSERT INTO Events(DeviceId,Topic,At,Payload) VALUES(@device,@topic,@now,@Payload) RETURNING Sequence
                 """, json, tx, cancellationToken: ct));
+            if (clipboardTime is { } occurredAt)
+                await InteractionRecords.AddClipboard(connection, tx, source, device, id, occurredAt, now, ct);
             if (broker.CanNotify(link))
             {
                 var signals = await NotificationSignals.FromFrame(connection, tx, device, topic, snapshot, payload, now, ct);

@@ -6,6 +6,10 @@
 
 `test_dialog_response_notification_and_session_cancellation` 覆盖 WSS、HTTPS 回退、请求及答复校验和仅提供作业状态的 WS 事件。`test_dialog_helper_crash_and_timeout_preserve_connection` 验证六个满长度字段通过双向管道，故障或超时后设备连接继续工作。`test_browser_configures_dialog_text_fields` 验证 Demo 的添加、移除、配置和逐字段结果遮蔽。
 
+### 对话框答复与剪贴板档案
+
+`test_durable_interaction_records_keep_details_after_cleanup_and_relogin` 验证列表分页、设备隔离、Passkey 校验，以及事件与作业清理后仍可重新登录查询。剪贴板档案使用原事件序号，同一客户端帧重传时去重。`test_clipboard_timestamp_lid_and_heartbeat_over_both_transports` 使用隔离剪贴板验证 WSS 和 HTTPS 下的时间字段及固定档案内容 `N/A`。旧库回归验证迁移仍在保留窗口内的记录。Chrome 回归验证历史列表、单条详情、遮蔽字段以及退出后清空详情。 [档案 API](api.md#交互与剪贴板历史)
+
 ## Milestone 3 · Agent 0.5.0
 
 使用 `scripts/test-local.sh` 运行集成套件。测试启动独立回环服务器、SQLite 数据库以及可控的 Bark 和 Telegram 服务，并使用隔离目录运行真实的 macOS Agent。通知测试覆盖如下。
