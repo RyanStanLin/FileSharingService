@@ -2,11 +2,22 @@ import {createContext, useContext, useEffect, useRef, useState, type ReactNode} 
 import {readFile} from '../api/fileReads'
 import {useResource} from './async'
 
-const ThumbnailCache = createContext<Map<string, Blob> | null>(null)
+const ThumbnailCache = createContext<Map<string, string> | null>(null)
 const maxThumbnails = 128
 
+function readThumbnailUrl(blob: Blob) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onloadend = () => {
+      if (typeof reader.result === 'string') resolve(reader.result)
+      else reject(reader.error ?? new Error('Could not read the thumbnail'))
+    }
+    reader.readAsDataURL(blob)
+  })
+}
+
 export function ThumbnailProvider({children}: {children: ReactNode}) {
-  const [cache] = useState(() => new Map<string, Blob>())
+  const [cache] = useState(() => new Map<string, string>())
   return <ThumbnailCache.Provider value={cache}>{children}</ThumbnailCache.Provider>
 }
 
@@ -23,20 +34,15 @@ export function useThumbnail(device: string, key: string | null, load: (signal: 
       const known = cache?.get(key!)
       if (known) return known
       const blob = await load(signal)
-      cache?.set(key!, blob)
+      signal.throwIfAborted()
+      const url = await readThumbnailUrl(blob)
+      signal.throwIfAborted()
+      cache?.set(key!, url)
       if (cache && cache.size > maxThumbnails) cache.delete(cache.keys().next().value!)
-      return blob
+      return url
     })
   })
-  const blob = resource.data
-  const [image, setImage] = useState<{blob: Blob; url: string}>()
-  useEffect(() => {
-    if (!blob) return
-    const url = URL.createObjectURL(blob)
-    setImage({blob, url})
-    return () => URL.revokeObjectURL(url)
-  }, [blob])
-  return {url: image && image.blob === blob ? image.url : undefined, pending: resource.pending}
+  return {url: resource.data, pending: resource.pending}
 }
 
 export function useThumbnailVisibility() {
