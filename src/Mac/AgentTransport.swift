@@ -502,8 +502,12 @@ actor AgentTransport {
     private func emitClipboardChange(_ observedAt: Date) {
         emit(topic: "clipboard.changed", data: [
             "occurredAt": .date(observedAt),
-            "content": .string("N/A"),
+            "content": .string(encrypt("N/A")),
         ], snapshot: false)
+    }
+
+    private func encrypt(_ content: String) -> String {
+        return content
     }
 
     private func endCommandSession() {
