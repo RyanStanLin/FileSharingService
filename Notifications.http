@@ -1,0 +1,68 @@
+@base = http://localhost:8847
+@cookie = fs-admin-dev=REPLACE_WITH_CURRENT_SESSION
+@notifications = {{base}}/api/v1/notifications
+@channelId = 00000000-0000-0000-0000-000000000000
+@deliveryId = 00000000-0000-0000-0000-000000000000
+
+### List channels
+GET {{notifications}}/channels?limit=50
+Cookie: {{cookie}}
+
+### Create Telegram channel
+POST {{notifications}}/channels
+Origin: {{base}}
+Cookie: {{cookie}}
+Content-Type: application/json
+
+{"name":"Telegram ops","kind":"telegram","enabled":true,"telegram":{"chatId":"-1001234567890","botToken":"REPLACE_WITH_TOKEN","silent":true}}
+
+### Create Bark channel
+POST {{notifications}}/channels
+Origin: {{base}}
+Cookie: {{cookie}}
+Content-Type: application/json
+
+{"name":"Phone","kind":"bark","enabled":true,"bark":{"deviceKey":"REPLACE_WITH_KEY","group":"FileSharing","sound":"bell"}}
+
+### Read a channel
+GET {{notifications}}/channels/{{channelId}}
+Cookie: {{cookie}}
+
+### Update a channel and keep its token
+PUT {{notifications}}/channels/{{channelId}}
+Origin: {{base}}
+Cookie: {{cookie}}
+Content-Type: application/json
+
+{"name":"Telegram ops","kind":"telegram","enabled":true,"revision":1,"telegram":{"chatId":"-1001234567890","messageThreadId":71,"silent":true}}
+
+### Verify the Telegram bot and chat
+POST {{notifications}}/channels/{{channelId}}/verify
+Origin: {{base}}
+Cookie: {{cookie}}
+
+### Queue an actual test message. Change the idempotency key for another send.
+POST {{notifications}}/channels/{{channelId}}/test
+Origin: {{base}}
+Cookie: {{cookie}}
+Idempotency-Key: filesharing-test-01
+Content-Type: application/json
+
+{"title":"FileSharing test","body":"Check that this notification reached the configured destination."}
+
+### Read a delivery
+GET {{notifications}}/deliveries/{{deliveryId}}
+Cookie: {{cookie}}
+
+### Filter and page deliveries
+GET {{notifications}}/deliveries?channelId={{channelId}}&after=0&limit=50
+Cookie: {{cookie}}
+
+### Replay notification updates
+GET {{notifications}}/updates?after=0&limit=50
+Cookie: {{cookie}}
+
+### Delete a channel
+DELETE {{notifications}}/channels/{{channelId}}?revision=2
+Origin: {{base}}
+Cookie: {{cookie}}

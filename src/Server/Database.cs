@@ -37,6 +37,7 @@ internal sealed class Database(Settings settings)
             case 2:
             case 3:
             case 4:
+            case 5:
                 break;
             default:
                 throw new InvalidOperationException($"Unsupported database version {version}");
@@ -45,9 +46,11 @@ internal sealed class Database(Settings settings)
             connection.Execute(MigrateJobOutput, transaction: transaction);
         if (version < 4)
             connection.Execute(MigrateGateways, transaction: transaction);
+        if (version < 5)
+            connection.Execute(NotificationStorage.Migration, transaction: transaction);
         if (connection.Query("PRAGMA foreign_key_check", transaction: transaction).Any())
             throw new InvalidOperationException("Database foreign key check failed.");
-        connection.Execute("PRAGMA user_version=4", transaction: transaction);
+        connection.Execute("PRAGMA user_version=5", transaction: transaction);
         transaction.Commit();
         connection.Execute("PRAGMA foreign_keys=ON");
     }

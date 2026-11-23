@@ -8,10 +8,10 @@ internal sealed record EventRow(long Sequence, string DeviceId, string Topic, lo
 {
     public EventView View => new(Sequence.ToString(CultureInfo.InvariantCulture), DeviceId, Topic, Clock.At(At), Wire.Parse(Payload));
 }
-internal sealed record EventView(string Sequence, string DeviceId, string Topic, DateTimeOffset Time, JsonElement Payload);
+internal sealed record EventView(string Sequence, string? DeviceId, string Topic, DateTimeOffset Time, JsonElement Payload);
 internal sealed record EventsPage(IReadOnlyList<EventView> Items, string Cursor, bool HasMore);
 internal sealed record SubscriptionInput(string Type, string? Id, string? DeviceId, string? Topic, string? RootId, string? Path, string? After);
-internal sealed record Subscription(string Id, string DeviceId, string Topic, long Cursor, Watch? Watch, WindowSubscription? Windows = null);
+internal sealed record Subscription(string Id, string? DeviceId, string Topic, long Cursor, Watch? Watch, WindowSubscription? Windows = null);
 internal sealed record WindowSubscription(WindowLease Lease, string? Revision);
 internal sealed record Watch(string Id, string DeviceId, string RootId, string RootKey, string Path, string ConnectionId);
 
@@ -159,7 +159,7 @@ internal sealed class EventFeed(Database db)
 internal static class BrowserEvents
 {
     public static async Task Handle(HttpContext context, ReviewService reviews, Settings settings, EventFeed feed, DeviceService devices,
-        WatchRegistry watches, WindowFeed windows, CancellationToken ct)
+        WatchRegistry watches, WindowFeed windows, NotificationUpdates notifications, CancellationToken ct)
     {
         ReviewService.RequireOrigin(context, settings);
         var review = await reviews.Require(context, ct);
@@ -234,8 +234,18 @@ internal static class BrowserEvents
                     case "subscribe":
                         if (subscriptions.Count >= 16 || subscriptions.ContainsKey(id))
                             throw Fault.Conflict("subscription_limit_or_duplicate");
-                        var device = await devices.Require(Secrets.Identifier(command.DeviceId), life);
                         var topic = Secrets.Text(command.Topic, 35);
+                        if (topic == NotificationUpdates.Topic)
+                        {
+                            if (command.DeviceId is not null || command.RootId is not null || command.Path is not null)
+                                throw Fault.Bad("invalid_notification_subscription_scope");
+                            var cursor = command.After is null ? await notifications.Head(life) : EventFeed.Cursor(command.After);
+                            await notifications.EnsureCursor(cursor, life);
+                            subscriptions.Add(id, new(id, null, topic, cursor, null));
+                            await SocketWire.Send(socket, new { type = "subscribed", id, cursor = cursor.ToString(), snapshotRequired = false }, life);
+                            return;
+                        }
+                        var device = await devices.Require(Secrets.Identifier(command.DeviceId), life);
                         if (topic == WindowFeed.Topic)
                         {
                             var revision = WindowFeed.Revision(command.After);
@@ -297,7 +307,9 @@ internal static class BrowserEvents
                     return;
                 }
             }
-            var batch = await feed.Read(sub.Cursor, sub.DeviceId, sub.Topic, 50, sub.Watch is not null, life);
+            var batch = sub.Topic == NotificationUpdates.Topic
+                ? await notifications.Read(sub.Cursor, 50, life)
+                : await feed.Read(sub.Cursor, sub.DeviceId, sub.Topic, 50, sub.Watch is not null, life);
             foreach (var item in batch.Items)
             {
                 if (sub.Watch is not null &&

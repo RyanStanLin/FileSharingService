@@ -25,6 +25,25 @@ public static class Program
         builder.Services.AddSingleton<FtpFiles>();
         builder.Services.AddHostedService<FtpGateway>();
         builder.Services.AddSingleton<Database>();
+        builder.Services.AddSingleton<NotificationOptions>();
+        builder.Services.AddSingleton<NotificationVault>();
+        builder.Services.AddSingleton<NotificationProviders>();
+        builder.Services.AddSingleton<INotificationChannels, NotificationChannels>();
+        builder.Services.AddSingleton<NotificationDeliveries>();
+        builder.Services.AddSingleton<INotificationDeliveries>(services => services.GetRequiredService<NotificationDeliveries>());
+        builder.Services.AddSingleton<NotificationUpdates>();
+        builder.Services.AddHostedService<NotificationWorker>();
+        builder.Services.AddHttpClient(NotificationProviders.Client, client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(8);
+            client.MaxResponseContentBufferSize = 64 * 1024;
+        }).RemoveAllLoggers().ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+        {
+            AllowAutoRedirect = false,
+            UseCookies = false,
+            UseProxy = false,
+            ActivityHeadersPropagator = null
+        });
         builder.Services.AddSingleton<ReviewService>();
         builder.Services.AddSingleton<AgentRegistration>();
         builder.Services.AddSingleton<AgentBroker>();
@@ -152,6 +171,7 @@ public static class Program
         ManagementEndpoints.Map(api);
         FtpEndpoints.Map(api);
         DataEndpoints.Map(api);
+        NotificationEndpoints.Map(api);
         AgentEndpoints.Map(app);
         SftpBridge.Map(app);
         await app.RunAsync();

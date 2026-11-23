@@ -39,6 +39,7 @@ SERVER = ROOT / "src/Server/bin/Debug/net10.0/FileSharing.Server.dll"
 SFTP = ROOT / "artifacts/filesharing-sftp"
 API = "/api/v1"
 AUTH = API + "/auth/passkeys"
+NOTIFICATIONS = API + "/notifications"
 
 
 def encoded(value):
@@ -162,6 +163,51 @@ class ImplicitTls(ftplib.FTP_TLS):
         self.file = self.sock.makefile("r", encoding=self.encoding)
         self.welcome = self.getresp()
         return self.welcome
+
+
+class NotificationFixture(ThreadingHTTPServer):
+    def __init__(self):
+        super().__init__(("127.0.0.1", 0), NotificationFixtureRequest)
+        self.received = []
+        self.responses = {}
+        self.guard = threading.Lock()
+
+    @property
+    def origin(self):
+        return f"http://127.0.0.1:{self.server_port}"
+
+    def reply(self, path, body):
+        with self.guard:
+            self.received.append((path, body))
+            responses = self.responses.get(path)
+            if responses:
+                return responses.pop(0)
+        if path.endswith("/getMe"):
+            return 200, {"ok": True, "result": {"id": 42, "username": "fixture_bot"}}, {}
+        if path.endswith("/getChat"):
+            return 200, {"ok": True, "result": {"id": -1001234567890, "type": "supergroup"}}, {}
+        if path.endswith("/sendMessage"):
+            return 200, {"ok": True, "result": {"message_id": 37}}, {}
+        if path == "/push":
+            return 200, {"code": 200, "message": "success"}, {}
+        return 404, {"code": 404}, {}
+
+
+class NotificationFixtureRequest(BaseHTTPRequestHandler):
+    def do_POST(self):
+        payload = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        status, result, headers = self.server.reply(self.path, payload)
+        body = json.dumps(result).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        for key, value in headers.items():
+            self.send_header(key, value)
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *_):
+        pass
 
 
 class Acceptance(unittest.TestCase):
@@ -548,6 +594,9 @@ class Acceptance(unittest.TestCase):
                 INSERT INTO Activations VALUES('old-ticket', 'fixture');
                 UPDATE Devices SET PublicKey=X'010203';
                 DROP TABLE GatewayMounts;
+                DROP TABLE NotificationChannels;
+                DROP TABLE NotificationDeliveries;
+                DROP TABLE NotificationUpdates;
                 CREATE TABLE FtpAccountsPrior(
                     Id TEXT PRIMARY KEY, Name TEXT NOT NULL COLLATE NOCASE UNIQUE, Owner TEXT NOT NULL REFERENCES Operators(Id),
                     Mode TEXT NOT NULL CHECK(Mode IN ('ftp','ftps')), SecretHash TEXT NOT NULL,
@@ -566,7 +615,7 @@ class Acceptance(unittest.TestCase):
         self.assertEqual((account["scope"], account["rootIds"], account["passwordRetrievable"]), ("grants", [self.root_id], False))
         self.api("POST", f"{API}/ftp/accounts/{account['id']}/password/reveal", 409)
         with closing(sqlite3.connect(self.work / "db" / "filesharing.db")) as data, data:
-            self.assertEqual(data.execute("PRAGMA user_version").fetchone()[0], 4)
+            self.assertEqual(data.execute("PRAGMA user_version").fetchone()[0], 5)
             self.assertEqual(data.execute("PRAGMA foreign_key_check").fetchall(), [])
             self.assertNotIn("PublicKey", [row[1] for row in data.execute("PRAGMA table_info(Devices)")])
             self.assertEqual(data.execute("SELECT COUNT(*) FROM sqlite_master WHERE name IN ('AgentTokens','Activations')").fetchone()[0], 0)
@@ -1713,6 +1762,109 @@ precondition(board.setString("ISOLATED_CLIPBOARD_CONTENT", forType: .string))
             return result if result["state"] != "queued" else None
         return self.wait(complete)
 
+    def notification_fixture(self):
+        fixture = NotificationFixture()
+        worker = threading.Thread(target=fixture.serve_forever, daemon=True)
+        worker.start()
+        self.addCleanup(fixture.server_close)
+        self.addCleanup(worker.join, 2)
+        self.addCleanup(fixture.shutdown)
+        self.env.update({
+            "FileSharing__Notifications__CredentialKey": secrets.token_hex(32),
+            "FileSharing__Notifications__BarkOrigins": fixture.origin,
+            "FileSharing__Notifications__TestTelegramOrigin": fixture.origin,
+        })
+        self.stop(self.server)
+        self.start_server()
+        return fixture
+
+    def wait_delivery(self, delivery, state="sent"):
+        def reached():
+            current = self.api("GET", f"{NOTIFICATIONS}/deliveries/{delivery['id']}").json()
+            return current if current["state"] == state else None
+        return self.wait(reached, seconds=20)
+
+    def test_notification_destinations_and_durable_delivery(self):
+        fixture = self.notification_fixture()
+        telegram_token = "42:TelegramTestToken"
+        bark_key = "FixtureBarkDeviceKey"
+        self.api("GET", NOTIFICATIONS + "/channels", 401)
+        self.register()
+        self.unlock()
+        telegram = {"name": "Operations", "kind": "telegram", "enabled": True,
+                    "telegram": {"chatId": "-1001234567890", "botToken": telegram_token, "messageThreadId": 71, "silent": True}}
+        bark = {"name": "Phone", "kind": "bark", "enabled": True,
+                "bark": {"server": fixture.origin, "deviceKey": bark_key, "group": "file-sharing", "sound": "bell"}}
+        self.assertEqual(self.api("POST", NOTIFICATIONS + "/channels", 400,
+                                  json=bark | {"bark": bark["bark"] | {"server": "https://unapproved.invalid"}}).json()["code"],
+                         "bark_origin_not_allowed")
+
+        route = NOTIFICATIONS + "/channels"
+        chat = self.api("POST", route, 201, json=telegram).json()
+        phone = self.api("POST", route, 201, json=bark).json()
+        self.assertNotIn(telegram_token, json.dumps(chat))
+        self.assertNotIn(bark_key, json.dumps(phone))
+        self.assertNotIn(bark_key, json.dumps(self.api("GET", route).json()))
+        chat_route = f"{route}/{chat['id']}"
+        phone_route = f"{route}/{phone['id']}"
+        self.assertEqual(self.api("GET", chat_route).json(), chat)
+        self.assertEqual(self.api("POST", chat_route + "/verify").json(),
+                         {"botId": "42", "botUsername": "fixture_bot", "chatId": "-1001234567890", "chatType": "supergroup"})
+        self.api("PUT", chat_route, 428, json=telegram)
+        kept = {"name": "Ops", "kind": "telegram", "enabled": True, "revision": chat["revision"],
+                "telegram": {"chatId": "-1001234567890", "messageThreadId": 71, "silent": True}}
+        self.assertEqual(self.api("PUT", chat_route, json=kept).json()["revision"], 2)
+        self.api("PUT", chat_route, 409, json=kept)
+        self.api("POST", chat_route + "/test", 428, json={})
+
+        send_path = f"/bot{telegram_token}/sendMessage"
+        fixture.responses[send_path] = [(429, {"ok": False, "error_code": 429, "parameters": {"retry_after": 6}}, {})]
+        with self.channel() as ws:
+            self.receive(ws, lambda f: f["type"] == "ready")
+            ws.send(json.dumps({"type": "subscribe", "id": "notify", "topic": "notifications.changed"}))
+            self.receive(ws, lambda f: f["type"] == "subscribed")
+            headers = {"Idempotency-Key": secrets.token_urlsafe(16)}
+            message = {"title": "Bark & Telegram", "body": "<plain> 測試"}
+            sent = self.api("POST", chat_route + "/test", 202, headers=headers, json=message).json()
+            self.assertEqual(self.api("POST", chat_route + "/test", 202, headers=headers, json=message).json()["id"], sent["id"])
+            self.api("POST", chat_route + "/test", 409, headers=headers, json=message | {"body": "different"})
+            other = self.api("POST", phone_route + "/test", 202,
+                             headers={"Idempotency-Key": secrets.token_urlsafe(16)}, json=message).json()
+            self.assertEqual(self.wait_delivery(other)["attempts"], 1)
+            retry_event = self.receive(ws, lambda f: f["type"] == "event" and f["item"]["payload"]["id"] == sent["id"]
+                                       and f["item"]["payload"]["state"] == "retryScheduled")
+            self.assertIsNone(retry_event["item"]["deviceId"])
+            self.assertEqual(self.wait_delivery(sent, "retryScheduled")["httpStatus"], 429)
+
+        self.stop(self.server)
+        self.start_server()
+        terminal = self.wait_delivery(sent)
+        self.assertEqual((terminal["attempts"], terminal["providerId"], terminal["httpStatus"]), (2, "37", 200))
+        with self.channel() as ws:
+            self.receive(ws, lambda f: f["type"] == "ready")
+            ws.send(json.dumps({"type": "subscribe", "id": "replay", "topic": "notifications.changed",
+                                "after": retry_event["item"]["sequence"]}))
+            self.receive(ws, lambda f: f["type"] == "event" and f["item"]["payload"]["id"] == sent["id"]
+                         and f["item"]["payload"]["state"] == "sent")
+
+        with fixture.guard:
+            self.assertEqual([body for path, body in fixture.received if path == send_path], [{
+                "chat_id": -1001234567890, "message_thread_id": 71, "text": "Bark & Telegram\n<plain> 測試",
+                "disable_notification": True, "link_preview_options": {"is_disabled": True}
+            }] * 2)
+            self.assertIn(("/push", message | {"device_key": bark_key, "group": "file-sharing", "sound": "bell"}), fixture.received)
+        page = self.api("GET", NOTIFICATIONS + "/deliveries", params={"channelId": chat["id"], "state": "sent"}).json()
+        self.assertEqual([row["id"] for row in page["items"]], [sent["id"]])
+        self.assertNotIn(telegram_token, json.dumps(self.api("GET", NOTIFICATIONS + "/updates").json()))
+        with closing(sqlite3.connect(self.work / "db" / "filesharing.db")) as data:
+            for value, in data.execute("SELECT SecretCipher FROM NotificationChannels"):
+                self.assertNotIn(telegram_token.encode(), base64.b64decode(value))
+                self.assertNotIn(bark_key.encode(), base64.b64decode(value))
+        self.api("DELETE", phone_route, 204, params={"revision": phone["revision"]})
+        self.api("GET", phone_route, 404)
+        self.assertEqual(self.api("GET", f"{NOTIFICATIONS}/deliveries/{other['id']}").json()["state"], "sent")
+        self.assertNotIn(telegram_token, self.log_tail())
+
     def test_openapi_contract(self):
         contract = self.api("GET", "/openapi/v1.json").json()
         paths = contract["paths"]
@@ -1722,7 +1874,9 @@ precondition(board.setString("ISOLATED_CLIPBOARD_CONTENT", forType: .string))
                          "/api/v1/ftp/accounts/{id}/password", "/api/v1/transfers/{id}/content", "/api/v1/events/ws",
                          "/api/v1/jobs/{id}/output", "/api/v1/devices/{id}/interactions/dialogs",
                          "/api/v1/devices/{id}/interactions/notifications", "/api/v1/ftp/connections",
-                         "/api/v1/ftp/accounts/{id}/password/reveal", "/api/v1/devices/{id}/windows"):
+                         "/api/v1/ftp/accounts/{id}/password/reveal", "/api/v1/devices/{id}/windows",
+                         NOTIFICATIONS + "/channels/{id}/verify", NOTIFICATIONS + "/channels/{id}/test",
+                         NOTIFICATIONS + "/deliveries", NOTIFICATIONS + "/updates"):
             self.assertIn(expected, paths)
         self.assertNotIn("/api/v1/enrollments", paths)
         self.assertIn("101", paths["/api/v1/events/ws"]["get"]["responses"])

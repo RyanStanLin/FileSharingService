@@ -21,6 +21,13 @@
 | `FILESHARING_TLS_DIR` | 证书目录。新证书就绪后重建或重启服务及 Nginx，再验证两种 TLS 入口。 |
 | `FILESHARING_GATEWAY_KEY` | 可选。由 `openssl rand -hex 32` 单独生成，用于加密供管理员查看的网关密码。与数据库备份分开保管。 |
 
+启用通知时使用 `FILESHARING_NOTIFICATION_KEY`。新部署的 `init-env.sh` 自动生成它。既有部署以 `openssl rand -hex 32` 生成并追加到现有 `.env`，直接运行服务时使用 `FileSharing__Notifications__CredentialKey`。密钥与数据库分别备份。更换密钥后，用渠道更新 API 重新输入每个渠道的凭据。
+
+| 通知设置 | 用途 |
+| --- | --- |
+| `FILESHARING_NOTIFICATION_KEY` | 64 个十六进制字符。用独立密钥加密 Bark Key 与 Telegram Bot Token。留空时消息队列暂停发送。 |
+| `FILESHARING_BARK_ORIGINS` | 自建 Bark 服务的 HTTPS origin，多个值用逗号分隔。默认允许 `https://api.day.app`。 |
+
 DNS/证书续期由部署环境维护。生产反向代理覆盖 `Host`、`X-Forwarded-Host`、`X-Forwarded-For`、`X-Forwarded-Proto`。仅将直接上游代理 IP 加到 `FileSharing__KnownProxies`。Nginx 模板还转发 WebSocket Upgrade 并关闭流量缓冲。Caddy 可以用 `reverse_proxy` 保持这些头部和升级语义。Kestrel 的 HTTP 端口仅留在容器网络。
 
 将 FTP/FTPS 控制端口与整个被动端口范围逐端口做 TCP 映射，被动端口必须一一对应并从同一客户端 IP 可达。显式 FTPS 使用 `AUTH TLS` 与 `PROT P`。传统 FTP 数据及账号密码是明文，部署在专用网络入口和受限 CIDR。优先采用保留来源 IP 的 DNAT。代理重写来源 IP 时将实际访问控制落实在入口防火墙。部署配置示例为 [compose.yaml](../deploy/compose.yaml) 和 [nginx.conf.template](../deploy/nginx.conf.template)。标准见 [RFC 4217](https://www.rfc-editor.org/info/rfc4217/) 与 [RFC 3659](https://www.rfc-editor.org/info/rfc3659/)。

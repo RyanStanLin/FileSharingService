@@ -43,7 +43,7 @@ internal static class ApiContract
             operation.Responses ??= new();
             foreach (var (code, title) in Errors)
                 operation.Responses.TryAdd(code, new OpenApiResponse { Description = title });
-            if (method == "POST" && path == "api/v1/transfers")
+            if (method == "POST" && path is "api/v1/transfers" or "api/v1/notifications/channels/{id}/test")
                 Header(operation, "Idempotency-Key", "A unique key for retrying the same transfer creation.", required: true);
             if ((method == "GET" || method == "HEAD") && path == "api/v1/transfers/{id}/content")
             {

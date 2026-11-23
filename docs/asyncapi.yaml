@@ -1,7 +1,7 @@
 asyncapi: 3.0.0
 info:
   title: FileSharing browser events
-  version: 1.2.0
+  version: 1.3.0
 servers:
   enterprise:
     host: filesharing.example.com
@@ -49,19 +49,32 @@ components:
       contentType: application/json
       payload:
         type: object
-        required: [type, id, deviceId, topic]
-        if:
-          properties:
-            topic:
-              const: windows.changed
-        then:
-          properties:
-            after:
-              $ref: '#/components/schemas/WindowRevision'
-        else:
-          properties:
-            after:
-              $ref: '#/components/schemas/Cursor'
+        required: [type, id, topic]
+        allOf:
+          - if:
+              properties:
+                topic:
+                  const: windows.changed
+            then:
+              properties:
+                after:
+                  $ref: '#/components/schemas/WindowRevision'
+            else:
+              properties:
+                after:
+                  $ref: '#/components/schemas/Cursor'
+          - if:
+              properties:
+                topic:
+                  const: notifications.changed
+            then:
+              description: Global notification updates. Omit deviceId, rootId and path. Uses a separate cursor.
+              properties:
+                deviceId: false
+                rootId: false
+                path: false
+            else:
+              required: [deviceId]
         properties:
           type:
             const: subscribe
@@ -155,10 +168,45 @@ components:
       format: uuid
       pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
       description: Opaque window revision. Omit after to receive the latest full window snapshot on subscription.
+    NotificationUpdate:
+      type: object
+      required: [resource, id, action]
+      properties:
+        resource:
+          enum: [channel, delivery]
+        id:
+          type: string
+          format: uuid
+        action:
+          enum: [created, updated, deleted]
+        revision:
+          type: [integer, 'null']
+        state:
+          enum: [queued, sending, retryScheduled, sent, failed, cancelled, null]
+        channelId:
+          type: [string, 'null']
+          format: uuid
+        ruleId:
+          type: [string, 'null']
+          format: uuid
     EventItem:
       type: object
       required: [sequence, deviceId, topic, time, payload]
       allOf:
+        - if:
+            properties:
+              topic:
+                const: notifications.changed
+          then:
+            properties:
+              deviceId:
+                type: [string, 'null']
+              payload:
+                $ref: '#/components/schemas/NotificationUpdate'
+          else:
+            properties:
+              deviceId:
+                type: string
         - if:
             properties:
               topic:
@@ -207,7 +255,7 @@ components:
                 $ref: '#/components/schemas/JobChanged'
       properties:
         deviceId:
-          type: string
+          type: [string, 'null']
           format: uuid
         topic:
           type: string
