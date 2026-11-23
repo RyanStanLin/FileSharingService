@@ -109,12 +109,6 @@
   }
 }
 
-@media (width < 34rem) {
-  .nav .inactiveTab {
-    display: none;
-  }
-}
-
 @media (width < 30rem) {
   .header > nav.nav {
     padding-inline: var(--base-size-8);

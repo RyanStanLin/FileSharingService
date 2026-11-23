@@ -116,7 +116,8 @@ export function Header(props: Props) {
           icon={FileDirectoryIcon}>{t('files')}</UnderlineNav.Item>
         <UnderlineNav.Item href={props.page === 'data' ? window.location.hash : '#data'} aria-current={props.page === 'data' ? 'page' : undefined}
           icon={GraphIcon}>{t('data')}</UnderlineNav.Item>
-        <UnderlineNav.Item as="span" className={styles.inactiveTab} aria-disabled="true" icon={VersionsIcon}>{t('activity')}</UnderlineNav.Item>
+        <UnderlineNav.Item href="#activity" aria-current={props.page === 'activity' ? 'page' : undefined}
+          icon={VersionsIcon}>{t('activity')}</UnderlineNav.Item>
       </UnderlineNav>
     </header>
   )

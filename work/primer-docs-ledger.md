@@ -112,7 +112,7 @@
 - FileSystem-File 和 FileSystemLocked 有完整设计上下文以及 1024 × 760 的渲染图。文件图标和预览使用 Agent 返回的逐文件 PNG。 [FileSystem-File](https://www.figma.com/design/l9hmusc9x5sSYw59WQygO4/PrimerPlus?node-id=7882-36694) · [FileSystemLocked](https://www.figma.com/design/l9hmusc9x5sSYw59WQygO4/PrimerPlus?node-id=7882-35968)
 - 桌面顶栏目标 108 px，目录树默认 233 px，可在 176–480 px 内调整，右侧概要 129 px，路径栏 41 px。侧栏标题用 1 px 分隔线，隐藏项按钮填满选项区域。窄屏用 Primer Dialog 打开同一棵目录树，宽表可以横向滚动。
 - Header 使用 Stack、UnderlineNav、ActionMenu 和 ToggleSwitch。SplitPageLayout 放置 TreeView 和内容区。右侧按 Figma 自定义语义表格，排序、复选、标签和菜单沿用 Primer 控件。操作用 ActionMenu 和 Dialog，路径用 Breadcrumbs。安装版 UnderlineNav 会为辅助技术附加英文的 navigation 后缀。
-- Commands、Window Activity 和 FTP 凭据处于后续里程碑。目录菜单提供当前选择或文件夹的下载。Date Created 对应后端的 `createdAt`。
+- Commands 和 FTP 凭据处于后续里程碑。目录菜单提供当前选择或文件夹的下载。Date Created 对应后端的 `createdAt`。
 
 ## 样式和组件边界
 
@@ -173,3 +173,11 @@
 - Data 的导航和表格使用默认 Octicons 尺寸并继承 Primer 颜色。应用图标使用 Agent 的原生 PNG，在与 File Explorer 相同的 20 px 等比框内显示。仅可见行请求图标，沿用按设备串行的低优先级队列和内存缓存。应用变更通过 Agent 快照推送更新列表，当前过滤和排序由本地状态维护。 [应用图标接口](../docs/api.md#遥测诊断和审计)
 - 与隔离 File Explorer 实测比对标题栏、表头、行高、字体和隔行底色。六条 Data 浏览器运行通过，其中五条覆盖全部读取类型、实时更新、离线恢复、移动端和键盘，另一次专门核对首屏至少 15 个原生 PNG 和同设备单请求并发。12 条 File System 回归通过。
 - Primer CSS 工具对七份变更样式返回空诊断。PostCSS 验证全部 13 份 CSS 模块、四套主题下的 176 处变量引用，以及 96 个手写前端源文件的长度。
+
+## Window Activity
+
+- 2026-11-23 在同一 Primer 38.46.0 和 Primitives 11.10.0 基线上复用组件目录，复查 View、Navigation、Data Visualization、Loading、Empty States 和 Degraded Experiences。`#activity` 使用 overview 模板，保留顶栏 UnderlineNav 和 Versions 图标。面板标题用 Heading 和 Stack，多屏切换用带可见标签的 FormControl 和 medium Select。加载与错误复用 File System 的 Spinner 和重试组件。 [导航](https://primer.style/product/ui-patterns/navigation/) · [Select](https://primer.style/product/components/select/accessibility/)
+- `Window Activity.svg` 的坐标系为 1280 × 950，外框从 (20, 128) 到 (1260, 930)，参考焦点边框为 4 个 SVG 单位，窗口圆角为 16。原始浏览器缩放未知。实现按需求使用 `base-size-20`、`base-size-16`、`borderWidth-thin` 和 `borderWidth-thicker`，配合 `bgColor-muted`、`borderColor-default`、`borderColor-accent-emphasis` 以及 `shadow-floating-small` 和 `shadow-floating-medium`。Primer 组件没有按设备屏幕几何排列的容器。CSS Modules 负责画布，位置、大小和比例作为设备数据传入 CSS 变量。容器查询按 80、44 和 48 CSS px 等效阈值收起空间不足的窗口文字。 [数据可视化](https://primer.style/product/ui-patterns/data-visualization/)
+- `displays` 的像素宽高决定画布比例。窗口按逻辑坐标和 zIndex 投影，跨屏窗口由各显示器裁切。按 PID 对应 `apps-running` 的图标、版本和运行时长。授权连接订阅 `windows.changed`，失去 WebSocket 时用修订号长轮询。进入新设备连接、锁定或切页会停止原订阅和请求。 [窗口接口](../docs/api.md#窗口实时状态) · [显示器样本](../docs/telemetry.md)
+- Chromium 与实际服务端及隔离测试 Agent 验证移动、缩放、焦点切换、图标、横竖屏、跨屏裁切、分辨率更新、授权撤销、长轮询和 WebSocket 恢复。WebKit 验证相同的画布比例、20 px 外距、16 px 圆角、4 px 焦点边框、真实 PNG 解码以及 204 长轮询后恢复推送。1280、768、375 和 320 CSS px 下页面无文档溢出。四套主题、简体中文和英文均实测，截图在 `.local/frontend-check/window-activity`。
+- `primerdoc.lint_css` 对两个变更模块及仅含官方前景和背景变量的对照样式均返回错误，未给出诊断。PostCSS 成功解析两份样式，核对四套主题共 228 处变量引用。浏览器截图与 SVG 核对布局关系，窗口内容来自联调数据。

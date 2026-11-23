@@ -17,6 +17,7 @@ import styles from './shell.module.css'
 const selectedDevice = 'filesharing.device'
 const ignore = () => undefined
 const DataWorkspace = lazy(() => import('../data/DataWorkspace'))
+const WindowActivity = lazy(() => import('../activity/WindowActivity'))
 
 export function App() {
   const {t} = useLanguage()
@@ -42,7 +43,7 @@ export function App() {
     }
   }, [unlocked, device, deviceId])
   useRefresh(unlocked, devices.refresh, 8000)
-  useDeviceEvents(page === 'files' && unlocked && device?.connection.online && !device.connection.accessGranted ? device.id : null,
+  useDeviceEvents(page !== 'data' && unlocked && device?.connection.online && !device.connection.accessGranted ? device.id : null,
     undefined, devices.refresh, ignore, ignore)
 
   function select(item: Device) {
@@ -78,12 +79,18 @@ export function App() {
   } else if (!device.connection.online) {
     content = <State title={t('deviceOffline', {name: device.name})} />
   } else if (!device.connection.accessGranted) {
-    content = <State tone="locked" title={t('connectionNeeded')} description={t('connectionHelp', {device: device.name})}
+    content = <State tone="locked" title={t('connectionNeeded')}
+      description={t(page === 'activity' ? 'activityAuthorize' : 'connectionHelp', {device: device.name})}
       error={connectionTask.error}>
       <Button size="medium" loading={connectionTask.busy} variant="primary" onClick={() => authorize(true)}>
         {t('allowConnection')}
       </Button>
     </State>
+  } else if (page === 'activity' && device.connection.connectionId) {
+    content = <Suspense fallback={<Loading message="activityLoading" />}>
+      <WindowActivity key={`${device.id}:${device.connection.connectionId}`} deviceId={device.id}
+        connectionId={device.connection.connectionId} refreshDevice={devices.refresh} />
+    </Suspense>
   }
 
   const workspace = page === 'files' && unlocked && device?.connection.online && device.connection.accessGranted

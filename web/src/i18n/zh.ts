@@ -1,10 +1,12 @@
 import type {en} from './en'
 import {fileMutationErrorsZh, fileMutationZh} from './file-mutations'
 import {dataZh} from './data'
+import {activityZh} from './activity'
 
 export const zh: Record<keyof typeof en, string> = {
   ...fileMutationZh,
   ...dataZh,
+  ...activityZh,
   app: 'FileSharing',
   files: '文件系统',
   data: '数据',
@@ -136,6 +138,7 @@ export const zh: Record<keyof typeof en, string> = {
 }
 
 export const errorsZh: Readonly<Record<string, string>> = {
+  window_snapshot_unavailable: 'Mac 还没有发送窗口布局。',
   ...fileMutationErrorsZh,
   data_sampling_failed: 'Mac 未返回新的采样，请重试。',
   authentication_required: '通行密钥验证失败或会话已过期。',

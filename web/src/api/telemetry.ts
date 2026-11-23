@@ -76,6 +76,10 @@ export function readStatus(deviceId: string, signal: AbortSignal) {
   return request<DeviceStatus>(deviceRoute(deviceId) + '/status', {signal})
 }
 
+export function readRunningApps(deviceId: string, signal: AbortSignal) {
+  return request<Snapshot>(deviceRoute(deviceId) + extraPaths['apps-running'], {signal})
+}
+
 export async function readExtraSamples(deviceId: string, signal: AbortSignal) {
   const route = deviceRoute(deviceId)
   const results = await Promise.allSettled(extraTopics.map(async (topic): Promise<Snapshot> => {
