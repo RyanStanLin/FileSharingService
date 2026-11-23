@@ -3,12 +3,13 @@ import {AppsIcon, DatabaseIcon, DeviceDesktopIcon, PulseIcon} from '@primer/octi
 import {recentMinutes, trendTopics, type History} from '../api/telemetry'
 import type {Device} from '../api/types'
 import {useLanguage} from '../i18n'
+import {Timestamp} from '../ui/Timestamp'
 import {DataCard, MetricValue} from './DataCard'
 import {ColumnChart} from './ColumnChart'
 import {TrendCard} from './TrendCard'
 import {dataHref} from './categories'
 import {codeLabel} from './dataFields'
-import {decimal, displayField, numeric, object, textValue} from './format'
+import {decimal, displayField, elapsedStart, numeric, object, textValue} from './format'
 import {readings} from './metrics'
 import type {TelemetryView} from './useTelemetry'
 import styles from './dashboard.module.css'
@@ -19,6 +20,10 @@ export function DataOverview({device, telemetry, history}: {device: Device; tele
   const system = object(samples.system?.value)
   const sleep = textValue(system?.sleepState)
   const uptime = numeric(system?.uptimeSeconds)
+  const boot = connection.online && !samples.system?.stale
+    ? elapsedStart(system?.bootedAt, uptime, samples.system?.observedAt) : undefined
+  const runtime = boot ? <Timestamp value={boot} variant="elapsed" />
+    : uptime === undefined ? undefined : displayField('uptimeSeconds', uptime, locale, t)
   const protocol = connection.protocol?.toUpperCase()
   const latency = numeric(connection.latencyMs)
   const connectionDescription = [protocol, latency === undefined ? undefined : displayField('latencyMs', latency, locale, t)]
@@ -44,7 +49,7 @@ export function DataOverview({device, telemetry, history}: {device: Device; tele
       <DataCard title={t('dataDeviceState')} icon={DeviceDesktopIcon} href={dataHref('device', {view: 'system'})}
         observedAt={samples.system?.observedAt} stale={samples.system && (samples.system.stale || !connection.online)} metric>
         <MetricValue amount={sleep ? codeLabel(sleep, locale) : undefined}
-          description={[device.name, uptime === undefined ? undefined : displayField('uptimeSeconds', uptime, locale, t)].filter(Boolean).join(' · ')} />
+          description={<>{device.name}{runtime && <> · {runtime}</>}</>} />
       </DataCard>
     </div>
     <Stack as="section" gap="condensed">

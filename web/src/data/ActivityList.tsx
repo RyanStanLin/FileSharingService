@@ -36,7 +36,7 @@ export function ActivityList({deviceId, eventView, newestClipboard, streaming, h
       .filter(Boolean).join(' · ')
     return {id: event.sequence, name: cell(t(eventCategories[event.topic as ActivityTopic].label)), icon: <HistoryIcon />,
       values: {time: valueCell('occurredAt', time, locale, t), information: cell(detail || t('missing'))},
-      value: event.topic === 'clipboard.changed' ? {occurredAt: time} : {...payload, occurredAt: time}}
+      value: {...(event.topic === 'clipboard.changed' ? {} : payload), occurredAt: time, recordedAt: event.time}}
   }), [events, locale, t])
 
   if (isClipboard) return <ReadingPane {...clipboard} />

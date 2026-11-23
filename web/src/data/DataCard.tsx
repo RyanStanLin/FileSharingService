@@ -4,7 +4,7 @@ import {Card} from '@primer/react/experimental'
 import {ChevronRightIcon, type Icon} from '@primer/octicons-react'
 import type {Snapshot} from '../api/telemetry'
 import {useLanguage} from '../i18n'
-import {fullTimestamp, timestamp} from './format'
+import {Timestamp, timestampEpoch} from '../ui/Timestamp'
 import styles from './dashboard.module.css'
 
 interface CardProps {
@@ -20,8 +20,7 @@ interface CardProps {
 
 export function DataCard({title, icon: Icon, observedAt, stale, href, metric, heading = 'h2', children}: CardProps) {
   const id = useId()
-  const {locale, t} = useLanguage()
-  const time = timestamp(observedAt, locale)
+  const {t} = useLanguage()
   const label = <Stack direction="horizontal" align="center" gap="condensed">
     <Icon />
     <span>{title}</span>
@@ -35,7 +34,7 @@ export function DataCard({title, icon: Icon, observedAt, stale, href, metric, he
           {href ? <Card.Link href={href} fullCardHitArea>{label}</Card.Link> : label}
         </Heading>
         <Stack direction="horizontal" gap="tight" align="center" className={styles.cardMeta}>
-          {time && observedAt && <time dateTime={observedAt} title={t('dataRecordedAt', {time: fullTimestamp(observedAt, locale)})}>{time}</time>}
+          {timestampEpoch(observedAt) !== undefined && <Timestamp value={observedAt} />}
           {href && <ChevronRightIcon aria-hidden="true" />}
         </Stack>
       </Stack>
@@ -45,7 +44,7 @@ export function DataCard({title, icon: Icon, observedAt, stale, href, metric, he
   </Card>
 }
 
-export function MetricValue({amount, unit, description}: {amount?: string; unit?: string; description?: string}) {
+export function MetricValue({amount, unit, description}: {amount?: string; unit?: string; description?: ReactNode}) {
   const {t} = useLanguage()
   return <div className={styles.measure}>
     <div className={styles.measureLine}>

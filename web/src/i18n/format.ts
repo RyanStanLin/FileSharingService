@@ -13,13 +13,6 @@ export function bytes(value: number, locale: Locale) {
   }).format(value / 2 ** exponent)
 }
 
-export function date(value: string | null, locale: Locale, full = false) {
-  if (!value) return '—'
-  return new Intl.DateTimeFormat(locale, {
-    year: 'numeric', month: full ? 'long' : 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
-  }).format(new Date(value))
-}
-
 export function duration(seconds: number, locale: Locale) {
   const whole = Math.max(0, Math.floor(seconds))
   const amount = (value: number, unit: string) => new Intl.NumberFormat(locale, {

@@ -1,11 +1,12 @@
 import {useId, useState} from 'react'
 import {Heading, Stack} from '@primer/react'
 import {ApiError} from '../api/client'
-import {fullTimestamp, textValue} from '../data/format'
+import {textValue} from '../data/format'
 import {useLanguage} from '../i18n'
 import {number} from '../i18n/format'
 import {ChoiceMenu} from '../ui/ChoiceMenu'
 import {Loading, Retry, State} from '../ui/Feedback'
+import {TimestampDetails} from '../ui/TimestampDetails'
 import {ThumbnailProvider} from '../ui/thumbnails'
 import {DisplayStage} from './DisplayStage'
 import {useWindowActivity} from './useWindowActivity'
@@ -69,7 +70,8 @@ export default function WindowActivity({deviceId, connectionId, refreshDevice}: 
               value: display.id, label: dimensions ? t('activityDisplayOption', {display: label, resolution: dimensions}) : label,
             }))} />}
           {monitors.length === 1 && monitor.dimensions && <span className={styles.status}>{monitor.dimensions}</span>}
-          {status && <span className={styles.status} role="status" title={snapshot && fullTimestamp(snapshot.observedAt, locale)}>{status}</span>}
+          {status && <span className={styles.status} role="status">{status}</span>}
+          {snapshot && <span className={styles.status}><TimestampDetails value={snapshot.observedAt} label="dataUpdated" /></span>}
         </Stack>
       </Stack>
       <div className={styles.viewport}><ThumbnailProvider>{content}</ThumbnailProvider></div>

@@ -18,14 +18,6 @@ export function byProcess(sample?: Snapshot) {
   return apps
 }
 
-export function processUptime(app: DataObject | undefined, now: number, observedAt?: string | null) {
-  const seconds = numeric(app?.uptimeSeconds)
-  const sampled = Date.parse(observedAt ?? '')
-  if (seconds !== undefined && Number.isFinite(sampled)) return seconds + Math.max(0, now - sampled) / 1000
-  const launched = typeof app?.launchedAt === 'string' ? Date.parse(app.launchedAt) : NaN
-  return Number.isFinite(launched) ? Math.max(0, now - launched) / 1000 : seconds
-}
-
 function relative(window: ObservedWindow, display: WindowDisplay): WindowBounds {
   if (window.displayId === display.id && window.relativeBounds) return window.relativeBounds
   return {...window.bounds, x: window.bounds.x - display.bounds.x, y: window.bounds.y - display.bounds.y}

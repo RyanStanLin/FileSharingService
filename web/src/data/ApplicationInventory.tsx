@@ -6,7 +6,7 @@ import {ChoiceMenu} from '../ui/ChoiceMenu'
 import {ApplicationIcon} from './ApplicationIcon'
 import {ReadingPane, type ReadingChrome} from './ReadingPane'
 import {dataHref} from './categories'
-import {records, textValue} from './format'
+import {elapsedStart, records, textValue} from './format'
 import {cell, fieldColumns, valueCell, type ReadingRow} from './readingModel'
 import type {TelemetryView} from './useTelemetry'
 
@@ -44,11 +44,15 @@ export function ApplicationInventory({telemetry, deviceId, installed, chrome}: {
       if (!installed) {
         const state = app.hidden === true ? t('dataHiddenApp') : app.foreground === true ? t('dataForeground') : t('dataBackground')
         values.state = cell(state, state, true)
+        if (online && !sample?.stale) {
+          const start = elapsedStart(app.launchedAt, app.uptimeSeconds, sample?.observedAt)
+          if (start) values.uptimeSeconds = {...values.uptimeSeconds, datetime: start, elapsed: true}
+        }
       }
       return {id: appKey(app), name: cell(appName(app) ?? t('missing')), values, value: app,
         icon: <ApplicationIcon device={deviceId} app={app} connectionId={iconConnection} />}
     })
-  }, [deviceId, fields, iconConnection, installed, locale, sample?.value, search, t])
+  }, [deviceId, fields, iconConnection, installed, locale, online, sample?.observedAt, sample?.stale, sample?.value, search, t])
 
   return <ReadingPane chrome={chrome} filter={search} dataset={{
     key: topic, title: t('dataApps'), nameTitle: t('name'), columns: fieldColumns(fields, locale),

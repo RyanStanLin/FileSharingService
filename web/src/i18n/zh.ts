@@ -20,7 +20,7 @@ export const zh: Record<keyof typeof en, string> = {
   noDevices: '暂无设备',
   waitingDevice: '正在等待 Mac 上的 FileSharing 服务接入。',
   online: '在线',
-  onlineFor: '已在线 {duration}',
+  onlineFor: '已在线',
   offline: '离线',
   deviceOffline: '{name} 已离线',
   appearance: '外观',

@@ -148,6 +148,10 @@
   white-space: nowrap;
 }
 
+.table .timeCell {
+  white-space: normal;
+}
+
 .table .previewCell {
   display: -webkit-box;
   -webkit-box-orient: vertical;

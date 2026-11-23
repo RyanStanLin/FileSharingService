@@ -2,9 +2,9 @@ import type {DataObject, History, SnapshotTopic, TrendTopic} from '../api/teleme
 import type {Device} from '../api/types'
 import type {Locale, Message, Translate} from '../i18n'
 import {metricCategories} from './categories'
-import {fullTimestamp, object, records} from './format'
+import {object, records} from './format'
 import {metricValue, readings} from './metrics'
-import {cell, objectDataset, type ReadingDataset} from './readingModel'
+import {cell, objectDataset, timestampCell, type ReadingDataset} from './readingModel'
 import type {TelemetryView} from './useTelemetry'
 
 export interface ReadingContext {
@@ -29,11 +29,12 @@ export function historyDataset(metric: TrendTopic, {history, locale, t}: Reading
     columns: [{key: 'value', title: t('dataValue')}],
     rows: points.map(point => {
       const value = metricValue(metric, point.value, locale)
-      return {id: point.id, name: cell(fullTimestamp(point.time, locale), Date.parse(point.time)),
+      return {id: point.id, name: timestampCell(point.time, t),
         values: {value: cell(value.amount + ' ' + value.unit, point.value)}}
     }),
     snapshot: {observedAt: points.at(-1)?.time ?? null, stale: false},
     sort: {key: 'name', direction: 'desc'},
+    exactTimes: true,
     empty: t('dataNoReadings'),
   }
 }

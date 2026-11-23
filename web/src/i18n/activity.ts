@@ -17,7 +17,6 @@ const activity = {
   activityDisplayOption: ['{display} · {resolution}', '{display} · {resolution}'],
   activityWindowName: ['Window {id}', '窗口 {id}'],
   activityFocused: ['{name}, focused window', '{name}，焦点窗口'],
-  activityUptime: ['Running for {duration}', '已运行 {duration}'],
   activityTruncated: ['Partial window layout', '仅显示部分窗口'],
 } as const
 

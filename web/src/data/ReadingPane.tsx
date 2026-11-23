@@ -1,10 +1,10 @@
 import {useEffect, useMemo, useRef, useState, type ReactNode} from 'react'
 import {Button, Stack} from '@primer/react'
 import {useLanguage} from '../i18n'
-import {date} from '../i18n/format'
 import {ExplorerFacts, ExplorerHeader, ExplorerTitle} from '../ui/ExplorerHeader'
 import {ErrorText, Loading} from '../ui/Feedback'
 import {Modal} from '../ui/Modal'
+import {TimestampDetails} from '../ui/TimestampDetails'
 import {useTableEnd} from '../ui/useTableEnd'
 import styles from '../ui/explorer.module.css'
 import {ReadingTable} from './ReadingTable'
@@ -44,7 +44,7 @@ export function ReadingPane({chrome, dataset, controls, ...table}: Props) {
       detail={[t('dataOnDevice', {name: chrome.deviceName}), dataset.description].filter(Boolean).join(' · ')} />}
       facts={<ExplorerFacts items={[
         [table.pagination ? 'dataLoadedRecords' : 'dataListCount', decimal(dataset.rows.length, locale)],
-        ['dataUpdated', observedAt ? <time dateTime={observedAt}>{date(observedAt, locale)}</time> : t('missing')],
+        ['dataUpdated', <TimestampDetails key={dataset.key} value={observedAt} label="dataUpdated" />],
         ['dataStatus', <span role="status">{outdated ? t('dataStale') : chrome.stream}</span>],
       ]} />}
       actions={<Stack direction="horizontal" align="end" wrap="wrap" gap="condensed">
@@ -82,7 +82,7 @@ function TableViewport({chrome, dataset, filter, eventHistoryReady, rowAction, r
     {chrome.notices}
     <div ref={region} className={styles.tableScroll} tabIndex={0} role="region" aria-label={dataset.title}>
       <ReadingTable headingId={chrome.heading} nameTitle={dataset.nameTitle} columns={dataset.columns}
-        rows={shown} icons={dataset.icons} current={selected?.id} sort={serverPaged ? undefined : sort} arrivals={arrivals}
+        rows={shown} icons={dataset.icons} current={selected?.id} sort={serverPaged ? undefined : sort} arrivals={arrivals} exactTimes={dataset.exactTimes}
         onSort={(key, direction) => setSort({key, direction})} open={dataset.details ? setSelected : undefined} />
     </div>
     {pending ? <Loading /> : !rows.length && dataset.empty !== null && <p className={styles.empty}>{dataset.empty ?? t('dataNoSample')}</p>}

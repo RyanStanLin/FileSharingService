@@ -75,7 +75,7 @@
 | **ProgressBar** | 已取回 | 已取回 | 未发布独立页 | 已取回 |
 | Radio | 已取回 | 已取回 | 未发布独立页 | 已取回 |
 | RadioGroup | 已取回 | 已取回 | 已取回 | 已取回 |
-| RelativeTime | 已取回 | 已取回 | 已取回 | 已取回 |
+| **RelativeTime** | 已取回 | 已取回 | 已取回 | 已取回 |
 | SegmentedControl | 已取回 | 已取回 | 已取回 | 已取回 |
 | **Select** | 已取回 | 已取回 | 已取回 | 已取回 |
 | SelectPanel | 已取回 | 已取回 | 已取回 | 已取回 |
@@ -199,3 +199,11 @@
 - 在现有 SplitPageLayout 的 NavList 中使用与 Data categories 同层的 Event 分组。分组包括全部事件和九个类型链接，使用原生 16 px Octicons 和 `aria-current="page"`。窄屏 Dialog 使用同一组链接。事件类别进入对应标题和表格，现有哈希地址支持浏览器返回。 [NavList 用法](https://primer.style/product/components/nav-list/guidlines/) · [NavList 无障碍](https://primer.style/product/components/nav-list/accessibility/)
 - 事件表格行使用 `bgColor-muted`。新增行从 `bgColor-accent-muted` 即时出现，通过 `base-duration-1000` 和 `base-easing-easeOut` 渐变到底色。每行的动效独立结束，减少动态效果时直接显示底色。首屏数据形成初始基线，剪贴板档案以入库序号区分新到记录和分页历史。
 - Chromium 联调验证九种类型链接、栏目切换、浏览器返回、320 CSS px 下键盘进入与焦点归还，以及中英文组名。逐帧检查四套主题的起始色、中间色和结束色，核对连续到达的独立时长与减少动态效果。另验证档案翻页、实时新增、应用清单和 File System 滚动回归。WebKit 验证档案详情与续页。Primer CSS 工具返回空诊断，PostCSS 成功解析样式并核对四套主题下的 132 处 token 引用。
+
+## 时间呈现
+
+- 复查 `primerdoc` 返回的 RelativeTime API、示例、用法和无障碍指南，并阅读官方 Storybook 的 Default、Playground、DynamicRelativeTime、LongDate、LinkWithTooltip、MicroFormat、RecentTime 与 CountDownTimer。MCP 的属性表列出较早的格式名。安装版 Primer React 38.46.0 使用 `@github/relative-time-element` 5.4.0，其类型和实现支持 `relative`、`datetime` 和 `duration`。 [用法](https://primer.style/product/components/relative-time/guidelines/) · [官方示例](https://github.com/primer/react/tree/main/packages/react/src/RelativeTime) · [底层组件 API](https://github.com/github/relative-time-element#attributes)
+- 文件列表、文件预览和目录概要用 1 小时的相对时间阈值。事件、剪贴板档案、应用启动与最近采样等概要按 24 小时切换。超过各阈值时，时间列显示年月日与时分，支持换行。时间列的排序依据原始时间。
+- 图表轴显示采样的时分，采样详情显示完整时间。文件信息、设备字段、采样详情和事件详情使用 `format="datetime"`，显示星期、年月日、时分秒和浏览器时区偏移。普通事件与剪贴板档案均提供发生和入库时间。更新时间可打开键盘可达的详情对话框。日期统一传入当前应用语言，并使用 `noTitle`。 [无障碍指南](https://primer.style/product/components/relative-time/accessibility/)
+- 在线时长、当前系统和应用运行时长使用 `format="duration"` 从相关时间点计时。历史采样的时长、采样间隔及往返延迟是固定测量值，以对应单位显示。
+- Chromium 使用实际 API 验证了相对时间自动刷新、历史日期、精确到秒及浏览器时区、按真实时间排序、中英文切换、图表轴和窄屏。用浏览器的无障碍树核对更新时间按钮的名称，并用键盘验证详情打开及焦点归还。剪贴板续页、事件高亮、应用清单、文件滚动和窗口动画回归通过。WebKit 验证了剪贴板历史日期、详情与续页，以及窗口计时、采样时间详情和连接恢复。构建通过。Primer CSS 工具报错且未提供诊断，PostCSS 解析成功并核对了四套主题下的 132 处 token 引用。

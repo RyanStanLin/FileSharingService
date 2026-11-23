@@ -1,6 +1,7 @@
 import type {DataObject, DataValue} from '../api/telemetry'
 import type {Locale, Translate} from '../i18n'
 import {duration} from '../i18n/format'
+import {timestampEpoch} from '../ui/Timestamp'
 import {codeLabel} from './dataFields'
 
 type OptionalValue = DataValue | undefined
@@ -22,6 +23,16 @@ export function textValue(value: OptionalValue) {
   return typeof value === 'string' && value ? value : undefined
 }
 
+export function elapsedStart(startedAt: OptionalValue, uptime: OptionalValue, observedAt?: string | null) {
+  const start = textValue(startedAt)
+  if (timestampEpoch(start) !== undefined) return start
+  const observed = timestampEpoch(observedAt)
+  const seconds = numeric(uptime)
+  if (observed === undefined || seconds === undefined || seconds < 0) return undefined
+  const inferred = new Date(observed - seconds * 1000)
+  if (Number.isFinite(inferred.getTime())) return inferred.toISOString()
+}
+
 export function decimal(value: number, locale: Locale) {
   return new Intl.NumberFormat(locale, {maximumFractionDigits: 1}).format(value)
 }
@@ -30,18 +41,6 @@ export function volume(value: number, locale: Locale) {
   const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB']
   const scale = Math.max(0, Math.min(units.length - 1, Math.floor(Math.log(Math.max(1, value)) / Math.log(1024))))
   return {amount: decimal(value / 1024 ** scale, locale), unit: units[scale]}
-}
-
-export function timestamp(value: string | null | undefined, locale: Locale, timeOnly = false) {
-  if (!value || !Number.isFinite(Date.parse(value))) return undefined
-  return new Intl.DateTimeFormat(locale, {
-    ...(timeOnly ? {} : {month: 'short', day: 'numeric'}),
-    hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
-  }).format(new Date(value))
-}
-
-export function fullTimestamp(value: string, locale: Locale) {
-  return Number.isFinite(Date.parse(value)) ? new Intl.DateTimeFormat(locale, {dateStyle: 'medium', timeStyle: 'medium'}).format(new Date(value)) : value
 }
 
 function unitAmount(value: number, unit: string, locale: Locale) {
@@ -64,7 +63,6 @@ export function displayField(name: string, value: OptionalValue, locale: Locale,
     return decimal(value, locale)
   }
   if (typeof value === 'string') {
-    if (name.endsWith('At')) return fullTimestamp(value, locale)
     if (name === 'protocol') return value.toUpperCase()
     return ['kind', 'state', 'status', 'phase', 'lockState', 'lockStateQuality', 'sleepState', 'reachability',
       'health', 'displayAndLockPolicy'].includes(name) ? codeLabel(value, locale) : value || t('missing')

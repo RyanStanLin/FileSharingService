@@ -1,12 +1,13 @@
-import {useEffect, useState, type CSSProperties} from 'react'
+import type {CSSProperties} from 'react'
 import {Stack} from '@primer/react'
 import type {Snapshot} from '../api/telemetry'
 import type {WindowDisplay, WindowSnapshot} from '../api/windows'
 import {ApplicationIcon} from '../data/ApplicationIcon'
-import {textValue} from '../data/format'
+import {elapsedStart, numeric, textValue} from '../data/format'
 import {useLanguage} from '../i18n'
 import {duration, number} from '../i18n/format'
-import {byProcess, processUptime, projectWindows} from './windowGeometry'
+import {Timestamp} from '../ui/Timestamp'
+import {byProcess, projectWindows} from './windowGeometry'
 import styles from './activity.module.css'
 
 export function DisplayStage({deviceId, connectionId, display, label, aspect, snapshot, apps}: {
@@ -19,11 +20,6 @@ export function DisplayStage({deviceId, connectionId, display, label, aspect, sn
   apps?: Snapshot
 }) {
   const {t, locale} = useLanguage()
-  const [now, setNow] = useState(Date.now)
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 1000)
-    return () => window.clearInterval(timer)
-  }, [])
   const projected = projectWindows(snapshot.value.windows, display)
   const byPid = byProcess(apps)
 
@@ -34,11 +30,12 @@ export function DisplayStage({deviceId, connectionId, display, label, aspect, sn
           const app = byPid.get(window.pid)
           const name = textValue(app?.name) ?? window.ownerName ?? t('activityWindowName', {id: number(window.id, locale)})
           const version = textValue(app?.version)
-          const uptime = processUptime(app, now, apps?.observedAt)
-          const runningFor = uptime === undefined ? undefined : duration(uptime, locale)
+          const uptime = numeric(app?.uptimeSeconds)
+          const startedAt = elapsedStart(app?.launchedAt, uptime, apps?.observedAt)
+          const runningFor = startedAt ? <Timestamp value={startedAt} variant="elapsed" />
+            : uptime === undefined ? undefined : duration(uptime, locale)
           const focused = window.id === snapshot.value.focusedWindowId && window.focused
-          const title = [focused ? t('activityFocused', {name}) : name, version,
-            runningFor && t('activityUptime', {duration: runningFor})].filter(Boolean).join(' · ')
+          const title = [focused ? t('activityFocused', {name}) : name, version].filter(Boolean).join(' · ')
           return <li className={styles.window} key={`${window.pid}:${window.id}`} data-window-id={window.id}
             data-focused={focused} aria-label={title} title={title}
             style={{'--window-depth': depth, '--window-left': `${100 * left}cqw`, '--window-top': `${100 * top}cqh`,

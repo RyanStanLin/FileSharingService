@@ -4,6 +4,7 @@ import {FileDirectoryIcon, GlobeIcon, GraphIcon, TerminalIcon, ThreeBarsIcon, Ve
 import type {Device} from '../api/types'
 import {useLanguage} from '../i18n'
 import {duration} from '../i18n/format'
+import {Timestamp, timestampEpoch} from '../ui/Timestamp'
 import {useAppearance} from './AppTheme'
 import type {AppPage} from './useAppPage'
 import styles from './shell.module.css'
@@ -82,6 +83,9 @@ export function Header(props: Props) {
   const access = useId()
   const {device} = props
   const connection = device?.connection
+  const connectedAt = timestampEpoch(connection?.connectedAt) !== undefined ? connection?.connectedAt : undefined
+  const onlineDuration = connectedAt ? <Timestamp value={connectedAt} variant="elapsed" />
+    : connection?.connectionSeconds == null ? undefined : duration(connection.connectionSeconds, locale)
   return (
     <header className={styles.header}>
       <Stack direction="horizontal" align="center" gap={{narrow: "condensed", regular: "normal"}} padding={{narrow: "condensed", regular: "normal"}}>
@@ -94,9 +98,7 @@ export function Header(props: Props) {
               <strong className={styles.deviceName} title={device.name}>{device.name}</strong>
               <span className={styles.deviceStatus}>
                 <span aria-hidden="true" className={connection?.online ? styles.online : styles.offline} />
-                {connection?.online
-                  ? connection.connectionSeconds === null ? t('online') : t('onlineFor', {duration: duration(connection.connectionSeconds, locale)})
-                  : t('offline')}
+                {connection?.online ? onlineDuration ? <>{t('onlineFor')} {onlineDuration}</> : t('online') : t('offline')}
               </span>
             </>}
           </Stack>

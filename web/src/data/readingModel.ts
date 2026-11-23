@@ -1,6 +1,7 @@
 import type {ReactNode} from 'react'
 import type {DataObject, DataValue, Snapshot} from '../api/telemetry'
 import type {Locale, Translate} from '../i18n'
+import {timestampEpoch} from '../ui/Timestamp'
 import {fieldLabel} from './dataFields'
 import {displayField, object} from './format'
 
@@ -9,6 +10,8 @@ export interface ReadingCell {
   order?: string | number | null
   label?: boolean
   preview?: boolean
+  datetime?: string
+  elapsed?: boolean
 }
 
 export interface ReadingRow {
@@ -34,6 +37,7 @@ export interface ReadingDataset {
   snapshot?: Pick<Snapshot, 'observedAt' | 'stale'>
   icons?: boolean
   details?: boolean
+  exactTimes?: boolean
   sort?: {key: string; direction: 'asc' | 'desc'}
   empty?: string | null
   pending?: boolean
@@ -43,13 +47,15 @@ export function cell(text: string, order?: ReadingCell['order'], label?: boolean
   return {text, order, label}
 }
 
-export function valueCell(field: string, value: DataValue | undefined, locale: Locale, t: Translate, label?: boolean) {
-  let order = typeof value === 'boolean' ? Number(value) : typeof value === 'number' || typeof value === 'string' ? value : null
-  if (typeof value === 'string' && field.endsWith('At')) {
-    const epoch = Date.parse(value)
-    order = Number.isFinite(epoch) ? epoch : null
-  }
-  return cell(displayField(field, value, locale, t), order, label)
+export function timestampCell(datetime: string | null | undefined, t: Translate): ReadingCell {
+  const epoch = timestampEpoch(datetime)
+  return datetime && epoch !== undefined ? {text: '', order: epoch, datetime} : cell(t('missing'), null)
+}
+
+export function valueCell(field: string, value: DataValue | undefined, locale: Locale, t: Translate, label?: boolean, parent?: string) {
+  if (field.endsWith('At')) return timestampCell(typeof value === 'string' ? value : null, t)
+  const order = typeof value === 'boolean' ? Number(value) : typeof value === 'number' || typeof value === 'string' ? value : null
+  return cell(displayField(field, value, locale, t, parent), order, label)
 }
 
 export function fieldColumns(labels: readonly string[], locale: Locale) {
@@ -72,7 +78,7 @@ export function fieldRows(value: DataObject | undefined, locale: Locale, t: Tran
     }
     const shown = Array.isArray(entry)
       ? cell(entry.length ? new Intl.ListFormat(locale).format(entry.map(item => displayField(field, item, locale, t, parent))) : t('dataEmptyList'))
-      : cell(nested ? t('dataEmptyList') : displayField(field, entry, locale, t, parent))
+      : nested ? cell(t('dataEmptyList')) : valueCell(field, entry, locale, t, undefined, parent)
     rows.push({id: JSON.stringify(id), name: cell(name.join(' / ')), values: {value: shown}})
   }
   for (const [field, entry] of Object.entries(value ?? {})) append(field, entry, [], [])
@@ -82,7 +88,7 @@ export function fieldRows(value: DataObject | undefined, locale: Locale, t: Tran
 export function objectDataset(key: string, title: string, value: DataObject | undefined, locale: Locale, t: Translate,
   snapshot?: ReadingDataset['snapshot']): ReadingDataset {
   return {key, title, nameTitle: t('dataField'), columns: [{key: 'value', title: t('dataValue')}],
-    rows: fieldRows(value, locale, t), snapshot}
+    rows: fieldRows(value, locale, t), snapshot, exactTimes: true}
 }
 
 export function sortRows(rows: ReadingRow[], key: string, direction: 'asc' | 'desc', collator: Intl.Collator) {

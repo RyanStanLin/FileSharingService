@@ -19,7 +19,7 @@ export const en = {
   noDevices: 'No devices',
   waitingDevice: 'Waiting for FileSharing Service on a Mac.',
   online: 'Online',
-  onlineFor: 'Online for {duration}',
+  onlineFor: 'Online for',
   offline: 'Offline',
   deviceOffline: '{name} is offline',
   appearance: 'Appearance',

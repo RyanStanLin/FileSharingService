@@ -2,10 +2,12 @@ import {Checkbox, Label, Link} from '@primer/react'
 import type {Direction} from '../api/files'
 import type {Entry, Location, Share, SortKey} from '../api/types'
 import {useLanguage} from '../i18n'
+import {bytes, entryKind} from '../i18n/format'
 import {ExplorerSortHeading} from '../ui/ExplorerSortHeading'
+import {Timestamp} from '../ui/Timestamp'
 import styles from '../ui/explorerTable.module.css'
 import type {OpenAction} from './actions'
-import {optionalColumns, valueFor, type ColumnKey} from './columns'
+import {optionalColumns, type ColumnKey} from './columns'
 import {ListEntryIcon} from './EntryIcon'
 import {EntryMenu} from './EntryMenu'
 import {href, locationOf} from './navigation'
@@ -27,7 +29,7 @@ interface Props {
 
 export function FileTable({titleId, device, selection, visible, location, share, sort, direction, onSort,
   onAction, onDownload}: Props) {
-  const {t, locale} = useLanguage()
+  const {t} = useLanguage()
   const columns = optionalColumns.filter(column => visible.includes(column.key))
   const {entries, count, total} = selection
   const all = count > 0 && count === total
@@ -66,10 +68,7 @@ export function FileTable({titleId, device, selection, visible, location, share,
               <Link className={styles.entryName} href={href(locationOf(location.rootId, entry))} title={entry.name}
                 data-file-link="" draggable={false}>{entry.name}</Link>
             </th>
-            {columns.map(({key}) => {
-              const value = valueFor(entry, key, locale, t)
-              return <td key={key} title={value}><span className={styles.cell}>{key === 'type' ? <Label>{value}</Label> : value}</span></td>
-            })}
+            {columns.map(({key}) => <FileValue key={key} field={key} entry={entry} />)}
             <td className={styles.menuCell}>
               <EntryMenu entry={entry} share={share} open={onAction} download={onDownload} />
             </td>
@@ -78,4 +77,14 @@ export function FileTable({titleId, device, selection, visible, location, share,
       </tbody>
     </table>
   )
+}
+
+function FileValue({field, entry}: {field: ColumnKey; entry: Entry}) {
+  const {t, locale} = useLanguage()
+  if (field !== 'type' && field !== 'size') {
+    return <td><span className={`${styles.cell} ${styles.timeCell}`}><Timestamp value={entry[field]} variant="file" /></span></td>
+  }
+
+  const value = field === 'type' ? entryKind(entry, t) : entry.kind === 'directory' ? t('missing') : bytes(entry.size, locale)
+  return <td title={value}><span className={styles.cell}>{field === 'type' ? <Label>{value}</Label> : value}</span></td>
 }
