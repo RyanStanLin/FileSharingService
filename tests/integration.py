@@ -2100,6 +2100,69 @@ precondition(board.setString("ISOLATED_CLIPBOARD_CONTENT", forType: .string))
         added = self.wait_rule_event(rule, "file.added", name="報告.txt")
         self.assertEqual(self.wait_delivery(added)["message"]["body"], "報告.txt")
 
+        with fixture.guard:
+            fixture.responses["/push"] = [(429, {"code": 429}, {"Retry-After": "60"})]
+        (folder / "waiting.txt").write_text("should not be retried")
+        waiting = self.wait_rule_event(rule, "file.added", name="waiting.txt")
+        self.wait_delivery(waiting, "retryScheduled")
+        self.api("DELETE", f"{self.device_api}/file-roots/{self.root_id}", 204)
+        cancelled = self.wait_delivery(waiting, "cancelled")
+        self.assertEqual((cancelled["error"], cancelled["attempts"], cancelled["nextAttemptAt"]),
+                         ("notification_scope_revoked", 1, None))
+        self.assertEqual(self.wait_file_watch("unavailable")["error"], "root_access_denied")
+
+    def test_notification_file_watch_rejects_stale_frames_after_reauthorization(self):
+        fixture = self.notification_fixture()
+        self.register()
+        self.unlock()
+        self.device = str(uuid.uuid4())
+        self.device_api = f"{API}/devices/{self.device}"
+        local_root = str(uuid.uuid4())
+        connection = self.api("POST", "/agent/v1/connect",
+                              json={"deviceId": self.device, "name": "Fixture Mac"}).json()
+        self.send_agent_frames(connection, self.notification_event("roots", [
+            {"rootKey": local_root, "label": "Home", "primary": True, "writable": False}
+        ], snapshot=True))
+        self.root_id = self.api("GET", self.device_api + "/file-roots").json()["items"][0]["id"]
+        connection_id = self.api("GET", self.device_api).json()["connection"]["connectionId"]
+        self.set_access(connection_id, True)
+        phone = self.notification_channel(fixture)
+        rule_body = self.file_notification_rule(phone["id"], ["file.added"], {"body": "{{file.name}}"}, path="")
+        rule = self.api("POST", NOTIFICATIONS + "/rules", 201, json=rule_body).json()
+
+        def accept_watch():
+            while True:
+                frames = self.api("GET", "/agent/v1/commands",
+                                  headers={"X-FileSharing-Channel": connection["channel"]}).json()
+                for command in frames:
+                    payload = command["payload"]
+                    if command["kind"] == "files.unwatch":
+                        self.send_agent_frames(connection, {"type": "result", "id": command["id"], "ok": True, "payload": {}})
+                    if command["kind"] == "files.watch":
+                        self.assertEqual((payload["root"], payload["purpose"]), (local_root, "notification"))
+                        self.send_agent_frames(connection, {"type": "result", "id": command["id"], "ok": True,
+                                                            "payload": {"purpose": "notification", "revision": "fixture"}})
+                        return payload["watchId"]
+                self.assertTrue(frames, "Expected a watch or unwatch command")
+
+        def added(watch, filename):
+            return self.notification_event("files.changed", {
+                "watchId": watch, "purpose": "notification", "kind": "delta", "occurredAt": datetime.now(timezone.utc).isoformat(),
+                "changes": [{"kind": "added", "entry": {"path": filename, "kind": "file", "size": 5}}]
+            })
+
+        first = accept_watch()
+        self.wait_file_watch("active")
+        self.set_access(connection_id, False)
+        self.set_access(connection_id, True)
+        self.send_agent_frames(connection, added(first, "old.txt"))
+        self.assertEqual(self.rule_deliveries(rule["id"]), [])
+        second = accept_watch()
+        self.assertNotEqual(first, second)
+        self.wait_file_watch("active")
+        self.send_agent_frames(connection, added(second, "new.txt"))
+        self.assertEqual(self.wait_rule_event(rule, "file.added")["message"]["body"], "new.txt")
+
     def test_openapi_contract(self):
         contract = self.api("GET", "/openapi/v1.json").json()
         paths = contract["paths"]

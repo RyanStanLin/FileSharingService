@@ -3,7 +3,7 @@ using System.Text;
 
 namespace FileSharing;
 
-internal sealed class NotificationTemplates
+internal static class NotificationTemplates
 {
     public static void Validate(NotificationTemplate? template, HashSet<string> variables)
     {

@@ -40,6 +40,13 @@ internal sealed class NotificationDeliveries(Database db, NotificationVault vaul
     private const int MaximumHistory = 50_000;
     private const int MaximumUpdates = 100_000;
     private const string Pending = "('queued','retryScheduled','sending')";
+    private const string ActiveDestination = """
+        SELECT c.* FROM NotificationChannels c
+        WHERE c.Id=@ChannelId AND c.Enabled=1 AND c.Revision=@ChannelRevision AND (@RuleId IS NULL OR EXISTS(
+            SELECT 1 FROM NotificationRules r JOIN Devices d ON d.Id=r.DeviceId AND d.Revoked IS NULL
+            WHERE r.Id=@RuleId AND r.Enabled=1 AND r.Revision=@RuleRevision AND r.DeviceId=@DeviceId))
+        AND (@RootId IS NULL OR EXISTS(SELECT 1 FROM Roots WHERE Id=@RootId AND DeviceId=@DeviceId AND Enabled=1))
+        """;
 
     public Task<NotificationDeliveryView> Test(string channelId, string? idempotencyKey, NotificationTestRequest request, string actor,
         CancellationToken ct)
@@ -162,26 +169,29 @@ internal sealed class NotificationDeliveries(Database db, NotificationVault vaul
         });
     }
 
-    internal static async Task CancelPending(SqliteConnection connection, SqliteTransaction tx, string? channelId,
-        string? ruleId, string code, CancellationToken ct)
+    internal static Task CancelPending(SqliteConnection connection, SqliteTransaction tx, string? channelId,
+        string? ruleId, string code, CancellationToken ct) =>
+        CancelPending(connection, tx, "(ChannelId=@channelId OR RuleId=@ruleId)",
+            new { channelId, ruleId, now = Clock.Now, code }, ct);
+
+    internal static Task CancelForSource(SqliteConnection connection, SqliteTransaction tx, string deviceId, string? rootId, CancellationToken ct) =>
+        CancelPending(connection, tx, "DeviceId=@deviceId AND (@rootId IS NULL OR RootId=@rootId)",
+            new { deviceId, rootId, now = Clock.Now, code = "notification_scope_revoked" }, ct);
+
+    private static async Task CancelPending(SqliteConnection connection, SqliteTransaction tx, string scope, object parameters,
+        CancellationToken ct)
     {
-        var rows = await connection.QueryAsync<NotificationDeliveryRow>(new CommandDefinition("""
+        var rows = await connection.QueryAsync<NotificationDeliveryRow>(new CommandDefinition($"""
             UPDATE NotificationDeliveries SET State='cancelled',Updated=@now,Error=@code
-            WHERE State IN ('queued','retryScheduled') AND (ChannelId=@channelId OR RuleId=@ruleId)
+            WHERE State IN ('queued','retryScheduled') AND {scope}
             RETURNING *
-            """, new { now = Clock.Now, channelId, ruleId, code }, tx, cancellationToken: ct));
+            """, parameters, tx, cancellationToken: ct));
         foreach (var row in rows)
             await Record(connection, tx, row, ct);
     }
 
     public Task<NotificationChannelRow?> Destination(NotificationDeliveryRow row, CancellationToken ct) =>
-        db.One<NotificationChannelRow>("""
-            SELECT c.* FROM NotificationChannels c
-            WHERE c.Id=@ChannelId AND c.Enabled=1 AND c.Revision=@ChannelRevision AND (@RuleId IS NULL OR EXISTS(
-                SELECT 1 FROM NotificationRules r JOIN Devices d ON d.Id=r.DeviceId AND d.Revoked IS NULL
-                WHERE r.Id=@RuleId AND r.Enabled=1 AND r.Revision=@RuleRevision AND r.DeviceId=@DeviceId))
-            AND (@RootId IS NULL OR EXISTS(SELECT 1 FROM Roots WHERE Id=@RootId AND DeviceId=@DeviceId AND Enabled=1))
-            """, row, ct);
+        db.One<NotificationChannelRow>(ActiveDestination, row, ct);
 
     public Task Complete(NotificationDeliveryRow row, NotificationProviderResult outcome, bool cancelled, CancellationToken ct) =>
         db.Write(async (connection, tx) =>
@@ -189,12 +199,19 @@ internal sealed class NotificationDeliveries(Database db, NotificationVault vaul
             var now = Clock.Now;
             var state = cancelled ? "cancelled" : outcome.Error is null ? "sent" :
                 outcome.Transient && row.Attempts < MaximumAttempts ? "retryScheduled" : "failed";
+            var error = outcome.Error;
+            if (state == "retryScheduled" && !await connection.ExecuteScalarAsync<bool>(new CommandDefinition(
+                $"SELECT EXISTS({ActiveDestination})", row, tx, cancellationToken: ct)))
+            {
+                state = "cancelled";
+                error = "notification_scope_changed";
+            }
             var next = state == "retryScheduled" ? now + Math.Max(5 << (2 * (row.Attempts - 1)), outcome.RetrySeconds) : now;
             var updated = await connection.QuerySingleOrDefaultAsync<NotificationDeliveryRow>(new CommandDefinition("""
                 UPDATE NotificationDeliveries SET State=@state,Updated=@now,NextAttempt=@next,Error=@Error,
                     HttpStatus=@HttpStatus,ProviderId=@ProviderId,Attempts=Attempts-@unattempted
                 WHERE Sequence=@Sequence AND State='sending' AND Attempts=@Attempts RETURNING *
-                """, new { state, now, next, outcome.Error, outcome.HttpStatus, outcome.ProviderId,
+                """, new { state, now, next, Error = error, outcome.HttpStatus, outcome.ProviderId,
                     unattempted = cancelled ? 1 : 0, row.Sequence, row.Attempts }, tx, cancellationToken: ct));
             if (updated is null)
                 return false;

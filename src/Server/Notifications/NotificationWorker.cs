@@ -40,7 +40,7 @@ internal sealed class NotificationWorker(NotificationDeliveries deliveries, Noti
     {
         var destination = await deliveries.Destination(row, ct);
         var outcome = destination is null
-            ? new NotificationProviderResult("notification_destination_changed")
+            ? new NotificationProviderResult("notification_scope_changed")
             : await providers.Send(destination, row.Content, ct);
         // Persist provider acceptance even if shutdown was requested as the reply arrived.
         await deliveries.Complete(row, outcome, destination is null, CancellationToken.None);

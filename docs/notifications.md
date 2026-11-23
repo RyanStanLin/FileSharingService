@@ -55,7 +55,7 @@ Base URL 为 `/api/v1/notifications`。所有请求使用已解锁的 Passkey �
 - `GET /deliveries?after=&limit=&channelId=&ruleId=&deviceId=&state=` 使用序号字符串向前翻页，每页最多 200 条，返回 `items,cursor,hasMore`。
 - `GET /deliveries/{id}` 查看触发时间、投递状态、消息正文、尝试次数、上游 HTTP 状态、重试时间和 Telegram message ID。
 - 状态为 `queued,sending,retryScheduled,sent,failed,cancelled`。成功表示上游接受发送请求。网络故障、HTTP 408、429 和 5xx 最多尝试 5 次，初始退避为 5 秒，逐次增至 20、80、320 秒，必要时遵循服务商的 `Retry-After` 或 `retry_after`。运输失败若发生在上游接受后，补发可能产生重复消息。
-- SQLite 在同一事务写入投递和状态摘要，服务重启恢复队列。渠道编辑、停用或删除时取消尚未发出的旧修订投递。已进入上游调用的请求可能完成。
+- SQLite 在同一事务写入投递和状态摘要，服务重启恢复队列。渠道或规则修改后取消尚未发出的旧修订投递。设备或根授权撤销会取消对应待投递及补发。已进入上游调用的请求可能完成。
 - 最多保存 64 个渠道、全局 2,000 笔待投递、单渠道 500 笔。投递和更新保留最多 30 天，同时分别受最近 50,000 与 100,000 个序号限制。测试幂等键随投递保留。
 - 在 `GET /api/v1/events/ws` 收到 `ready` 后发送 `{"type":"subscribe","id":"notify","topic":"notifications.changed"}`。用 `subscribed.cursor` 保存通知游标，收到事件后推进到 `item.sequence`。用 `after` 重订阅，或 `GET /updates?after={cursor}&limit=100` 回放。通知游标独立于其他设备事件的游标。缺省 `after` 的 WS 从当前尾部开始，REST 从最早保留记录开始。过期游标返回 `notification_resync_required`，此时重读配置与投递后重新订阅。`item.payload` 含 `resource,id,action,revision,state,channelId,ruleId`。 [AsyncAPI](asyncapi.yaml)
 

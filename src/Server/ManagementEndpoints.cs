@@ -209,7 +209,8 @@ internal static class ManagementEndpoints
         var review = await reviews.Require(ctx, ct);
         Secrets.Identifier(id);
         if (!await db.Mutate("UPDATE Devices SET Revoked=@now,Revision=Revision+1 WHERE Id=@id AND Revoked IS NULL",
-            new { id, now = Clock.Now }, review.Initiator, id, "device.revoked", new { id }, ct))
+            new { id, now = Clock.Now }, review.Initiator, id, "device.revoked", new { id }, ct,
+            (connection, tx, token) => NotificationDeliveries.CancelForSource(connection, tx, id, null, token)))
             throw Fault.Missing();
         await broker.Revoke(id, CancellationToken.None);
         return TypedResults.NoContent();
@@ -332,7 +333,8 @@ internal static class ManagementEndpoints
             WHERE DeviceId=@id AND Id=@rootId AND Revision=@Revision AND RootKey=@RootKey AND EXISTS(
                 SELECT 1 FROM ObservedRoots WHERE DeviceId=@id AND RootKey=@RootKey AND (@Writable=0 OR Writable=1))
             """, new { id, rootId, label, body.Writable, body.Enabled, body.RootKey, body.Revision },
-            review.Initiator, id, "root.updated", new { rootId }, ct))
+            review.Initiator, id, "root.updated", new { rootId }, ct,
+            body.Enabled ? null : (connection, tx, token) => NotificationDeliveries.CancelForSource(connection, tx, id, rootId, token)))
             throw Fault.Conflict("root_conflict");
         return TypedResults.Ok(new RootInfo(rootId, id, body.RootKey, label, body.Writable, body.Enabled, body.Revision!.Value + 1));
     }
@@ -341,7 +343,8 @@ internal static class ManagementEndpoints
     {
         var review = await reviews.Require(ctx, ct);
         if (!await db.Mutate("DELETE FROM Roots WHERE Id=@rootId AND DeviceId=@id",
-            new { id = Secrets.Identifier(id), rootId = Secrets.Identifier(rootId) }, review.Initiator, id, "root.revoked", new { rootId }, ct))
+            new { id = Secrets.Identifier(id), rootId = Secrets.Identifier(rootId) }, review.Initiator, id, "root.revoked", new { rootId }, ct,
+            (connection, tx, token) => NotificationDeliveries.CancelForSource(connection, tx, id, rootId, token)))
             throw Fault.Missing();
         return TypedResults.NoContent();
     }

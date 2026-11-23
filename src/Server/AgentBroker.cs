@@ -52,6 +52,7 @@ internal sealed class AgentBroker(Database db, AgentRegistration registration, N
         public long QualityReported { get; set; }
         public bool Closed { get; set; }
         public bool AccessGranted { get; set; }
+        public long AccessGeneration { get; set; }
 
         public Task Cancel() => stop.CancelAsync();
     }
@@ -121,11 +122,16 @@ internal sealed class AgentBroker(Database db, AgentRegistration registration, N
         }
     }
 
-    public bool HasAccess(Link link)
+    public bool HasAccess(Link link) => AccessGeneration(link) is not null;
+
+    public long? AccessGeneration(Link link)
     {
         lock (link)
-            return Online(link) && link.AccessGranted;
+            return Online(link) && link.AccessGranted ? link.AccessGeneration : null;
     }
+
+    public long? AccessGeneration(string device, string? connection) =>
+        links.TryGetValue(device, out var link) && link.Id == connection ? AccessGeneration(link) : null;
 
     public bool CanNotify(Link link)
     {
@@ -151,7 +157,11 @@ internal sealed class AgentBroker(Database db, AgentRegistration registration, N
             {
                 RequireOnline(link);
                 link.NotificationTrusted |= enabled && link.NotificationProof is not null;
-                link.AccessGranted = enabled;
+                if (link.AccessGranted != enabled)
+                {
+                    link.AccessGeneration++;
+                    link.AccessGranted = enabled;
+                }
                 if (!enabled)
                 {
                     link.Windows.Clear();

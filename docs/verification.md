@@ -1,5 +1,20 @@
 # FileSharing 验收记录
 
+## Milestone 3 · Agent 0.5.0
+
+使用 `scripts/test-local.sh` 运行集成套件。测试启动独立回环服务器、SQLite 数据库以及可控的 Bark 和 Telegram 服务，并使用隔离目录运行真实的 macOS Agent。通知测试覆盖如下。
+
+| 场景 | 集成测试 |
+| --- | --- |
+| 渠道 CRUD、Bot 身份与聊天核验、凭据脱敏、测试幂等、429 跨重启重试及 WebSocket 回放 | `test_notification_destinations_and_durable_delivery` |
+| 多事件及多渠道、过滤、模板预览、去重、冷却、电量阈值、休眠和合盖事件 | `test_notification_rules_match_trusted_events_and_render_context` |
+| WSS 离线、HTTPS 恢复、绑定安装凭据和隔离未获信连接 | `test_notification_presence_requires_bound_agent_identity` |
+| 真实新增、修改、重命名、移除、目录批次、授权范围和会话锁定期间的投递 | `test_notification_file_watches_apply_scope_and_run_while_locked` |
+| 真实 Agent 的 HTTPS 文件事件及撤销根后取消重试 | `test_notification_directory_watch_delivers_over_https` |
+| 快速重新授权后拒收旧目录租约的消息 | `test_notification_file_watch_rejects_stale_frames_after_reauthorization` |
+
+生产部署前，把实际 Bark 设备 Key 或 Telegram Bot Token 配到目标服务，并调用测试投递确认收到消息。实体合盖、睡眠和唤醒需要在目标 Mac 验收。 [通知配置与请求示例](notifications.md)
+
 ## Agent 0.4.8
 
 `test_window_geometry_focus_and_live_fallback` 使用同一份窗口采集逻辑和隔离输入，验证多屏相对坐标、大小、前后顺序、透明窗处理、部分和完全遮挡。还验证同一 Foreground 应用中的焦点判定、仅 Foreground 切换时的更新，以及前台应用没有屏上窗口的情形。Agent 分别使用 WebSocket 和 HTTPS，浏览器 WebSocket 与 REST 长轮询接收同一修订。撤销连接授权后窗口订阅结束，数据库中无窗口快照和历史事件。

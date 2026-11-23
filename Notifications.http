@@ -84,7 +84,7 @@ Origin: {{base}}
 Cookie: {{cookie}}
 Content-Type: application/json
 
-{"name":"Lid changes","deviceId":"{{deviceId}}","channelIds":["{{channelId}}"],"enabled":true,"events":["lid.closed","lid.opened"],"template":{"title":"{{device.name}}","body":"{{event.type}} at {{event.occurredAt}}"}}
+{"name":"Lid changes","deviceId":"{{deviceId}}","channelIds":["{{channelId}}"],"enabled":true,"events":["lid.closed","lid.opened"],"template":{"title":"\u007b\u007bdevice.name\u007d\u007d","body":"\u007b\u007bevent.type\u007d\u007d at \u007b\u007bevent.occurredAt\u007d\u007d"}}
 
 ### Get a rule and its counters
 GET {{notifications}}/rules/{{ruleId}}
@@ -96,7 +96,7 @@ Origin: {{base}}
 Cookie: {{cookie}}
 Content-Type: application/json
 
-{"name":"Lid changes","deviceId":"{{deviceId}}","channelIds":["{{channelId}}"],"enabled":false,"revision":1,"events":["lid.closed","lid.opened"],"template":{"title":"{{device.name}}","body":"{{event.type}}"}}
+{"name":"Lid changes","deviceId":"{{deviceId}}","channelIds":["{{channelId}}"],"enabled":false,"revision":1,"events":["lid.closed","lid.opened"],"template":{"title":"\u007b\u007bdevice.name\u007d\u007d","body":"\u007b\u007bevent.type\u007d\u007d"}}
 
 ### Preview a template
 POST {{notifications}}/rules/preview
@@ -104,7 +104,7 @@ Origin: {{base}}
 Cookie: {{cookie}}
 Content-Type: application/json
 
-{"event":"lid.closed","template":{"title":"{{device.name}}","body":"Closed at {{event.occurredAt}}"},"context":{"device.name":"Desk Mac","lid.closed":"true"}}
+{"event":"lid.closed","template":{"title":"\u007b\u007bdevice.name\u007d\u007d","body":"Closed at \u007b\u007bevent.occurredAt\u007d\u007d"},"context":{"device.name":"Desk Mac","lid.closed":"true"}}
 
 ### Delete a rule
 DELETE {{notifications}}/rules/{{ruleId}}?revision=2
@@ -119,7 +119,7 @@ Origin: {{base}}
 Cookie: {{cookie}}
 Content-Type: application/json
 
-{"name":"PDF changes","deviceId":"{{deviceId}}","enabled":true,"events":["file.added","file.removed","file.renamed","file.modified"],"channelIds":["{{channelId}}"],"filter":{"file":{"rootId":"{{rootId}}","path":"Documents/Reports","nameGlob":"*.pdf","entryKind":"file"}},"template":{"title":"{{device.name}} reports","body":"{{event.type}}: {{file.path}}"}}
+{"name":"PDF changes","deviceId":"{{deviceId}}","enabled":true,"events":["file.added","file.removed","file.renamed","file.modified"],"channelIds":["{{channelId}}"],"filter":{"file":{"rootId":"{{rootId}}","path":"Documents/Reports","nameGlob":"*.pdf","entryKind":"file"}},"template":{"title":"\u007b\u007bdevice.name\u007d\u007d reports","body":"\u007b\u007bevent.type\u007d\u007d: \u007b\u007bfile.path\u007d\u007d"}}
 
 ### List active and waiting notification directory watches
 GET {{notifications}}/watches?deviceId={{deviceId}}

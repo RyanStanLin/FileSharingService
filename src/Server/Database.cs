@@ -84,11 +84,14 @@ internal sealed class Database(Settings settings)
     }
 
     public Task<bool> Mutate(string sql, object parameters, string? actor, string? device, string action,
-        object detail, CancellationToken ct) => Write(async (connection, tx) =>
+        object detail, CancellationToken ct, Func<SqliteConnection, SqliteTransaction, CancellationToken, Task>? onChanged = null) =>
+        Write(async (connection, tx) =>
     {
         var affected = await connection.ExecuteAsync(new CommandDefinition(sql, parameters, tx, cancellationToken: ct));
         if (affected == 0)
             return false;
+        if (onChanged is not null)
+            await onChanged(connection, tx, ct);
         await connection.ExecuteAsync(new CommandDefinition(
             "INSERT INTO Audit(At,Actor,DeviceId,Action,Detail) VALUES(@At,@Actor,@Device,@Action,@Detail)",
             new { At = Clock.Now, Actor = actor, Device = device, Action = action, Detail = Wire.Encode(detail) }, tx, cancellationToken: ct));
