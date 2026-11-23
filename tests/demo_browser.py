@@ -388,6 +388,61 @@ class LocalDemoBrowser(unittest.TestCase):
               "payload": {"stdout": "运行中\n", "stderr": "warning\n", "exitCode": 4, "data": None}})
         browser.wait("document.querySelector('#diagnostic-status').textContent === '退出码 4'")
 
+    def test_browser_configures_dialog_text_fields(self):
+        fixture = self.fixture
+        device = str(uuid.uuid4())
+        agent = fixture.api("POST", "/agent/v1/connect", json={"deviceId": device, "name": "Dialog form fixture"}).json()
+        header = {"X-FileSharing-Channel": agent["channel"]}
+        browser = self.start_browser(real_agent=False)
+        browser.evaluate("""
+            document.querySelector('#tab-actions').click()
+            const mode = document.querySelector('#dialog-input')
+            mode.value = 'customFields'
+            mode.dispatchEvent(new Event('change'))
+            const add = document.querySelector('#dialog-add-text-field')
+            add.click()
+            add.click()
+            add.click()
+            document.querySelector('#dialog-text-field-list fieldset:last-child [data-remove]').click()
+            const fields = document.querySelector('#dialog-text-field-list').children
+            function configure(field, hint, initial, flags) {
+                field.querySelector('[data-field=hintText]').value = hint
+                field.querySelector('[data-field=defaultText]').value = initial
+                for (const flag of flags) {
+                    const input = field.querySelector('[data-field=' + flag + ']')
+                    input.checked = true
+                    input.dispatchEvent(new Event('change'))
+                }
+            }
+            configure(fields[0], '说明', '  默认值  ', ['required'])
+            configure(fields[1], '工单号', 'CHG-42', ['disabled'])
+            configure(fields[2], '审批码', '00-', ['maskText', 'required'])
+            document.querySelector('#dialog-form').requestSubmit()
+        """)
+        command, = fixture.api("GET", "/agent/v1/commands", headers=header).json()
+        self.assertEqual(command["kind"], "interaction.dialog.form")
+        self.assertEqual(command["payload"]["textFields"], [
+            {"id": "field-1", "hintText": "说明", "defaultText": "  默认值  ", "disabled": False, "required": True, "maskText": False},
+            {"id": "field-2", "hintText": "工单号", "defaultText": "CHG-42", "disabled": True, "required": False, "maskText": False},
+            {"id": "field-3", "hintText": "审批码", "defaultText": "00-", "disabled": False, "required": True, "maskText": True},
+        ])
+        approval = "00-APP-42"
+        fixture.api("POST", "/agent/v1/frames", 204, headers=header, json={"frames": [{
+            "type": "result", "id": command["id"], "ok": True,
+            "payload": {"outcome": "submitted", "choiceId": "choice-1", "text": None,
+                        "textValues": {"field-1": "  Confirmed  ", "field-3": approval},
+                        "respondedAt": datetime.now(timezone.utc).isoformat()},
+        }]})
+        browser.wait("document.querySelector('#dialog-result input')?.type === 'password' && "
+                     "document.querySelector('#dialog-result').textContent.includes('  Confirmed  ')")
+        self.assertNotIn(approval, browser.evaluate("document.querySelector('#dialog-result').textContent"))
+        self.assertNotIn("CHG-42", browser.evaluate("document.querySelector('#dialog-result').textContent"))
+        browser.evaluate("document.querySelector('#dialog-result button').click()")
+        self.assertEqual(browser.evaluate("document.querySelector('#dialog-result input').type"), "text")
+        self.assertEqual(browser.evaluate("document.querySelector('#dialog-result input').value"), approval)
+        browser.evaluate("document.querySelector('#dialog-result button').click()")
+        self.assertEqual(browser.evaluate("document.querySelector('#dialog-result input').type"), "password")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

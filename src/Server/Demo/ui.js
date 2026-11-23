@@ -33,7 +33,12 @@ export function stack(...lines) {
 }
 
 export function facts(id, values) {
-    element(id).replaceChildren(...values.flatMap(([label, text]) => [node("dt", label), node("dd", text ?? "—")]))
+    element(id).replaceChildren(...values.flatMap(([label, value]) => {
+        const detail = node("dd")
+        if (value instanceof Node) detail.append(value)
+        else detail.textContent = value ?? "—"
+        return [node("dt", label), detail]
+    }))
 }
 
 export function blankRow(text, columns) {

@@ -291,6 +291,28 @@ Agent 0.4.4 起使用独立进程中的 AppKit `NSAlert` 置顶显示应用图�
 
 Agent 0.4.3 起支持遮蔽企业审批码。提交 `askText:true,maskText:true`，使用 `textRequired` 选择必填或选填。Mac 使用 `NSSecureTextField`，点击选项时按原样回传输入值。创建请求的管理员通过 `GET /jobs/{id}` 的 `result.text` 获取审批码。WebSocket 完成事件只包含作业标识、状态与种类。设备通道使用独立的 `interaction.dialog.masked` 命令，旧 Agent 会返回 `unsupported`。 [Apple NSSecureTextField](https://developer.apple.com/documentation/appkit/nssecuretextfield)
 
+### 自定义输入框
+
+Agent 0.5.1 起，可在同一个 NSAlert 中按顺序显示 1–6 个输入框。使用 `textFields` 数组发送配置。每个字段的 `id` 在数组内唯一，格式与选项 ID 相同。`hintText` 为输入框为空时显示的提示，最多 120 个 UTF-16 码元。`defaultText` 为原样预填的值，最多 1024 个 UTF-16 码元。`disabled`、`required`、`maskText` 各自默认为 `false`。禁用项只显示预填值。启用且必填的输入框填上非空白内容后才可提交。遮蔽字段使用原生 NSSecureTextField。 [Apple AppKit 附件视图](https://developer.apple.com/documentation/appkit/nsalert/accessoryview)
+
+```json
+{
+  "title": "维护确认",
+  "message": "请填写本次操作的确认信息。",
+  "choices": [{"id": "submit", "label": "提交"}],
+  "textFields": [
+    {"id": "reason", "hintText": "维护原因", "defaultText": "计划维护", "required": true},
+    {"id": "reference", "hintText": "工单号", "defaultText": "CHG-42", "disabled": true},
+    {"id": "approval", "hintText": "企业审批码", "maskText": true, "required": true}
+  ],
+  "timeoutSeconds": 60
+}
+```
+
+提交后，`GET /jobs/{id}` 的 `result.textValues` 返回逐字段结果，例如 `{"reason":"计划维护","approval":"00-APP-42"}`。值保留原始空格。启用的选填空框返回空字符串，禁用项仅在 Mac 本地展示。表单模式的 `result.text` 为 `null`。取消或超时只返回原有结果字段。浏览器 WebSocket 仍只发布作业状态。表单使用 `interaction.dialog.form` 设备命令，经 WSS 或 HTTPS 回退交付。旧版 Agent 会返回 `unsupported`。使用表单时省略 `askText`、`textRequired`、顶层 `maskText` 和 `requireLocalAuthentication`。
+
+### 本机身份验证
+
 选项需要本机身份验证时，使用 `requireLocalAuthentication:true`，并省略 `askText` 和 `textRequired`。选择选项后，macOS 使用系统窗口验证设备所有者。密码与 Touch ID 均由系统处理。验证通过时，结果额外包含 `locallyAuthenticated:true`，`text` 为 `null`。 [Apple LocalAuthentication](https://developer.apple.com/documentation/LocalAuthentication/LAPolicy/deviceOwnerAuthentication)
 
 向 `POST /devices/D/interactions/notifications` 提交 `{"title":"维护提醒","message":"18:00 开始维护。","sound":false}`。标题最多 100 字符，正文最多 500 字符，声音默认关闭。用户先在已安装 App 选择「启用本地通知」。成功的 `result` 为 `{status:"scheduled",scheduledAt}`，表示系统接受本地通知，展示行为遵从 macOS 设置。未获授权时作业失败并给出 `notification_permission_required`。

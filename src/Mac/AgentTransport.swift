@@ -620,7 +620,8 @@ actor AgentTransport {
         }
         let input = command["payload"]
         let notificationWatch = kind == "files.watch" && input["purpose"].string == "notification"
-        let managed = ["diagnostics.run", "interaction.dialog", "interaction.dialog.masked", "interaction.notification"].contains(kind)
+        let managed = ["diagnostics.run", "interaction.dialog", "interaction.dialog.masked", "interaction.dialog.form",
+                       "interaction.notification"].contains(kind)
             || notificationWatch
         if managed { managedOperations.insert(id) }
         operations[id] = Task {
@@ -673,9 +674,10 @@ actor AgentTransport {
             }
         case "permissions.request":
             return try await telemetry.permission(input.requireString("permission"))
-        case "interaction.dialog", "interaction.dialog.masked":
+        case "interaction.dialog", "interaction.dialog.masked", "interaction.dialog.form":
             guard activeOrigin != nil else { throw AgentError("connection_unavailable") }
-            guard (kind == "interaction.dialog.masked") == (input["maskText"].bool == true) else {
+            guard (kind == "interaction.dialog.masked") == (input["maskText"].bool == true),
+                  (kind == "interaction.dialog.form") == (input["textFields"] != .null) else {
                 throw AgentError("invalid_request")
             }
             return try await DeviceInteractions.present(input)

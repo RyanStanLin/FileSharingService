@@ -191,7 +191,7 @@
         </section>
         <section aria-labelledby="dialog-heading">
           <h2 id="dialog-heading">远程原生对话框</h2>
-          <p class="muted">请求会显示在所选 Mac 的已解锁用户会话中。遮蔽审批码需要 Agent 0.4.3 或更新版本。</p>
+          <p class="muted">请求会显示在所选 Mac 的已解锁用户会话中。自定义输入框需要 Agent 0.5.1 或更新版本。</p>
           <form id="dialog-form">
             <fieldset id="dialog-fields" disabled>
               <div class="form-grid">
@@ -203,6 +203,7 @@
                     <option value="required">选项与必填说明</option>
                     <option value="maskedOptional">选项与遮蔽审批码（选填）</option>
                     <option value="maskedRequired">选项与遮蔽审批码（必填）</option>
+                    <option value="customFields">自定义输入框</option>
                   </select>
                 </label>
                 <label>等待时间（秒）<input id="dialog-timeout" type="number" min="10" max="120" step="1" value="60" required></label>
@@ -213,6 +214,26 @@
                 <label>选项 2（可选）<input id="dialog-choice-2" maxlength="40"></label>
                 <label>选项 3（可选）<input id="dialog-choice-3" maxlength="40"></label>
               </div>
+              <fieldset id="dialog-text-fields" class="nested-group" hidden disabled>
+                <legend>自定义输入框</legend>
+                <div id="dialog-text-field-list"></div>
+                <button id="dialog-add-text-field" type="button">添加输入框</button>
+                <template id="dialog-text-field-template">
+                  <fieldset class="nested-group">
+                    <legend></legend>
+                    <div class="form-grid">
+                      <label>提示文字<input data-field="hintText" maxlength="120"></label>
+                      <label>预填内容<input data-field="defaultText" maxlength="1024" autocomplete="off"></label>
+                    </div>
+                    <div class="row form-actions">
+                      <label class="check"><input data-field="disabled" type="checkbox"> 禁用</label>
+                      <label class="check"><input data-field="required" type="checkbox"> 必填</label>
+                      <label class="check"><input data-field="maskText" type="checkbox"> 遮蔽</label>
+                      <button data-remove type="button">移除</button>
+                    </div>
+                  </fieldset>
+                </template>
+              </fieldset>
               <div class="row form-actions"><button class="primary" type="submit">发送到 Mac</button></div>
             </fieldset>
           </form>

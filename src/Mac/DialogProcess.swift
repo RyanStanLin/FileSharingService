@@ -1,9 +1,11 @@
 import Darwin
 import Foundation
+import os
 
 enum DialogProcess {
     private static let queue = DispatchQueue(label: "FileSharing.dialog-helper", qos: .userInitiated)
-    private static let maximum = 8_192
+    private static let pipeIO = DispatchQueue(label: "FileSharing.dialog-pipe", qos: .userInitiated, attributes: .concurrent)
+    private static let maximum = 32_768
 
     static func run(_ executable: URL?, input: JSON) async throws -> JSON {
         guard let executable else { throw AgentError("unsupported") }
@@ -52,6 +54,8 @@ enum DialogProcess {
         process.terminationHandler = { _ in finished.signal() }
         let deadline = DispatchTime.now() + .seconds(seconds + 3)
         try process.run()
+        try? output.fileHandleForWriting.close()
+        try? input.fileHandleForReading.close()
         defer {
             if process.isRunning {
                 process.terminate()
@@ -61,15 +65,27 @@ enum DialogProcess {
             }
             process.waitUntilExit()
         }
-        try sender.write(contentsOf: request)
-        try sender.close()
+        let response = OSAllocatedUnfairLock<Data?>(initialState: nil)
+        let read = DispatchSemaphore(value: 0)
+        pipeIO.async {
+            defer {
+                try? receiver.close()
+                read.signal()
+            }
+            let bytes = try? readFrame(receiver)
+            response.withLock { $0 = bytes }
+        }
+        pipeIO.async {
+            defer { try? sender.close() }
+            try? sender.write(contentsOf: request)
+        }
         if finished.wait(timeout: deadline) == .timedOut {
             return outcome("expired")
         }
         guard !process.isRunning else { throw CancellationError() }
         process.waitUntilExit()
-        guard process.terminationStatus == 0,
-              let bytes = try receiver.read(upToCount: maximum + 1), bytes.count <= maximum else {
+        guard process.terminationStatus == 0, read.wait(timeout: .now() + .seconds(1)) == .success,
+              let bytes = response.withLock({ $0 }) else {
             throw AgentError("dialog_presentation_failed")
         }
         let reply = try JSON.decode(bytes)
@@ -78,10 +94,21 @@ enum DialogProcess {
         return reply["payload"]
     }
 
-    static func outcome(_ status: String, choice: String? = nil, text: String? = nil, authenticated: Bool = false) -> JSON {
+    static func readFrame(_ handle: FileHandle) throws -> Data {
+        var bytes = Data()
+        while let chunk = try handle.read(upToCount: min(4_096, maximum + 1 - bytes.count)), !chunk.isEmpty {
+            bytes.append(chunk)
+            if bytes.count > maximum { throw AgentError("invalid_request") }
+        }
+        return bytes
+    }
+
+    static func outcome(_ status: String, choice: String? = nil, text: String? = nil, authenticated: Bool = false,
+                        textValues: [String: JSON]? = nil) -> JSON {
         var result: [String: JSON] = ["outcome": .string(status), "choiceId": .text(choice),
                                       "text": .text(text), "respondedAt": .date(Date())]
         if authenticated { result["locallyAuthenticated"] = true }
+        if let textValues { result["textValues"] = .object(textValues) }
         return .object(result)
     }
 }

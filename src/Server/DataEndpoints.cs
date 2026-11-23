@@ -72,8 +72,12 @@ internal sealed class JobService(Database db, AgentBroker broker, ReviewService 
             Func<JsonElement, CancellationToken, Task>? progress = job.Kind == "diagnostics.run"
                 ? (part, token) => outputs.Write(job, part, token)
                 : null;
-            // A separate wire command keeps older agents from opening an unmasked input for this request.
-            var commandKind = data is DialogRequest { MaskText: true } ? InteractionEndpoints.MaskedDialog : job.Kind;
+            var commandKind = data switch
+            {
+                DialogRequest { TextFields: not null } => InteractionEndpoints.FormDialog,
+                DialogRequest { MaskText: true } => InteractionEndpoints.MaskedDialog,
+                _ => job.Kind
+            };
             var pending = broker.Invoke(job.DeviceId, commandKind, data, ct, commandId: job.Id,
                 timeout: commandTimeout, connectionId: connectionId, progress: progress);
             if (job.Kind == InteractionEndpoints.Dialog)

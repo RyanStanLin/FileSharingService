@@ -265,6 +265,24 @@ Content-Type: application/json
 
 {"title":"Maintenance confirmation","message":"Enter the approval code for this maintenance request.","choices":[{"id":"approve","label":"Submit"}],"askText":true,"textRequired":true,"maskText":true,"timeoutSeconds":60}
 
+### Ask for configurable fields in a native alert
+POST {{api}}/devices/{{device}}/interactions/dialogs
+Cookie: {{cookie}}
+Origin: {{origin}}
+Content-Type: application/json
+
+{
+  "title": "Maintenance review",
+  "message": "Complete the confirmation fields.",
+  "choices": [{"id": "approve", "label": "Submit"}],
+  "textFields": [
+    {"id": "reason", "hintText": "Reason", "defaultText": "Scheduled maintenance", "required": true},
+    {"id": "reference", "hintText": "Request ID", "defaultText": "CHG-42", "disabled": true},
+    {"id": "approval", "hintText": "Approval code", "maskText": true, "required": true}
+  ],
+  "timeoutSeconds": 60
+}
+
 ### Schedule a local macOS notification
 POST {{api}}/devices/{{device}}/interactions/notifications
 Cookie: {{cookie}}

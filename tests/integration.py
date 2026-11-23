@@ -1299,6 +1299,45 @@ app.run()
                     self.assertEqual(self.finished_job(job)["result"]["text"], code)
                     self.api("GET", f"{API}/jobs/{job['id']}", 401, session=self.client())
 
+                    text_fields = [
+                        {"id": "reason", "hintText": "Reason", "defaultText": "Maintenance",
+                         "required": True, "disabled": False, "maskText": False},
+                        {"id": "reference", "hintText": "Request ID", "defaultText": "CHG-42",
+                         "required": True, "disabled": True, "maskText": False},
+                        {"id": "approval", "hintText": "Approval code", "defaultText": "",
+                         "required": True, "disabled": False, "maskText": True},
+                        {"id": "note", "hintText": None, "defaultText": "", "required": False, "disabled": False, "maskText": False},
+                    ]
+                    form = request | {"askText": False, "textRequired": False, "textFields": text_fields}
+                    for invalid in (form | {"askText": True}, form | {"requireLocalAuthentication": True},
+                                    form | {"textFields": []}, form | {"textFields": text_fields * 2},
+                                    form | {"textFields": [text_fields[0], text_fields[0]]},
+                                    form | {"textFields": [text_fields[0] | {"hintText": "x" * 121}]},
+                                    form | {"textFields": [text_fields[0] | {"defaultText": "x\ny"}]}):
+                        self.api("POST", dialogs, 400, json=invalid)
+                    values = {"reason": "  Verified  ", "approval": code, "note": ""}
+                    for returned, expected in ((values, "completed"),
+                                               (values | {"reference": "CHG-42"}, "failed"),
+                                               (values | {"reason": "  "}, "failed"),
+                                               ({"reason": "Verified", "approval": code}, "failed"),
+                                               (values | {"approval": None}, "failed"),
+                                               (values | {"approval": 42}, "failed")):
+                        job = self.api("POST", dialogs, 202, json=form).json()
+                        command = next_message()
+                        self.assertEqual((command["kind"], command["id"], command["payload"]),
+                                         ("interaction.dialog.form", job["id"], form))
+                        reply({"type": "result", "id": job["id"], "ok": True,
+                               "payload": answer | {"text": None, "textValues": returned}})
+                        event = self.receive(events, lambda value: value["type"] == "event"
+                                             and value["item"]["payload"]["id"] == job["id"])["item"]["payload"]
+                        self.assertEqual(event, {"id": job["id"], "state": expected, "kind": "interaction.dialog"})
+                        finished = self.finished_job(job)
+                        if expected == "completed":
+                            self.assertEqual(finished["result"]["textValues"], values)
+                            self.assertIsNone(finished["result"]["text"])
+                        else:
+                            self.assertEqual((finished["error"], finished["result"]), ("invalid_dialog_result", None))
+
                 protected = {key: value for key, value in request.items() if key not in ("icon", "askText", "textRequired")}
                 protected["requireLocalAuthentication"] = True
                 self.api("POST", dialogs, 400, json=protected | {"askText": True})
@@ -1349,9 +1388,11 @@ if request["title"] == "Timeout fixture":
     signal.signal(signal.SIGTERM, signal.SIG_IGN)
     Path(os.environ["FILESHARING_TEST_HELPER_PID"]).write_text(str(os.getpid()))
     time.sleep(60)
-print(json.dumps({"payload": {"outcome": "submitted", "choiceId": "yes",
-                             "text": "00-APP-42" if request.get("maskText") else None,
-                             "respondedAt": datetime.now(timezone.utc).isoformat()}}))
+result = {"outcome": "submitted", "choiceId": "yes", "text": "00-APP-42" if request.get("maskText") else None,
+          "respondedAt": datetime.now(timezone.utc).isoformat()}
+if "textFields" in request:
+    result["textValues"] = {field["id"]: field["defaultText"] for field in request["textFields"] if not field["disabled"]}
+print(json.dumps({"payload": result}, ensure_ascii=False))
 """)
         helper.chmod(0o700)
         self.env["FILESHARING_TEST_DIALOG_HELPER"] = str(helper)
@@ -1384,6 +1425,11 @@ print(json.dumps({"payload": {"outcome": "submitted", "choiceId": "yes",
             os.kill(child_pid, 0)
         completed = self.finished_job(submit("Reply fixture", askText=True, textRequired=True, maskText=True))
         self.assertEqual((completed["result"]["choiceId"], completed["result"]["text"]), ("yes", "00-APP-42"))
+        text_fields = [{"id": f"field-{index}", "defaultText": "测" * 1024, "required": True}
+                       for index in range(6)]
+        large = self.finished_job(submit("Large form fixture", textFields=text_fields))
+        self.assertEqual(large["state"], "completed")
+        self.assertEqual(large["result"]["textValues"], {field["id"]: field["defaultText"] for field in text_fields})
         self.assertEqual(self.api("GET", self.device_api).json()["connection"]["connectionId"], connection_id)
 
     def test_diagnostic_outputs_stream_and_resume_on_wss_and_https(self):
@@ -2182,6 +2228,10 @@ precondition(board.setString("ISOLATED_CLIPBOARD_CONTENT", forType: .string))
         self.assertIn("FileEntry", contract["components"]["schemas"])
         self.assertIn("WindowSnapshot", contract["components"]["schemas"])
         self.assertIn("204", paths["/api/v1/devices/{id}/windows"]["get"]["responses"])
+        schemas = contract["components"]["schemas"]
+        self.assertIn("textFields", schemas["DialogRequest"]["properties"])
+        self.assertEqual(set(schemas["DialogTextField"]["properties"]),
+                         {"id", "hintText", "defaultText", "disabled", "required", "maskText"})
 
 
 if __name__ == "__main__":

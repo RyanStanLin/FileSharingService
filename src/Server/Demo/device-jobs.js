@@ -1,4 +1,5 @@
 import {dateText, element, facts, status} from "./ui.js"
+import {dialogFieldEditor, dialogFieldResults} from "./dialog-text-fields.js"
 
 const fields = {diagnostic: "diagnostic-fields", dialog: "dialog-fields", collection: "collect-telemetry"}
 const ledgers = {diagnostic: "diagnostic-status", dialog: "dialog-status", collection: "collect-status"}
@@ -6,6 +7,7 @@ const results = {submitted: "Mac 用户已提交", dismissed: "Mac 用户已取�
 
 export function deviceJobs({call, perform, errorText, collectCompleted}) {
     let current
+    const readDialogFields = dialogFieldEditor()
     const approvalValue = element("dialog-approval-value")
     const approvalToggle = element("dialog-approval-toggle")
 
@@ -48,7 +50,8 @@ export function deviceJobs({call, perform, errorText, collectCompleted}) {
     async function submit(kind, suffix, body) {
         const state = current
         if (!state?.allowed || (state.runs[kind] && !state.runs[kind].finished)) return
-        const run = {kind, choices: body.choices, maskText: body.maskText === true, parts: new Map(), cursor: 0}
+        const run = {kind, choices: body.choices, maskText: body.maskText === true,
+            textFields: body.textFields?.map(({id, hintText, maskText}) => ({id, hintText, maskText})), parts: new Map(), cursor: 0}
         state.runs[kind] = run
         status(ledgers[kind], "正在发送到 Mac…")
         if (kind === "dialog") {
@@ -142,7 +145,8 @@ export function deviceJobs({call, perform, errorText, collectCompleted}) {
             const result = job.result
             status("dialog-status", results[result.outcome] ?? result.outcome)
             const details = [["所选选项", run.choices.find(choice => choice.id === result.choiceId)?.label]]
-            if (!run.maskText) details.push(["用户说明", result.text])
+            if (run.textFields) details.push(...dialogFieldResults(run.textFields, result.textValues ?? {}))
+            else if (!run.maskText) details.push(["用户说明", result.text])
             details.push(["答复时间", dateText(result.respondedAt)])
             facts("dialog-result", details)
             if (run.maskText) renderApprovalCode(result.text)
@@ -186,14 +190,22 @@ export function deviceJobs({call, perform, errorText, collectCompleted}) {
         const mode = element("dialog-input").value
         const choices = [1, 2, 3].map(index => ({id: "choice-" + index, label: element("dialog-choice-" + index).value.trim()}))
             .filter(choice => choice.label)
+        const textFields = mode === "customFields" ? readDialogFields() : undefined
         if (!choices.length || !element("dialog-title").value.trim() || !element("dialog-message").value.trim()) {
             status("dialog-status", "请输入标题、提示文字和至少一个选项。", true)
             return
         }
+        if (textFields?.length === 0) {
+            status("dialog-status", "请添加至少一个输入框。", true)
+            element("dialog-add-text-field").focus()
+            return
+        }
         return submit("dialog", "/interactions/dialogs", {
             title: element("dialog-title").value.trim(), message: element("dialog-message").value.trim(),
-            choices, askText: mode !== "none", textRequired: mode === "required" || mode === "maskedRequired",
-            maskText: mode === "maskedOptional" || mode === "maskedRequired",
+            choices, ...(textFields ? {textFields} : {
+                askText: mode !== "none", textRequired: mode === "required" || mode === "maskedRequired",
+                maskText: mode === "maskedOptional" || mode === "maskedRequired"
+            }),
             timeoutSeconds: element("dialog-timeout").valueAsNumber
         })
     }))

@@ -10,11 +10,12 @@ struct NativeDialogSmoke {
             do {
                 try await submitsPlainTextAndSelectedOption()
                 try await submitsMaskedApprovalCode()
+                try await submitsConfiguredTextFields()
                 try await submitsOnlyVisibleChoice()
                 try await dismissesWithEscapeWhileEditing()
                 try await expiresAndReopens()
                 try await dismissesOnTaskCancellation()
-                print("Native NSAlert smoke passed: screen centering, one button, two side-by-side buttons, input, Escape, timeout, and reopening.")
+                print("Native NSAlert smoke passed: configured fields, screen centering, buttons, Escape, timeout, and reopening.")
                 exit(EXIT_SUCCESS)
             } catch {
                 fail(error)
@@ -97,6 +98,47 @@ struct NativeDialogSmoke {
         guard result["outcome"].string == "submitted", result["choiceId"].string == "submit",
               result["text"].string == approval, result["locallyAuthenticated"] == .null else {
             throw AgentError("approval_response_mismatch")
+        }
+    }
+
+    @MainActor
+    private static func submitsConfiguredTextFields() async throws {
+        let preset = "  Approved maintenance  "
+        let code = "  00-APP-42  "
+        let options = request(message: "请填写确认信息。", askText: false)
+        guard case .object(var form) = options else { throw AgentError("invalid_fixture") }
+        form["textFields"] = [
+            ["id": "reference", "hintText": "工单编号", "defaultText": "CHG-42", "disabled": true, "required": true],
+            ["id": "reason", "hintText": "原因", "defaultText": .string(preset), "required": true],
+            ["id": "approval", "hintText": "审批码", "maskText": true, "required": true],
+            ["id": "note", "hintText": "备注"]
+        ]
+        let result = try await interact(with: .object(form)) { window, controls in
+            let fields = controls.compactMap { $0 as? NSTextField }.filter { $0.placeholderString != nil }
+            guard abs(window.frame.width - 260) <= 1,
+                  fields.map(\.placeholderString) == ["工单编号", "原因", "审批码", "备注"] else {
+                throw AgentError("unexpected_configured_fields")
+            }
+            let reference = fields[0], reason = fields[1], approval = fields[2], note = fields[3]
+            guard reference.stringValue == "CHG-42", !reference.isEnabled, !reference.isEditable,
+                  reason.stringValue == preset, reason.isEnabled, reason.currentEditor() != nil,
+                  approval is NSSecureTextField, (approval.cell as? NSSecureTextFieldCell)?.echosBullets == true,
+                  note.stringValue.isEmpty,
+                  let primary = controls.compactMap({ $0 as? NSButton }).first(where: { $0.title == "同意" }),
+                  !primary.isEnabled, window.makeFirstResponder(approval),
+                  let editor = approval.currentEditor() as? NSTextView else {
+                throw AgentError("incorrect_field_configuration")
+            }
+            editor.insertText("  ", replacementRange: NSRange(location: NSNotFound, length: 0))
+            guard !primary.isEnabled else { throw AgentError("blank_required_field_accepted") }
+            editor.selectAll(nil)
+            editor.insertText(code, replacementRange: NSRange(location: NSNotFound, length: 0))
+            guard primary.isEnabled else { throw AgentError("filled_fields_cannot_submit") }
+            primary.performClick(nil)
+        }
+        guard result["outcome"].string == "submitted", result["choiceId"].string == "submit", result["text"] == .null,
+              result["textValues"] == ["reason": .string(preset), "approval": .string(code), "note": ""] else {
+            throw AgentError("configured_field_response_mismatch")
         }
     }
 

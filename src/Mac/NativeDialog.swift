@@ -5,13 +5,53 @@ import Darwin
 import Foundation
 import LocalAuthentication
 
+private struct DialogField {
+    let id: String?
+    let hintText: String?
+    let defaultText: String
+    let disabled: Bool
+    let required: Bool
+    let maskText: Bool
+
+    static func configured(_ value: JSON) throws -> [DialogField] {
+        guard let fields = value.array, (1...6).contains(fields.count) else { throw AgentError("invalid_request") }
+        var ids = Set<String>()
+        return try fields.map { field in
+            let id = try field.requireString("id")
+            let hint = try text(field["hintText"], maximum: 120)
+            let initial = try text(field["defaultText"], maximum: 1024) ?? ""
+            guard (1...32).contains(id.utf8.count), id.utf8.allSatisfy({
+                (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) || $0 == 45 || $0 == 95
+            }), ids.insert(id).inserted else { throw AgentError("invalid_request") }
+            return DialogField(id: id, hintText: hint, defaultText: initial, disabled: try flag(field["disabled"]),
+                               required: try flag(field["required"]), maskText: try flag(field["maskText"]))
+        }
+    }
+
+    private static func text(_ value: JSON, maximum: Int) throws -> String? {
+        if value == .null { return nil }
+        guard let string = value.string, validText(string, maximum: maximum) else { throw AgentError("invalid_request") }
+        return string
+    }
+
+    private static func flag(_ value: JSON) throws -> Bool {
+        if value == .null { return false }
+        guard let flag = value.bool else { throw AgentError("invalid_request") }
+        return flag
+    }
+
+    static func validText(_ value: String, maximum: Int) -> Bool {
+        value.utf16.count <= maximum && !value.unicodeScalars.contains { $0.properties.generalCategory == .control }
+    }
+}
+
 @MainActor
 final class NativeDialog: NSObject, NSTextFieldDelegate {
     private let alert = NSAlert()
     private let options: [(id: String, label: String)]
-    private let textRequired: Bool
     private let requireAuthentication: Bool
-    private let inputField: NSTextField?
+    private let isForm: Bool
+    private let inputs: [(field: DialogField, control: NSTextField)]
     private var authentication: LAContext?
     private var interruption: String?
 
@@ -19,9 +59,8 @@ final class NativeDialog: NSObject, NSTextFieldDelegate {
         let parent = getppid()
         let reply: JSON
         do {
-            guard parent > 1, let bytes = try FileHandle.standardInput.readToEnd(), bytes.count <= 8_192 else {
-                throw AgentError("invalid_request")
-            }
+            guard parent > 1 else { throw AgentError("invalid_request") }
+            let bytes = try DialogProcess.readFrame(FileHandle.standardInput)
             reply = ["payload": try await present(JSON.decode(bytes), parent: parent)]
         } catch {
             reply = ["code": .string((error as? AgentError)?.code ?? "dialog_presentation_failed")]
@@ -39,10 +78,12 @@ final class NativeDialog: NSObject, NSTextFieldDelegate {
         let maskText = input["maskText"].bool == true
         let textRequired = input["textRequired"].bool == true
         let requireAuthentication = input["requireLocalAuthentication"].bool == true
+        let isForm = input["textFields"] != .null
         guard (1...100).contains(title.utf16.count), (1...1000).contains(message.utf16.count),
               let choices = input["choices"].array, (1...3).contains(choices.count),
               let seconds = input["timeoutSeconds"].int, (10...120).contains(seconds),
-              (!(textRequired || maskText) || askText), !(askText && requireAuthentication) else {
+              (!(textRequired || maskText) || askText), !(askText && requireAuthentication),
+              !(isForm && (askText || requireAuthentication)) else {
             throw AgentError("invalid_request")
         }
         let options = try choices.map { choice in
@@ -53,20 +94,26 @@ final class NativeDialog: NSObject, NSTextFieldDelegate {
             }
             return (id, label)
         }
-        return try await NativeDialog(title: title, message: message, options: options, askText: askText, maskText: maskText,
-                                      textRequired: textRequired, requireAuthentication: requireAuthentication)
+        let fields: [DialogField]
+        if isForm {
+            fields = try DialogField.configured(input["textFields"])
+        } else {
+            fields = askText ? [DialogField(id: nil, hintText: nil, defaultText: "", disabled: false,
+                                            required: textRequired, maskText: maskText)] : []
+        }
+        return try await NativeDialog(title: title, message: message, options: options, fields: fields,
+                                      isForm: isForm, requireAuthentication: requireAuthentication)
             .show(for: .seconds(seconds), parent: parent)
     }
 
-    private init(title: String, message: String, options: [(String, String)], askText: Bool, maskText: Bool, textRequired: Bool,
+    private init(title: String, message: String, options: [(String, String)], fields: [DialogField], isForm: Bool,
                  requireAuthentication: Bool) {
         self.options = options
-        self.textRequired = textRequired
+        self.isForm = isForm
         self.requireAuthentication = requireAuthentication
-        if maskText {
-            self.inputField = NSSecureTextField(string: "")
-        } else {
-            self.inputField = askText ? NSTextField(string: "") : nil
+        self.inputs = fields.map { field in
+            let control = field.maskText ? NSSecureTextField(string: field.defaultText) : NSTextField(string: field.defaultText)
+            return (field, control)
         }
         super.init()
 
@@ -74,17 +121,42 @@ final class NativeDialog: NSObject, NSTextFieldDelegate {
         alert.messageText = title
         alert.informativeText = message
         alert.icon = NSApplication.shared.applicationIconImage
-        if let inputField {
-            inputField.delegate = self
-            inputField.setAccessibilityLabel(maskText ? "企业审批码" : "说明")
-            inputField.sizeToFit()
-            inputField.frame.size.width = 212
-            alert.accessoryView = inputField
-        }
+        configureAccessory()
         for (index, option) in options.enumerated() {
             alert.addButton(withTitle: option.1).keyEquivalent = index == 0 ? "\r" : ""
         }
         updateButtons()
+    }
+
+    private func configureAccessory() {
+        let width: CGFloat = 212
+        let spacing: CGFloat = 7
+        for (field, control) in inputs {
+            control.delegate = self
+            control.isEnabled = !field.disabled
+            control.isEditable = !field.disabled
+            control.isSelectable = !field.disabled
+            control.placeholderString = field.hintText
+            let label = field.hintText.flatMap { $0.isEmpty ? nil : $0 } ?? field.id ?? (field.maskText ? "企业审批码" : "说明")
+            control.setAccessibilityLabel(label)
+            control.sizeToFit()
+            control.frame.size.width = width
+        }
+        guard let first = inputs.first else { return }
+        if inputs.count == 1 {
+            alert.accessoryView = first.control
+            return
+        }
+        let height = inputs.reduce(spacing * CGFloat(inputs.count - 1)) { $0 + $1.control.frame.height }
+        let form = NSView(frame: NSRect(x: 0, y: 0, width: width, height: height))
+        var y = height
+        for (_, control) in inputs {
+            y -= control.frame.height
+            control.frame.origin = NSPoint(x: 0, y: y)
+            form.addSubview(control)
+            y -= spacing
+        }
+        alert.accessoryView = form
     }
 
     private static var hasInteractiveSession: Bool {
@@ -100,7 +172,7 @@ final class NativeDialog: NSObject, NSTextFieldDelegate {
         window.hidesOnDeactivate = false
         window.level = .modalPanel
         window.collectionBehavior = [.moveToActiveSpace, .canJoinAllApplications]
-        if let inputField { window.initialFirstResponder = inputField }
+        if let entry = inputs.first(where: { !$0.field.disabled }) { window.initialFirstResponder = entry.control }
         let pointer = NSEvent.mouseLocation
         if let screen = NSScreen.screens.first(where: { $0.frame.contains(pointer) }) ?? NSScreen.main {
             let frame = window.frame
@@ -144,7 +216,15 @@ final class NativeDialog: NSObject, NSTextFieldDelegate {
             guard options.indices.contains(index), isInputValid else { return DialogProcess.outcome("dismissed") }
             let id = options[index].id
             if !requireAuthentication {
-                return DialogProcess.outcome("submitted", choice: id, text: inputValue)
+                if isForm {
+                    let values = Dictionary(uniqueKeysWithValues: inputs.compactMap { field, control -> (String, JSON)? in
+                        guard !field.disabled, let id = field.id else { return nil }
+                        return (id, .string(inputValue(field, control)))
+                    })
+                    return DialogProcess.outcome("submitted", choice: id, textValues: values)
+                }
+                let text = inputs.first.map { inputValue($0.field, $0.control) }
+                return DialogProcess.outcome("submitted", choice: id, text: text)
             }
             let approved = try await authenticate()
             checkInterruption(deadline: deadline, parent: parent)
@@ -176,16 +256,19 @@ final class NativeDialog: NSObject, NSTextFieldDelegate {
 
     func controlTextDidChange(_ notification: Foundation.Notification) { updateButtons() }
 
-    private var inputValue: String? {
-        guard let inputField else { return nil }
-        let value = inputField.stringValue
-        return inputField is NSSecureTextField ? value : value.trimmingCharacters(in: .whitespacesAndNewlines)
+    private func inputValue(_ field: DialogField, _ control: NSTextField) -> String {
+        let value = control.currentEditor()?.string ?? control.stringValue
+        return isForm || field.maskText ? value : value.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private var isInputValid: Bool {
-        let value = inputValue ?? ""
-        return value.utf16.count <= 1024 && (!textRequired || !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) &&
-            !value.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains)
+        inputs.allSatisfy { field, control in
+            if field.disabled { return true }
+            let value = inputValue(field, control)
+            guard !field.required || !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+            if isForm { return DialogField.validText(value, maximum: 1024) }
+            return value.utf16.count <= 1024 && !value.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains)
+        }
     }
 
     private func updateButtons() {
