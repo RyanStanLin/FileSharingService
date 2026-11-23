@@ -502,9 +502,8 @@ actor AgentTransport {
     private func emitClipboardChange(_ observedAt: Date, text: String?) {
         let content = text.map { original in
             let encrypted = encrypt(original)
-            // The placeholder implementation returns plaintext unchanged.
-            return encrypted == original ? "N/A" : encrypted
-        } ?? "N/A"
+            return encrypted == original
+        }
         emit(topic: "clipboard.changed", data: [
             "occurredAt": .date(observedAt),
             "content": .string(content),
