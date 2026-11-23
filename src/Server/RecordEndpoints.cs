@@ -4,9 +4,6 @@ namespace FileSharing;
 
 internal static class RecordEndpoints
 {
-    private const string ClipboardColumns = "Sequence,DeviceId,Event,OccurredAt,RecordedAt,Content";
-    private const string DialogColumns = "Sequence,Id,DeviceId,Title,Outcome,ChoiceId,Created,Finished";
-
     public static void Map(RouteGroupBuilder devices)
     {
         var clipboard = devices.MapGroup("/clipboard/records").WithTags("Device records");
@@ -24,8 +21,9 @@ internal static class RecordEndpoints
         id = await DeviceId(id, devices, ct);
         var take = Page<ClipboardRecord>.Size(limit);
         var upperBound = UpperBound(cursor);
-        var rows = await db.List<ClipboardRecordRow>($"""
-            SELECT {ClipboardColumns} FROM ClipboardRecords WHERE DeviceId=@id AND Sequence<=@upperBound
+        var rows = await db.List<ClipboardRecordRow>("""
+            SELECT Sequence,DeviceId,Event,OccurredAt,RecordedAt,Content FROM ClipboardRecords
+            WHERE DeviceId=@id AND Sequence<=@upperBound
             ORDER BY Sequence DESC LIMIT @size
             """, new { id, upperBound, size = take + 1 }, ct);
         return TypedResults.Ok(Page<ClipboardRecord>.From(rows.Select(row => row.View).ToArray(), take, row => row.Id));
@@ -37,8 +35,10 @@ internal static class RecordEndpoints
         await reviews.Require(ctx, ct);
         id = await DeviceId(id, devices, ct);
         var sequence = EventFeed.Cursor(recordId);
-        var record = await db.One<ClipboardRecordRow>($"SELECT {ClipboardColumns} FROM ClipboardRecords WHERE DeviceId=@id AND Sequence=@sequence",
-            new { id, sequence }, ct) ?? throw Fault.Missing("record_not_found");
+        var record = await db.One<ClipboardRecordRow>("""
+            SELECT Sequence,DeviceId,Event,OccurredAt,RecordedAt,Content FROM ClipboardRecords
+            WHERE DeviceId=@id AND Sequence=@sequence
+            """, new { id, sequence }, ct) ?? throw Fault.Missing("record_not_found");
         return TypedResults.Ok(record.View);
     }
 
@@ -49,8 +49,8 @@ internal static class RecordEndpoints
         id = await DeviceId(id, devices, ct);
         var take = Page<DialogRecord>.Size(limit);
         var upperBound = UpperBound(cursor);
-        var rows = await db.List<DialogRecordRow>($"""
-            SELECT {DialogColumns} FROM DialogRecords
+        var rows = await db.List<DialogRecordRow>("""
+            SELECT Sequence,Id,DeviceId,Title,Outcome,ChoiceId,Created,Finished FROM DialogRecords
             WHERE DeviceId=@id AND Owner=@Initiator AND Sequence<=@upperBound
             ORDER BY Sequence DESC LIMIT @size
             """, new { id, review.Initiator, upperBound, size = take + 1 }, ct);
@@ -62,8 +62,8 @@ internal static class RecordEndpoints
     {
         var review = await reviews.Require(ctx, ct);
         id = await DeviceId(id, devices, ct);
-        var record = await db.One<DialogRecordDetailRow>($"""
-            SELECT {DialogColumns},Request,Result FROM DialogRecords
+        var record = await db.One<DialogRecordDetailRow>("""
+            SELECT Sequence,Id,DeviceId,Title,Outcome,ChoiceId,Created,Finished,Request,Result FROM DialogRecords
             WHERE DeviceId=@id AND Owner=@Initiator AND Id=@recordId
             """, new { id, recordId = Secrets.Identifier(recordId), review.Initiator }, ct) ?? throw Fault.Missing("record_not_found");
         return TypedResults.Ok(record.Detail);

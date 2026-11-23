@@ -16,10 +16,11 @@ internal static class NotificationMatcher
             return;
         var rules = (await connection.QueryAsync<NotificationRuleRow>(new CommandDefinition("""
             SELECT r.* FROM NotificationRules r JOIN Devices d ON d.Id=r.DeviceId AND d.Revoked IS NULL
-            WHERE r.DeviceId=@device AND r.Enabled=1 AND EXISTS (SELECT 1 FROM json_each(r.Events) WHERE value IN @types)
+            WHERE r.DeviceId=@device AND r.Enabled=1 AND EXISTS (
+                SELECT 1 FROM json_each(r.Events) events WHERE events.value IN (SELECT value FROM json_each(@types)))
                 AND (@root IS NULL OR (json_extract(r.Filter,'$.file.rootId')=@root AND json_extract(r.Filter,'$.file.path')=@path))
             ORDER BY r.Id
-            """, new { device, types = signals.Select(signal => signal.Type).Distinct().ToArray(), root = watch?.RootId, path = watch?.Path },
+            """, new { device, types = Wire.Encode(signals.Select(signal => signal.Type).Distinct()), root = watch?.RootId, path = watch?.Path },
             tx, cancellationToken: ct))).AsList();
         if (rules.Count == 0)
             return;
@@ -27,8 +28,8 @@ internal static class NotificationMatcher
         var deviceName = await connection.QuerySingleAsync<string>(new CommandDefinition("SELECT Name FROM Devices WHERE Id=@device",
             new { device }, tx, cancellationToken: ct));
         var channels = (await connection.QueryAsync<NotificationChannelRow>(new CommandDefinition("""
-            SELECT * FROM NotificationChannels WHERE Enabled=1 AND Id IN @ids
-            """, new { ids = rules.SelectMany(rule => rule.Channels).Distinct().ToArray() }, tx, cancellationToken: ct)))
+            SELECT * FROM NotificationChannels WHERE Enabled=1 AND Id IN (SELECT value FROM json_each(@ids))
+            """, new { ids = Wire.Encode(rules.SelectMany(rule => rule.Channels).Distinct()) }, tx, cancellationToken: ct)))
             .ToDictionary(channel => channel.Id, StringComparer.Ordinal);
         var capacity = await Capacity.Load(connection, tx, ct);
 

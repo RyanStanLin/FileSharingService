@@ -133,7 +133,17 @@ internal sealed class FtpFiles(Database db, AgentBroker broker, FtpAccounts acco
     {
         if (!await accounts.Active(identity, ct))
             throw Fault.Unauthorized();
-        var rows = await db.List<FtpRoot>(RootSelection + " ORDER BY r.DeviceId,r.Id", identity, ct);
+        var rows = await db.List<FtpRoot>("""
+            SELECT r.Id,r.DeviceId,d.Created,d.Name AS DeviceName,CASE WHEN a.Scope='activeHomes' THEN m.Name END AS Mount
+            FROM Roots r JOIN Devices d ON d.Id=r.DeviceId
+            JOIN ObservedRoots o ON o.DeviceId=d.Id AND o.RootKey=r.RootKey
+            JOIN FtpAccounts a ON a.Id=@Id AND a.Revision=@Revision AND a.Scope=@Scope AND a.Disabled=0
+            LEFT JOIN FtpGrants g ON g.RootId=r.Id AND g.AccountId=a.Id
+            LEFT JOIN GatewayMounts m ON m.DeviceId=r.DeviceId
+            WHERE r.Enabled=1 AND d.Revoked IS NULL
+                AND ((a.Scope='activeHomes' AND o.[Primary]=1) OR (a.Scope='grants' AND g.RootId IS NOT NULL))
+            ORDER BY r.DeviceId,r.Id
+            """, identity, ct);
         var visible = rows.Where(row => broker.Presence(row.DeviceId).AccessGranted).ToArray();
         if (identity.Scope == "activeHomes" && visible.Any(row => row.Mount is null))
         {
@@ -191,8 +201,17 @@ internal sealed class FtpFiles(Database db, AgentBroker broker, FtpAccounts acco
         }
 
         var home = clean.Split('/', 2);
-        var row = await db.One<FtpRoot>(RootSelection + " AND m.Name=@name",
-            new { identity.Id, identity.Revision, identity.Scope, name = home[0] }, ct);
+        var row = await db.One<FtpRoot>("""
+            SELECT r.Id,r.DeviceId,d.Created,d.Name AS DeviceName,CASE WHEN a.Scope='activeHomes' THEN m.Name END AS Mount
+            FROM Roots r JOIN Devices d ON d.Id=r.DeviceId
+            JOIN ObservedRoots o ON o.DeviceId=d.Id AND o.RootKey=r.RootKey
+            JOIN FtpAccounts a ON a.Id=@Id AND a.Revision=@Revision AND a.Scope=@Scope AND a.Disabled=0
+            LEFT JOIN FtpGrants g ON g.RootId=r.Id AND g.AccountId=a.Id
+            LEFT JOIN GatewayMounts m ON m.DeviceId=r.DeviceId
+            WHERE r.Enabled=1 AND d.Revoked IS NULL
+                AND ((a.Scope='activeHomes' AND o.[Primary]=1) OR (a.Scope='grants' AND g.RootId IS NOT NULL))
+                AND m.Name=@name
+            """, new { identity.Id, identity.Revision, identity.Scope, name = home[0] }, ct);
         row ??= (await Roots(identity, ct)).FirstOrDefault(item => string.Equals(item.Mount, home[0], StringComparison.OrdinalIgnoreCase));
         if (row is null)
             throw Fault.Missing();
@@ -213,15 +232,4 @@ internal sealed class FtpFiles(Database db, AgentBroker broker, FtpAccounts acco
         }
         return slug.Length == 0 ? "mac" : slug.ToString().TrimEnd('-');
     }
-
-    private const string RootSelection = """
-        SELECT r.Id,r.DeviceId,d.Created,d.Name AS DeviceName,CASE WHEN a.Scope='activeHomes' THEN m.Name END AS Mount
-        FROM Roots r JOIN Devices d ON d.Id=r.DeviceId
-        JOIN ObservedRoots o ON o.DeviceId=d.Id AND o.RootKey=r.RootKey
-        JOIN FtpAccounts a ON a.Id=@Id AND a.Revision=@Revision AND a.Scope=@Scope AND a.Disabled=0
-        LEFT JOIN FtpGrants g ON g.RootId=r.Id AND g.AccountId=a.Id
-        LEFT JOIN GatewayMounts m ON m.DeviceId=r.DeviceId
-        WHERE r.Enabled=1 AND d.Revoked IS NULL
-            AND ((a.Scope='activeHomes' AND o.[Primary]=1) OR (a.Scope='grants' AND g.RootId IS NOT NULL))
-        """;
 }

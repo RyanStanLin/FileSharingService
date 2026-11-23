@@ -153,7 +153,10 @@ internal sealed class JobService(Database db, AgentBroker broker, ReviewService 
 
 internal static class DataEndpoints
 {
-    private static readonly string[] StatusTopics = ["identity", "cpu", "memory", "disk", "battery", "power", "system", "displays", "locale", "network", "agent", "lid"];
+    private static readonly string StatusTopicsJson = Wire.Encode(new[]
+    {
+        "identity", "cpu", "memory", "disk", "battery", "power", "system", "displays", "locale", "network", "agent", "lid"
+    });
     private static readonly string[] Permissions = ["downloads", "documents", "desktop", "inputMonitoring", "pasteboard"];
     private static readonly string[] Diagnostics = ["osVersion", "uptime", "diskSpace", "agentHealth"];
 
@@ -193,8 +196,10 @@ internal static class DataEndpoints
         await reviews.Require(ctx, ct);
         var device = await devices.Require(id, ct);
         var connection = broker.Presence(id, device.LastSeen);
-        var rows = await db.List<SnapshotRow>("SELECT Topic,At,Payload FROM Snapshots WHERE DeviceId=@id AND Topic IN @topics ORDER BY Topic",
-            new { id, topics = StatusTopics }, ct);
+        var rows = await db.List<SnapshotRow>("""
+            SELECT Topic,At,Payload FROM Snapshots WHERE DeviceId=@id AND Topic IN (SELECT value FROM json_each(@topics))
+            ORDER BY Topic
+            """, new { id, topics = StatusTopicsJson }, ct);
         return TypedResults.Ok(new DeviceState(id, connection, rows.Select(x => x.View(connection.Online)).ToArray()));
     }
 

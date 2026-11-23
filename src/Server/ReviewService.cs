@@ -13,10 +13,6 @@ internal sealed record Challenge(string Owner, string State);
 
 internal sealed class ReviewService(Database db, Settings settings)
 {
-    private const string Active = """
-        FROM Reviews r WHERE r.Revoked IS NULL AND r.Expires>@Now AND r.LastAccess>@Idle
-        """;
-
     public static void RequireOrigin(HttpContext context, Settings settings)
     {
         if (!string.Equals(context.Request.Headers.Origin, settings.OriginValue, StringComparison.Ordinal))
@@ -80,9 +76,10 @@ internal sealed class ReviewService(Database db, Settings settings)
     public Task<Review?> Current(HttpContext context, CancellationToken ct)
     {
         var token = context.Request.Cookies[settings.Cookie];
-        return token is not { Length: 43 } ? Task.FromResult<Review?>(null) : db.One<Review>(
-            $"SELECT Id,Initiator,Created,Expires,LastAccess {Active} AND r.SecretHash=@Hash",
-            new { Hash = Secrets.Hash(token), Now = Clock.Now, Idle = Clock.Now - 1800 }, ct);
+        return token is not { Length: 43 } ? Task.FromResult<Review?>(null) : db.One<Review>("""
+            SELECT Id,Initiator,Created,Expires,LastAccess FROM Reviews
+            WHERE SecretHash=@Hash AND Revoked IS NULL AND Expires>@Now AND LastAccess>@Idle
+            """, new { Hash = Secrets.Hash(token), Now = Clock.Now, Idle = Clock.Now - 1800 }, ct);
     }
 
     public async Task<Review> Require(HttpContext context, CancellationToken ct)
@@ -93,8 +90,10 @@ internal sealed class ReviewService(Database db, Settings settings)
     }
 
     public Task<Review?> ActiveById(string id, CancellationToken ct) =>
-        db.One<Review>($"SELECT Id,Initiator,Created,Expires,LastAccess {Active} AND r.Id=@id",
-            new { id, Now = Clock.Now, Idle = Clock.Now - 1800 }, ct);
+        db.One<Review>("""
+            SELECT Id,Initiator,Created,Expires,LastAccess FROM Reviews
+            WHERE Id=@id AND Revoked IS NULL AND Expires>@Now AND LastAccess>@Idle
+            """, new { id, Now = Clock.Now, Idle = Clock.Now - 1800 }, ct);
 
     public Task Touch(string id, long lastAccess, CancellationToken ct) =>
         Clock.Now - lastAccess < 10 ? Task.CompletedTask :

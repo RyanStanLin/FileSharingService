@@ -67,8 +67,8 @@ internal sealed class NotificationRules(Database db) : INotificationRules
                 """, new { device }, tx, cancellationToken: ct)))
                 throw Fault.Missing("device_not_found");
             var foundChannels = await connection.ExecuteScalarAsync<int>(new CommandDefinition("""
-                SELECT COUNT(*) FROM NotificationChannels WHERE Id IN @channels
-                """, new { channels = request.ChannelIds.ToArray() }, tx, cancellationToken: ct));
+                SELECT COUNT(*) FROM NotificationChannels WHERE Id IN (SELECT value FROM json_each(@channels))
+                """, new { channels = Wire.Encode(request.ChannelIds) }, tx, cancellationToken: ct));
             if (foundChannels != request.ChannelIds.Count)
                 throw Fault.Missing("notification_channel_not_found");
 

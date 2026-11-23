@@ -1873,8 +1873,12 @@ precondition(board.setString("ISOLATED_CLIPBOARD_CONTENT", forType: .string))
                     self.api("GET", route, 403)
 
                 with closing(sqlite3.connect(self.work / "db" / "filesharing.db")) as db:
-                    for table in ("Events", "Snapshots"):
-                        self.assertEqual(db.execute(f"SELECT count(*) FROM {table} WHERE Topic='windows.changed'").fetchone()[0], 0)
+                    counts = db.execute("""
+                        SELECT COUNT(*) FROM Events WHERE Topic=?
+                        UNION ALL
+                        SELECT COUNT(*) FROM Snapshots WHERE Topic=?
+                        """, ("windows.changed", "windows.changed")).fetchall()
+                    self.assertEqual(counts, [(0,), (0,)])
 
     def test_permissions_per_device_policy_and_history(self):
         self.setup_device()

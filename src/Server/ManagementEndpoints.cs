@@ -80,9 +80,9 @@ internal sealed class DeviceService(Database db, AgentBroker broker)
               AND (@write=0 OR ((o.[Primary]=0 OR @library=0) AND (
                 (o.Writable=1 AND r.Writable=1) OR (o.[Primary]=1 AND @permission IS NOT NULL AND EXISTS (
                     SELECT 1 FROM Snapshots s WHERE s.DeviceId=@device AND s.Topic='permissions'
-                    AND json_extract(s.Payload,'$.' || @permission || '.state')='allowed'
-                    AND json_extract(s.Payload,'$.' || @permission || '.phase')='completed'
-                    AND json_type(s.Payload,'$.' || @permission || '.writable')='true'
+                    AND (s.Payload -> @permission ->> 'state')='allowed'
+                    AND (s.Payload -> @permission ->> 'phase')='completed'
+                    AND json_type(s.Payload -> @permission,'$.writable')='true'
                 ))
               )))
             """, new { device, root, write, library, permission }, ct);
