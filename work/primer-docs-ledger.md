@@ -169,16 +169,21 @@
 
 ### Data 详情表格
 
-- 主参考是当前 File Explorer 的实际 DOM。两处复用 ExplorerHeader、ExplorerTitle、ExplorerFacts、排序表头、CSS Modules、独立滚动区和续载观察器。正常桌面下标题栏高 129 px，表头 28 px，行高 36 px，偶数行使用 `bgColor-muted`。读取视图使用语义表格承载自己的列和内容，标题栏通过 Primer Select 切换数据集，行菜单通过 ActionMenu 打开同样样式的属性表格。
+- 主参考是当前 File Explorer 的实际 DOM。两处复用 ExplorerHeader、ExplorerTitle、ExplorerFacts、排序表头、CSS Modules、独立滚动区和续载观察器。正常桌面下标题栏高 129 px，表头 28 px，行高 36 px，偶数行使用 `bgColor-muted`。读取视图使用语义表格承载自己的列和内容，标题栏通过 Primer ActionMenu 切换数据集，行菜单通过 ActionMenu 打开同样样式的属性表格。
 - Data 的导航和表格使用默认 Octicons 尺寸并继承 Primer 颜色。应用图标使用 Agent 的原生 PNG，在与 File Explorer 相同的 20 px 等比框内显示。仅可见行请求图标，沿用按设备串行的低优先级队列和内存缓存。应用变更通过 Agent 快照推送更新列表，当前过滤和排序由本地状态维护。 [应用图标接口](../docs/api.md#遥测诊断和审计)
 - 与隔离 File Explorer 实测比对标题栏、表头、行高、字体和隔行底色。六条 Data 浏览器运行通过，其中五条覆盖全部读取类型、实时更新、离线恢复、移动端和键盘，另一次专门核对首屏至少 15 个原生 PNG 和同设备单请求并发。12 条 File System 回归通过。
 - Primer CSS 工具对七份变更样式返回空诊断。PostCSS 验证全部 13 份 CSS 模块、四套主题下的 176 处变量引用，以及 96 个手写前端源文件的长度。
 
 ## Window Activity
 
-- 2026-11-23 在同一 Primer 38.46.0 和 Primitives 11.10.0 基线上复用组件目录，复查 View、Navigation、Data Visualization、Loading、Empty States 和 Degraded Experiences。`#activity` 使用 overview 模板，保留顶栏 UnderlineNav 和 Versions 图标。面板标题用 Heading 和 Stack，多屏切换用带可见标签的 FormControl 和 medium Select。加载与错误复用 File System 的 Spinner 和重试组件。 [导航](https://primer.style/product/ui-patterns/navigation/) · [Select](https://primer.style/product/components/select/accessibility/)
+- 2026-11-23 在同一 Primer 38.46.0 和 Primitives 11.10.0 基线上复用组件目录，复查 View、Navigation、Data Visualization、Loading、Empty States 和 Degraded Experiences。`#activity` 使用 overview 模板，保留顶栏 UnderlineNav 和 Versions 图标。面板标题用 Heading 和 Stack，多屏切换用带可见标签的 FormControl 和 medium ActionMenu.Button。加载与错误复用 File System 的 Spinner 和重试组件。 [导航](https://primer.style/product/ui-patterns/navigation/) · [ActionMenu](https://primer.style/product/components/action-menu/accessibility/)
 - `Window Activity.svg` 的坐标系为 1280 × 950，外框从 (20, 128) 到 (1260, 930)，参考焦点边框为 4 个 SVG 单位，窗口圆角为 16。原始浏览器缩放未知。实现按需求使用 `base-size-20`、`base-size-16`、`borderWidth-thin` 和 `borderWidth-thicker`，配合 `bgColor-muted`、`borderColor-default`、`borderColor-accent-emphasis` 以及 `shadow-floating-small` 和 `shadow-floating-medium`。Primer 组件没有按设备屏幕几何排列的容器。CSS Modules 负责画布，位置、大小和比例作为设备数据传入 CSS 变量。容器查询按 80、44 和 48 CSS px 等效阈值收起空间不足的窗口文字。 [数据可视化](https://primer.style/product/ui-patterns/data-visualization/)
 - `displays` 的像素宽高决定画布比例。窗口按逻辑坐标和 zIndex 投影，跨屏窗口由各显示器裁切。按 PID 对应 `apps-running` 的图标、版本和运行时长。授权连接订阅 `windows.changed`，失去 WebSocket 时用修订号长轮询。进入新设备连接、锁定或切页会停止原订阅和请求。 [窗口接口](../docs/api.md#窗口实时状态) · [显示器样本](../docs/telemetry.md)
 - Chromium 与实际服务端及隔离测试 Agent 验证移动、缩放、焦点切换、图标、横竖屏、跨屏裁切、分辨率更新、授权撤销、长轮询和 WebSocket 恢复。WebKit 验证相同的画布比例、20 px 外距、16 px 圆角、4 px 焦点边框、真实 PNG 解码以及 204 长轮询后恢复推送。1280、768、375 和 320 CSS px 下页面无文档溢出。四套主题、简体中文和英文均实测，截图在 `.local/frontend-check/window-activity`。
 - `primerdoc.lint_css` 对两个变更模块及仅含官方前景和背景变量的对照样式均返回错误，未给出诊断。PostCSS 成功解析两份样式，核对四套主题共 228 处变量引用。浏览器截图与 SVG 核对布局关系，窗口内容来自联调数据。
 - 窗口位置用相对画布的 transform 更新，宽高用尺寸过渡。位置和大小使用 `base-duration-300`，焦点描边及阴影使用 `base-duration-200`，均用 `base-easing-easeInOut`。窗口元素按 ID 保持顺序，设备的 zIndex 单独控制画布内的叠放。内描边使用可插值的阴影宽度和颜色。系统启用减少动态效果时直接应用目标状态。Chromium 和 WebKit 逐帧验证了位移、缩放、焦点描边双向变化，以及过渡中收到下一份窗口快照。 [CSS Transitions](https://www.w3.org/TR/css-transitions-1/#starting)
+
+## 单选菜单
+
+- FileSharing Web 的五处有限单选复用 `ChoiceMenu`，包括 Data 的读取视图、应用清单和事件类型、File System 移动对话框的共享根，以及 Window Activity 的活动显示器。复核 Primer 38.46.0 的 ActionMenu、ActionList 单选示例与 SelectPanel 用法。使用 medium ActionMenu.Button 和 ActionList 的 `selectionVariant="single"`，触发按钮的无障碍名称包含本地化字段名与当前值。共享根和显示器保留可见的 FormControl 标签。 [ActionMenu](https://primer.style/product/components/action-menu/) · [ActionList](https://primer.style/product/components/action-list/)
+- Chromium 验证三类 Data 菜单、320 CSS px 下的方向键、Enter、Escape 和浏览器返回、两个授权共享根之间的实际文件移动，以及多屏切换后布局和实时更新。WebKit 验证存储视图和显示器选择、当前选项标记与焦点归还。五处交互均核对了菜单角色和原生 Select 清理结果。

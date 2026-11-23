@@ -51,6 +51,7 @@ export const zh: Record<keyof typeof en, string> = {
   folders: '文件夹',
   filesCount: '文件',
   viewOption: '视图选项',
+  choiceMenuLabel: '{label}，{value}',
   showHidden: '显示隐藏文件',
   path: '路径',
   folderOn: '{device} 上的文件夹',

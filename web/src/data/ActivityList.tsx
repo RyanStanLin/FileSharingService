@@ -1,8 +1,8 @@
 import {useState} from 'react'
-import {Select} from '@primer/react'
 import {HistoryIcon} from '@primer/octicons-react'
 import {activityTopics, recentMinutes, type ActivityTopic, type History} from '../api/telemetry'
 import {useLanguage, type Message} from '../i18n'
+import {ChoiceMenu} from '../ui/ChoiceMenu'
 import {ReadingPane, type ReadingChrome} from './ReadingPane'
 import {codeLabel} from './dataFields'
 import {object, textValue} from './format'
@@ -45,9 +45,6 @@ export function ActivityList({history, pending, chrome}: {history: History; pend
     columns: [{key: 'time', title: t('dataTime')}, {key: 'information', title: t('dataDescription')}],
     rows, icons: true, details: true, sort: {key: 'time', direction: 'desc'}, empty: t('dataNoEvents'), pending,
     snapshot: {observedAt, stale: false},
-  }} controls={<Select size="medium" aria-label={t('dataEventKind')} value={filter}
-    onChange={event => setFilter(event.target.value as typeof filter)}>
-    <Select.Option value="all">{t('dataAllEvents')}</Select.Option>
-    {activityTopics.map(topic => <Select.Option key={topic} value={topic}>{t(titles[topic])}</Select.Option>)}
-  </Select>} />
+  }} controls={<ChoiceMenu<ActivityTopic | 'all'> label={t('dataEventKind')} value={filter} onChange={setFilter}
+    options={[{value: 'all', label: t('dataAllEvents')}, ...activityTopics.map(value => ({value, label: t(titles[value])}))]} />} />
 }

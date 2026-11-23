@@ -1,7 +1,8 @@
 import {useMemo, useState} from 'react'
-import {Link, Select, TextInput} from '@primer/react'
+import {Link, TextInput} from '@primer/react'
 import {appIconUrl, type DataObject} from '../api/telemetry'
 import {useLanguage} from '../i18n'
+import {ChoiceMenu} from '../ui/ChoiceMenu'
 import {ApplicationIcon} from './ApplicationIcon'
 import {ReadingPane, type ReadingChrome} from './ReadingPane'
 import {dataHref} from './categories'
@@ -55,12 +56,11 @@ export function ApplicationInventory({telemetry, deviceId, installed, chrome}: {
     empty: t(!sample ? 'dataNoSample' : search.trim() ? 'dataNoAppMatches' : 'dataNoApps'),
     pending: !sample && telemetry.stream === 'connecting',
   }} controls={<>
-    <Select size="medium" aria-label={t('dataInventoryType')} value={topic} onChange={event => {
-      window.location.hash = dataHref('applications', {inventory: event.target.value === 'apps-installed' ? 'installed' : undefined})
-    }}>
-      <Select.Option value="apps-running">{t('dataRunning')}</Select.Option>
-      <Select.Option value="apps-installed">{t('dataInstalled')}</Select.Option>
-    </Select>
+    <ChoiceMenu label={t('dataInventoryType')} value={topic}
+      options={[{value: 'apps-running', label: t('dataRunning')}, {value: 'apps-installed', label: t('dataInstalled')}]}
+      onChange={value => {
+        window.location.hash = dataHref('applications', {inventory: value === 'apps-installed' ? 'installed' : undefined})
+      }} />
     <TextInput type="search" size="medium" aria-label={t('dataFilterApps')} placeholder={t('dataFilterApps')}
       value={search} onChange={event => setSearch(event.target.value)} />
   </>} rowAction={row => {

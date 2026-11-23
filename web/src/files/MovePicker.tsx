@@ -1,7 +1,8 @@
-import {ActionList, Button, FormControl, Select, Stack} from '@primer/react'
+import {ActionList, Button, Stack} from '@primer/react'
 import {ArrowLeftIcon, FileDirectoryFillIcon, FileIcon} from '@primer/octicons-react'
 import type {Entry, Location, Share} from '../api/types'
 import {useLanguage} from '../i18n'
+import {ChoiceMenu} from '../ui/ChoiceMenu'
 import {ErrorText, Loading} from '../ui/Feedback'
 import uiStyles from '../ui/ui.module.css'
 import {homeLocation, parent} from './navigation'
@@ -28,15 +29,12 @@ export function MovePicker({device, roots, source, entry, target, hidden, busy, 
 
   return (
     <Stack gap="condensed">
-      {roots.length > 1 && <FormControl>
-        <FormControl.Label>{t('sharedFolders')}</FormControl.Label>
-        <Select size="medium" block disabled={busy} value={target.rootId} onChange={event => {
-          const next = roots.find(root => root.id === event.target.value)
+      {roots.length > 1 && <ChoiceMenu block disabled={busy} label={t('sharedFolders')} value={target.rootId}
+        options={roots.map(root => ({value: root.id, label: root.primary ? t('userFolder') : root.label}))}
+        onChange={value => {
+          const next = roots.find(root => root.id === value)
           if (next) onTarget(homeLocation(next))
-        }}>
-          {roots.map(root => <Select.Option key={root.id} value={root.id}>{root.primary ? t('userFolder') : root.label}</Select.Option>)}
-        </Select>
-      </FormControl>}
+        }} />}
       <Stack direction="horizontal" align="center" gap="condensed">
         <Button size="medium" leadingVisual={ArrowLeftIcon} disabled={busy || !target.path}
           onClick={() => onTarget({...target, path: parent(target.path)})}>{t('upFolder')}</Button>

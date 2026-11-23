@@ -1,9 +1,10 @@
 import {useId, useState} from 'react'
-import {FormControl, Heading, Select, Stack} from '@primer/react'
+import {Heading, Stack} from '@primer/react'
 import {ApiError} from '../api/client'
 import {fullTimestamp, textValue} from '../data/format'
 import {useLanguage} from '../i18n'
 import {number} from '../i18n/format'
+import {ChoiceMenu} from '../ui/ChoiceMenu'
 import {Loading, Retry, State} from '../ui/Feedback'
 import {ThumbnailProvider} from '../ui/thumbnails'
 import {DisplayStage} from './DisplayStage'
@@ -63,14 +64,10 @@ export default function WindowActivity({deviceId, connectionId, refreshDevice}: 
         </Stack>
         <Stack direction="horizontal" className={styles.controls} align="center" wrap="wrap" gap="condensed">
           {value?.truncated && <span className={styles.status}>{t('activityTruncated')}</span>}
-          {monitors.length > 1 && <FormControl className={styles.displayControl}>
-            <FormControl.Label>{t('activityDisplayName')}</FormControl.Label>
-            <Select size="medium" block value={String(monitor?.display.id)} onChange={event => setDisplayId(Number(event.target.value))}>
-              {monitors.map(({display, label, dimensions}) => <Select.Option key={display.id} value={String(display.id)}>
-                {dimensions ? t('activityDisplayOption', {display: label, resolution: dimensions}) : label}
-              </Select.Option>)}
-            </Select>
-          </FormControl>}
+          {monitors.length > 1 && <ChoiceMenu block className={styles.displayControl} label={t('activityDisplayName')}
+            value={monitor.display.id} onChange={setDisplayId} options={monitors.map(({display, label, dimensions}) => ({
+              value: display.id, label: dimensions ? t('activityDisplayOption', {display: label, resolution: dimensions}) : label,
+            }))} />}
           {monitors.length === 1 && monitor.dimensions && <span className={styles.status}>{monitor.dimensions}</span>}
           {status && <span className={styles.status} role="status" title={snapshot && fullTimestamp(snapshot.observedAt, locale)}>{status}</span>}
         </Stack>

@@ -1,9 +1,10 @@
-import {Button, Select, Stack} from '@primer/react'
+import {Button, Stack} from '@primer/react'
 import {readAll} from '../api/client'
 import {deviceRoute} from '../api/devices'
 import type {DataObject, History} from '../api/telemetry'
 import type {Device} from '../api/types'
 import {useLanguage} from '../i18n'
+import {ChoiceMenu} from '../ui/ChoiceMenu'
 import {ErrorText} from '../ui/Feedback'
 import {useRefresh, useResource} from '../ui/async'
 import {ReadingPane, type ReadingChrome} from './ReadingPane'
@@ -47,9 +48,8 @@ export function TelemetryReading({category, view, device, telemetry, history, ch
     </>,
   } : chrome
   return <ReadingPane chrome={local} dataset={dataset} controls={
-    <Select size="medium" aria-label={t('dataView')} value={dataset.key}
-      onChange={event => { window.location.hash = dataHref(category, {view: event.target.value}) }}>
-      {datasets.map(item => <Select.Option key={item.key} value={item.key}>{item.title}</Select.Option>)}
-    </Select>
+    <ChoiceMenu label={t('dataView')} value={dataset.key}
+      options={datasets.map(item => ({value: item.key, label: item.title}))}
+      onChange={value => { window.location.hash = dataHref(category, {view: value}) }} />
   } />
 }

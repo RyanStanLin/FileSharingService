@@ -50,6 +50,7 @@ export const en = {
   folders: 'Folders',
   filesCount: 'Files',
   viewOption: 'View Option',
+  choiceMenuLabel: '{label}, {value}',
   showHidden: 'Show hidden',
   path: 'Path',
   folderOn: 'Folder on {device}',
