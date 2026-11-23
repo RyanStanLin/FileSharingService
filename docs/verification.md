@@ -1,5 +1,9 @@
 # FileSharing 验收记录
 
+## Agent 0.5.3
+
+`submitsConfiguredTextFields` 测量原生 NSAlert 中相邻输入框的 14 pt 间距。普通输入框和遮蔽输入框均贴齐输入区左右边缘，容器变宽后继续占满宽度。短内容窗口实测为 260 pt。
+
 ## Agent 0.5.2
 
 `test_clipboard_timestamp_lid_and_heartbeat_over_both_transports` 在隔离剪贴板上触发真实 Agent 更新，通过 WSS 和 HTTPS 回退分别核对时戳和归档中的 `N/A`。`test_durable_interaction_records_keep_details_after_cleanup_and_relogin` 验证字符串的空白与换行原样保存，旧版省略字段时归档为 `null`，并核对清理与重启后的读回结果。`test_sqlite_upgrade_preserves_preexisting_device_and_grant` 验证旧档案迁移。 [剪贴板档案 API](api.md#交互与剪贴板历史)

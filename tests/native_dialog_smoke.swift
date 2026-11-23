@@ -15,7 +15,7 @@ struct NativeDialogSmoke {
                 try await dismissesWithEscapeWhileEditing()
                 try await expiresAndReopens()
                 try await dismissesOnTaskCancellation()
-                print("Native NSAlert smoke passed: configured fields, screen centering, buttons, Escape, timeout, and reopening.")
+                print("Native NSAlert smoke passed with 14 pt spacing and full-width fields, plus centering, buttons, Escape, timeout, and reopening.")
                 exit(EXIT_SUCCESS)
             } catch {
                 fail(error)
@@ -116,9 +116,22 @@ struct NativeDialogSmoke {
         let result = try await interact(with: .object(form)) { window, controls in
             let fields = controls.compactMap { $0 as? NSTextField }.filter { $0.placeholderString != nil }
             guard abs(window.frame.width - 260) <= 1,
-                  fields.map(\.placeholderString) == ["工单编号", "原因", "审批码", "备注"] else {
+                  fields.map(\.placeholderString) == ["工单编号", "原因", "审批码", "备注"],
+                  let form = fields.first?.superview else {
                 throw AgentError("unexpected_configured_fields")
             }
+            let originalSize = form.frame.size
+            let wider = NSSize(width: originalSize.width + 32, height: originalSize.height)
+            for size in [originalSize, wider, originalSize] {
+                form.setFrameSize(size)
+                guard fields.allSatisfy({ field in
+                    field.superview === form && abs(field.frame.minX - form.bounds.minX) < 0.01 &&
+                    abs(field.frame.maxX - form.bounds.maxX) < 0.01
+                }) else { throw AgentError("configured_fields_do_not_fill_accessory_width") }
+            }
+            guard zip(fields, fields.dropFirst()).allSatisfy({ upper, lower in
+                abs(upper.frame.minY - lower.frame.maxY - 14) < 0.01
+            }) else { throw AgentError("configured_field_spacing_is_not_14_points") }
             let reference = fields[0], reason = fields[1], approval = fields[2], note = fields[3]
             guard reference.stringValue == "CHG-42", !reference.isEnabled, !reference.isEditable,
                   reason.stringValue == preset, reason.isEnabled, reason.currentEditor() != nil,

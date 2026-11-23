@@ -129,8 +129,9 @@ final class NativeDialog: NSObject, NSTextFieldDelegate {
     }
 
     private func configureAccessory() {
-        let width: CGFloat = 212
-        let spacing: CGFloat = 7
+        guard !inputs.isEmpty else { return }
+        let accessoryWidth: CGFloat = 212
+        let spacing: CGFloat = 14
         for (field, control) in inputs {
             control.delegate = self
             control.isEnabled = !field.disabled
@@ -140,19 +141,15 @@ final class NativeDialog: NSObject, NSTextFieldDelegate {
             let label = field.hintText.flatMap { $0.isEmpty ? nil : $0 } ?? field.id ?? (field.maskText ? "企业审批码" : "说明")
             control.setAccessibilityLabel(label)
             control.sizeToFit()
-            control.frame.size.width = width
-        }
-        guard let first = inputs.first else { return }
-        if inputs.count == 1 {
-            alert.accessoryView = first.control
-            return
         }
         let height = inputs.reduce(spacing * CGFloat(inputs.count - 1)) { $0 + $1.control.frame.height }
-        let form = NSView(frame: NSRect(x: 0, y: 0, width: width, height: height))
-        var y = height
+        let form = NSView(frame: NSRect(x: 0, y: 0, width: accessoryWidth, height: height))
+        var y = form.bounds.maxY
         for (_, control) in inputs {
-            y -= control.frame.height
-            control.frame.origin = NSPoint(x: 0, y: y)
+            let fieldHeight = control.frame.height
+            y -= fieldHeight
+            control.frame = NSRect(x: form.bounds.minX, y: y, width: form.bounds.width, height: fieldHeight)
+            control.autoresizingMask = .width
             form.addSubview(control)
             y -= spacing
         }
