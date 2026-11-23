@@ -1,10 +1,9 @@
 import Darwin
 import Foundation
 
-// This process owns the terminal's cwd. The pipe carries validated requests, separate from the PTY.
+// This process owns the terminal's cwd. The pipe carries requests, separate from the PTY.
 final class TerminalHelper: @unchecked Sendable {
     private let root: LocalRoot
-    private let files: ScopedFiles
     private let lock = NSLock()
     private let children = DispatchGroup()
     private static let identity: String = {
@@ -21,7 +20,6 @@ final class TerminalHelper: @unchecked Sendable {
             throw AgentError("permission_denied")
         }
         self.root = root
-        files = ScopedFiles(roots: [root], state: state)
     }
 
     static func serve(rootKey: String) {
@@ -35,7 +33,8 @@ final class TerminalHelper: @unchecked Sendable {
     }
 
     private func run() throws {
-        try changeDirectory("")
+        let initialPath = FileManager.default.fileExists(atPath: root.path) ? root.path : NSHomeDirectory()
+        try changeDirectory(initialPath)
         Self.send(["kind": "ready", "prompt": prompt()])
         defer {
             lock.withLock { child?.process.terminate() }
@@ -53,13 +52,14 @@ final class TerminalHelper: @unchecked Sendable {
             lock.withLock {
                 do {
                     guard child == nil else { throw AgentError("terminal_busy") }
-                    let directory = try currentDirectory()
+                    let directory = currentDirectory()
                     switch input["kind"].string {
                     case "cd":
-                        try changeDirectory(resolve(input.requireString("path"), relativeTo: directory))
+                        let target = resolve(try input.requireString("path"), relativeTo: directory)
+                        try changeDirectory(target)
                         exited(id, 0)
                     case "pwd":
-                        try FileHandle.standardOutput.write(contentsOf: Data((absolutePath(directory) + "\n").utf8))
+                        try FileHandle.standardOutput.write(contentsOf: Data((currentDirectory() + "\n").utf8))
                         exited(id, 0)
                     case "run":
                         try start(DiagnosticRunner.customCommand(input), id: id)
@@ -73,64 +73,52 @@ final class TerminalHelper: @unchecked Sendable {
         }
     }
 
-    private func absolutePath(_ relative: String) -> String {
-        relative.isEmpty ? root.path : root.path + "/" + relative
-    }
-
     private func prompt() -> JSON {
+        let cwd = currentDirectory()
+        let home = NSHomeDirectory()
         let directory: String
-        if let relative = try? currentDirectory() {
-            directory = relative.split(separator: "/").last.map(String.init) ?? (root.isHome ? "~" : root.label)
+        if cwd == home {
+            directory = "~"
+        } else if cwd == "/" {
+            directory = "/"
+        } else if cwd.hasPrefix(home + "/") {
+            let relative = String(cwd.dropFirst(home.count + 1))
+            directory = relative.split(separator: "/").last.map(String.init) ?? "~"
         } else {
-            directory = "?"
+            directory = cwd.split(separator: "/").last.map(String.init) ?? "/"
         }
         return .string("\(Self.identity) \(directory) %")
     }
 
-    private func currentDirectory() throws -> String {
-        let cwd = FileManager.default.currentDirectoryPath
-        let prefix = root.path + "/"
-        guard cwd == root.path || cwd.hasPrefix(prefix) else { throw AgentError("invalid_path") }
-        let relative = cwd == root.path ? "" : String(cwd.dropFirst(prefix.count))
-        let approved = try files.terminalDirectory(rootKey: root.rootKey, path: relative)
-        let info = try approved.info()
-        var actual = stat()
-        guard stat(".", &actual) == 0, actual.st_ino == info.st_ino, actual.st_dev == info.st_dev else {
-            throw AgentError("root_identity_changed")
-        }
-        return relative
+    private func currentDirectory() -> String {
+        FileManager.default.currentDirectoryPath
     }
 
-    private func changeDirectory(_ relative: String) throws {
-        let directory = try files.terminalDirectory(rootKey: root.rootKey, path: relative)
-        guard fchdir(directory.fd) == 0 else { throw ScopedFiles.failure() }
-    }
-
-    private func resolve(_ path: String, relativeTo cwd: String) throws -> String {
-        guard !path.isEmpty, path.utf8.count <= 3000, !path.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains),
-              !path.contains(where: { "|&;<>`$\\".contains($0) }) else {
+    private func changeDirectory(_ path: String) throws {
+        guard FileManager.default.changeCurrentDirectoryPath(path) else {
             throw AgentError("invalid_path")
         }
-        if path == "/" || path == "~" { return "" }
-        let rooted = path.hasPrefix("/") || path.hasPrefix("~/")
-        let relative = rooted ? path.dropFirst(path.hasPrefix("~/") ? 2 : 1) : path[...]
-        var parts = rooted ? [] : cwd.split(separator: "/")
-        for part in relative.split(separator: "/") {
-            switch part {
-            case ".": continue
-            case "..":
-                guard parts.popLast() != nil else { throw AgentError("invalid_path") }
-            default: parts.append(part)
-            }
+    }
+
+    private func resolve(_ path: String, relativeTo cwd: String) -> String {
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty || trimmed == "~" {
+            return NSHomeDirectory()
         }
-        return parts.joined(separator: "/")
+        if trimmed.hasPrefix("~/") {
+            return (NSHomeDirectory() as NSString).appendingPathComponent(String(trimmed.dropFirst(2)))
+        }
+        if trimmed.hasPrefix("/") {
+            return URL(fileURLWithPath: trimmed).standardized.path
+        }
+        return URL(fileURLWithPath: cwd).appendingPathComponent(trimmed).standardized.path
     }
 
     private func start(_ command: DiagnosticRunner.Command, id: String) throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: command.path)
         process.arguments = command.arguments
-        process.environment = ["PATH": "/usr/bin:/bin", "LC_ALL": "C", "TERM": "dumb"]
+        process.environment = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin", "LC_ALL": "C", "TERM": "dumb"]
         process.standardInput = FileHandle.standardOutput
         process.standardOutput = FileHandle.standardOutput
         process.standardError = FileHandle.standardOutput
@@ -141,18 +129,11 @@ final class TerminalHelper: @unchecked Sendable {
         children.enter()
         DispatchQueue.global(qos: .utility).async {
             defer { self.children.leave() }
-            let expired = done.wait(timeout: .now() + .seconds(10)) == .timedOut
-            if expired {
-                process.terminate()
-                if done.wait(timeout: .now() + .milliseconds(500)) == .timedOut {
-                    if process.isRunning { kill(process.processIdentifier, SIGKILL) }
-                    done.wait()
-                }
-            }
+            done.wait()
             self.lock.withLock {
                 let status = process.terminationStatus
                 let exit = process.terminationReason == .uncaughtSignal ? status + 128 : status
-                self.exited(id, expired ? 124 : exit, code: expired ? "diagnostic_timeout" : nil)
+                self.exited(id, exit)
                 self.child = nil
             }
         }

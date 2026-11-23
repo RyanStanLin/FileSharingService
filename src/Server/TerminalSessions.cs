@@ -169,7 +169,7 @@ internal sealed class TerminalSessions(Database db, AgentBroker broker, DeviceSe
 
     private static TerminalInput Parse(string? line)
     {
-        if (line is null || line.Length > 3005 || line.Any(c => char.IsControl(c) && c != '\t'))
+        if (string.IsNullOrWhiteSpace(line) || line.Length > 8192)
             throw Fault.Bad("invalid_diagnostic_command");
         line = line.Trim();
         if (line == "pwd")
@@ -177,14 +177,9 @@ internal sealed class TerminalSessions(Database db, AgentBroker broker, DeviceSe
         var space = line.IndexOfAny([' ', '\t']);
         if (line == "cd" || space == 2 && line.StartsWith("cd", StringComparison.Ordinal))
         {
-            var path = space < 0 ? "/" : line[(space + 1)..].Trim();
-            if (path is [ '\'' or '"', .. ] && path.Length >= 2 && path[^1] == path[0] && !path[1..^1].Contains(path[0]))
+            var path = space < 0 ? "~" : line[(space + 1)..].Trim();
+            if (path is [ '\'' or '"', .. ] && path.Length >= 2 && path[^1] == path[0])
                 path = path[1..^1];
-            else if (path.Any(c => char.IsWhiteSpace(c) || c is '\'' or '"'))
-                throw Fault.Bad("invalid_path");
-            if (path.Length == 0 || Encoding.UTF8.GetByteCount(path) > 3000 ||
-                path.Any(c => char.IsControl(c) || c is '|' or '&' or ';' or '<' or '>' or '`' or '$' or '\\'))
-                throw Fault.Bad("invalid_path");
             return new("cd", Path: path);
         }
         var command = DataEndpoints.ParseDiagnostic(line);
