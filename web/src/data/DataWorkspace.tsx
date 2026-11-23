@@ -15,6 +15,7 @@ import {DataSidebar} from './DataSidebar'
 import type {ReadingChrome} from './ReadingPane'
 import {TelemetryReading} from './TelemetryReading'
 import {categoryFromHash} from './categories'
+import {eventViewFromQuery} from './eventViews'
 import {useTelemetry} from './useTelemetry'
 import {useTelemetryHistory} from './useTelemetryHistory'
 import styles from './dashboard.module.css'
@@ -36,6 +37,7 @@ export default function DataWorkspace({device, hash, refreshDevice, authorize, a
   const category = categoryFromHash(hash)
   const parameters = new URLSearchParams(hash.split('?')[1])
   const view = parameters.get('view')
+  const eventView = eventViewFromQuery(view)
   const heading = useId()
   const sidebarId = useId()
   const menu = useRef<HTMLButtonElement>(null)
@@ -46,7 +48,7 @@ export default function DataWorkspace({device, hash, refreshDevice, authorize, a
   const {connection, pending, error} = telemetry
   const stream = connection.online ? telemetry.stream : 'offline'
   const streamText = t(streamLabels[stream])
-  const showActivity = category === 'events' && view !== 'clipboard.changed'
+  const showActivity = category === 'events' && eventView !== 'clipboard.changed'
   const {history, trends, activity} = useTelemetryHistory(device.id, telemetry.history, stream === 'live', showActivity)
   const task = useTask()
 
@@ -106,9 +108,9 @@ export default function DataWorkspace({device, hash, refreshDevice, authorize, a
   } else if (category === 'applications') {
     content = <ApplicationInventory deviceId={device.id} telemetry={telemetry} installed={parameters.get('inventory') === 'installed'} chrome={chrome} />
   } else if (category === 'events') {
-    content = <ActivityList deviceId={device.id} view={view} streaming={stream === 'live'}
+    content = <ActivityList deviceId={device.id} eventView={eventView} streaming={stream === 'live'}
       newestClipboard={telemetry.history['clipboard.changed']?.at(-1)?.sequence} history={history}
-      pending={activity.pending && !activity.data} chrome={chrome} />
+      historyReady={activity.data !== undefined} pending={activity.pending && !activity.data} chrome={chrome} />
   } else {
     content = <TelemetryReading key={category} category={category} view={view}
       device={device} telemetry={telemetry} history={history} chrome={chrome} />
@@ -118,7 +120,7 @@ export default function DataWorkspace({device, hash, refreshDevice, authorize, a
     <SplitPageLayout className={styles.workspace}>
       {!narrow && <SplitPageLayout.Sidebar padding="none" divider="line" width={sidebarWidth}
         resizable widthStorageKey="filesharing.data-sidebar-width" aria-label={t('dataCategories')}>
-        <div className={styles.sidebar}><DataSidebar selected={category} /></div>
+        <div className={styles.sidebar}><DataSidebar selected={category} eventView={eventView} /></div>
       </SplitPageLayout.Sidebar>}
       <SplitPageLayout.Content width="full" padding="none" className={styles.content}>
         <Stack as="main" aria-labelledby={heading} className={styles.pane} gap="none">
@@ -131,7 +133,7 @@ export default function DataWorkspace({device, hash, refreshDevice, authorize, a
       </SplitPageLayout.Content>
     </SplitPageLayout>
     {narrow && showNavigation && <Modal title={t('dataCategories')} onClose={() => setShowNavigation(false)} returnFocusRef={menu}>
-      <div id={sidebarId}><DataSidebar selected={category} close={() => setShowNavigation(false)} /></div>
+      <div id={sidebarId}><DataSidebar selected={category} eventView={eventView} close={() => setShowNavigation(false)} /></div>
     </Modal>}
   </ThumbnailProvider>
 }

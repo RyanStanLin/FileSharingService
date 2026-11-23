@@ -10,6 +10,7 @@ import styles from '../ui/explorer.module.css'
 import {ReadingTable} from './ReadingTable'
 import {decimal} from './format'
 import {objectDataset, sortRows, type ReadingDataset, type ReadingRow} from './readingModel'
+import {useEventArrivals} from './useEventArrivals'
 
 export interface ReadingChrome {
   heading: string
@@ -26,6 +27,7 @@ interface Props {
   dataset: ReadingDataset
   controls?: ReactNode
   filter?: string
+  eventHistoryReady?: boolean
   rowAction?: (row: ReadingRow) => ReactNode
   rowDetails?: (row: ReadingRow) => ReactNode
   pagination?: {cursor?: string; loading: boolean; error?: unknown; next: () => void}
@@ -53,7 +55,7 @@ export function ReadingPane({chrome, dataset, controls, ...table}: Props) {
   </>
 }
 
-function TableViewport({chrome, dataset, filter, rowAction, rowDetails, pagination}: Props) {
+function TableViewport({chrome, dataset, filter, eventHistoryReady, rowAction, rowDetails, pagination}: Props) {
   const {t, locale} = useLanguage()
   const scroll = useRef<HTMLDivElement>(null)
   const region = useRef<HTMLDivElement>(null)
@@ -64,7 +66,8 @@ function TableViewport({chrome, dataset, filter, rowAction, rowDetails, paginati
   const serverPaged = pagination !== undefined
   const rows = useMemo(() => serverPaged ? dataset.rows : sortRows(dataset.rows, sort.key, sort.direction, collator),
     [serverPaged, dataset.rows, sort, collator])
-  const shown = serverPaged ? rows : rows.slice(0, limit)
+  const shown = useMemo(() => serverPaged ? rows : rows.slice(0, limit), [serverPaged, rows, limit])
+  const arrivals = useEventArrivals(dataset.rows, shown, eventHistoryReady, serverPaged)
   const cursor = pagination ? pagination.cursor : rows.length > limit ? limit : undefined
   const tail = useTableEnd(cursor, pagination?.next ?? (() => setLimit(value => value + pageSize)), scroll)
   const pending = (chrome.pending || dataset.pending) && !rows.length
@@ -79,7 +82,7 @@ function TableViewport({chrome, dataset, filter, rowAction, rowDetails, paginati
     {chrome.notices}
     <div ref={region} className={styles.tableScroll} tabIndex={0} role="region" aria-label={dataset.title}>
       <ReadingTable headingId={chrome.heading} nameTitle={dataset.nameTitle} columns={dataset.columns}
-        rows={shown} icons={dataset.icons} current={selected?.id} sort={serverPaged ? undefined : sort}
+        rows={shown} icons={dataset.icons} current={selected?.id} sort={serverPaged ? undefined : sort} arrivals={arrivals}
         onSort={(key, direction) => setSort({key, direction})} open={dataset.details ? setSelected : undefined} />
     </div>
     {pending ? <Loading /> : !rows.length && dataset.empty !== null && <p className={styles.empty}>{dataset.empty ?? t('dataNoSample')}</p>}

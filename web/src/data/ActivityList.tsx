@@ -1,46 +1,30 @@
+import {useMemo} from 'react'
 import {HistoryIcon} from '@primer/octicons-react'
 import {activityTopics, recentMinutes, type ActivityTopic, type History} from '../api/telemetry'
-import {useLanguage, type Message} from '../i18n'
-import {ChoiceMenu} from '../ui/ChoiceMenu'
+import {useLanguage} from '../i18n'
 import {ReadingPane, type ReadingChrome} from './ReadingPane'
-import {dataHref} from './categories'
 import {codeLabel} from './dataFields'
+import {eventCategories, type EventView} from './eventViews'
 import {object, textValue} from './format'
 import {cell, valueCell, type ReadingRow} from './readingModel'
 import {useClipboardHistory} from './useClipboardHistory'
 
-const titles: Record<ActivityTopic, Message> = {
-  'connection.changed': 'dataConnection',
-  'applications.changed': 'dataApplicationEvent',
-  'storage.changed': 'dataStorageEvent',
-  'system.changed': 'dataSystemEvent',
-  'lid.changed': 'dataLidEvent',
-  'clipboard.changed': 'dataClipboardEvent',
-  'telemetry.gap': 'dataGapEvent',
-  'jobs.changed': 'dataJobEvent',
-  'transfers.changed': 'dataTransferEvent',
-}
-
-export function ActivityList({deviceId, view, newestClipboard, streaming, history, pending, chrome}: {
+export function ActivityList({deviceId, eventView, newestClipboard, streaming, history, historyReady, pending, chrome}: {
   deviceId: string
-  view: string | null
+  eventView: EventView
   newestClipboard?: string
   streaming: boolean
   history: History
+  historyReady: boolean
   pending: boolean
   chrome: ReadingChrome
 }) {
   const {t, locale} = useLanguage()
-  const filter = activityTopics.find(topic => topic === view) ?? 'all'
-  const isClipboard = filter === 'clipboard.changed'
+  const isClipboard = eventView === 'clipboard.changed'
   const clipboard = useClipboardHistory({deviceId: isClipboard ? deviceId : null, newestEvent: newestClipboard, streaming, chrome})
-  const controls = <ChoiceMenu<ActivityTopic | 'all'> label={t('dataEventKind')} value={filter}
-    onChange={value => { window.location.hash = dataHref('events', {view: value === 'all' ? undefined : value}) }}
-    options={[{value: 'all', label: t('dataAllEvents')}, ...activityTopics.map(value => ({value, label: t(titles[value])}))]} />
-  if (isClipboard) return <ReadingPane {...clipboard} controls={controls} />
-
-  const events = filter === 'all' ? activityTopics.flatMap(topic => history[topic] ?? []) : history[filter] ?? []
-  const rows: ReadingRow[] = events.map(event => {
+  const events = useMemo(() => eventView === 'all' ? activityTopics.flatMap(topic => history[topic] ?? []) : history[eventView] ?? [],
+    [eventView, history])
+  const rows = useMemo<ReadingRow[]>(() => events.map(event => {
     const payload = object(event.payload)
     const time = textValue(payload?.occurredAt) ?? event.time
     const kind = textValue(payload?.kind)
@@ -50,16 +34,21 @@ export function ActivityList({deviceId, view, newestClipboard, streaming, histor
     const presence = typeof payload?.online === 'boolean' ? t(payload.online ? 'online' : 'offline') : undefined
     const detail = [kind ? codeLabel(kind, locale) : undefined, state ? codeLabel(state, locale) : presence, name]
       .filter(Boolean).join(' · ')
-    return {id: event.sequence, name: cell(t(titles[event.topic as ActivityTopic])), icon: <HistoryIcon />,
+    return {id: event.sequence, name: cell(t(eventCategories[event.topic as ActivityTopic].label)), icon: <HistoryIcon />,
       values: {time: valueCell('occurredAt', time, locale, t), information: cell(detail || t('missing'))},
       value: event.topic === 'clipboard.changed' ? {occurredAt: time} : {...payload, occurredAt: time}}
-  })
+  }), [events, locale, t])
+
+  if (isClipboard) return <ReadingPane {...clipboard} />
+
   const observedAt = events.reduce<string | null>((latest, event) =>
     !latest || Date.parse(event.time) > Date.parse(latest) ? event.time : latest, null)
-  return <ReadingPane chrome={chrome} filter={filter} dataset={{
-    key: 'events', title: t('dataEvents'), nameTitle: t('dataEventKind'), description: t('dataWindow', {minutes: recentMinutes}),
+  return <ReadingPane chrome={chrome} eventHistoryReady={historyReady} dataset={{
+    key: eventView === 'all' ? 'events' : eventView,
+    title: t(eventView === 'all' ? 'dataEvents' : eventCategories[eventView].label),
+    nameTitle: t('dataEventKind'), description: t('dataWindow', {minutes: recentMinutes}),
     columns: [{key: 'time', title: t('dataTime')}, {key: 'information', title: t('dataDescription')}],
     rows, icons: true, details: true, sort: {key: 'time', direction: 'desc'}, empty: t('dataNoEvents'), pending,
     snapshot: {observedAt, stale: false},
-  }} controls={controls} />
+  }} />
 }

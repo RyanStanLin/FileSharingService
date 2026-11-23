@@ -56,6 +56,7 @@ export function useClipboardHistory({deviceId, newestEvent, streaming, chrome}: 
   }
   return {
     chrome: archiveChrome,
+    eventHistoryReady: archive.page !== undefined,
     dataset: {
       key: 'clipboard', title: t('dataClipboardHistory'), nameTitle: t('dataEventKind'),
       columns: [{key: 'time', title: t('dataTime')}, {key: 'content', title: t('dataClipboardContent')}],

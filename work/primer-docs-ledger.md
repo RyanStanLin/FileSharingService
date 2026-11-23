@@ -190,6 +190,12 @@
 
 ## 剪贴板档案
 
-- Data 的事件菜单进入 `#data?section=events&view=clipboard.changed`。复用 File Explorer 的标题栏、隔行表格和列表底部观察器。列表按入库顺序从新到旧，每次读取 50 条，并原样传递 `nextCursor`。实时事件通知刷新首段，已读内容与重叠的首段合并。离线时也可通过 Passkey 会话读取档案。 [档案 API](../docs/api.md#交互与剪贴板历史)
+- Data 左侧 Event 分组的剪贴板链接进入 `#data?section=events&view=clipboard.changed`。复用 File Explorer 的标题栏、列表和底部观察器。列表按入库顺序从新到旧，每次读取 50 条，并原样传递 `nextCursor`。实时事件通知刷新首段，已读内容与重叠的首段合并。离线时也可通过 Passkey 会话读取档案。 [档案 API](../docs/api.md#交互与剪贴板历史)
 - 正文列保留原始换行和空白，并在可用宽度换行。以 `base-size-80` 限定预览高度，显示最多四行。详情使用 Primer Dialog，读取单条档案以展示全部元数据和未截断的正文。 [Progressive disclosure](https://primer.style/product/ui-patterns/progressive-disclosure/) · [Dialog](https://primer.style/product/components/dialog/)
 - Chromium 使用实际 API 验证三页档案、失败重试、实时新增、锁定及离线重新读取。WebKit 验证正文换行、完整详情和自动续页。Primer CSS 工具报错且诊断为空。PostCSS 成功解析两份变更样式并核对四套主题下的 232 处 token 引用。
+
+## 事件导航与新增提示
+
+- 在现有 SplitPageLayout 的 NavList 中使用与 Data categories 同层的 Event 分组。分组包括全部事件和九个类型链接，使用原生 16 px Octicons 和 `aria-current="page"`。窄屏 Dialog 使用同一组链接。事件类别进入对应标题和表格，现有哈希地址支持浏览器返回。 [NavList 用法](https://primer.style/product/components/nav-list/guidlines/) · [NavList 无障碍](https://primer.style/product/components/nav-list/accessibility/)
+- 事件表格行使用 `bgColor-muted`。新增行从 `bgColor-accent-muted` 即时出现，通过 `base-duration-1000` 和 `base-easing-easeOut` 渐变到底色。每行的动效独立结束，减少动态效果时直接显示底色。首屏数据形成初始基线，剪贴板档案以入库序号区分新到记录和分页历史。
+- Chromium 联调验证九种类型链接、栏目切换、浏览器返回、320 CSS px 下键盘进入与焦点归还，以及中英文组名。逐帧检查四套主题的起始色、中间色和结束色，核对连续到达的独立时长与减少动态效果。另验证档案翻页、实时新增、应用清单和 File System 滚动回归。WebKit 验证档案详情与续页。Primer CSS 工具返回空诊断，PostCSS 成功解析样式并核对四套主题下的 132 处 token 引用。

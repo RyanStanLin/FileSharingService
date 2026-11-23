@@ -9,6 +9,7 @@ const dataMessages = {
   dataApps: ['Applications', '应用'],
   dataPermissions: ['Permissions', '权限'],
   dataEvents: ['Events', '事件'],
+  dataEventGroup: ['Event', '事件'],
   dataCurrent: ['Current', '当前'],
   dataTrends: ['Last {minutes} minutes', '最近 {minutes} 分钟'],
   dataLive: ['Live', '实时'],

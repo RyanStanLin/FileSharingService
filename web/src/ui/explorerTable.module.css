@@ -49,6 +49,34 @@
   background: var(--bgColor-accent-muted);
 }
 
+.table[data-event-table] tbody tr {
+  background-color: var(--bgColor-muted);
+}
+
+.table[data-event-table] tbody tr > :is(td, th) {
+  background-color: transparent;
+}
+
+.table[data-event-table] tbody tr[data-selected='true'] {
+  background-color: var(--bgColor-accent-muted);
+}
+
+.table tbody tr[data-event-arrival] {
+  animation: eventArrival var(--base-duration-1000) var(--base-easing-easeOut);
+}
+
+@keyframes eventArrival {
+  from {
+    background-color: var(--bgColor-accent-muted);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .table tbody tr[data-event-arrival] {
+    animation-duration: var(--base-duration-0);
+  }
+}
+
 .table tbody [data-file-row] {
   cursor: default;
   user-select: none;

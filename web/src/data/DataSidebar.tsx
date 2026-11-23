@@ -1,9 +1,10 @@
 import {NavList} from '@primer/react'
 import {useLanguage} from '../i18n'
 import {categories, categoryKeys, dataHref, type Category} from './categories'
+import {eventCategories, eventViews, type EventView} from './eventViews'
 import styles from './dashboard.module.css'
 
-export function DataSidebar({selected, close}: {selected: Category; close?: () => void}) {
+export function DataSidebar({selected, eventView, close}: {selected: Category; eventView: EventView; close?: () => void}) {
   const {t} = useLanguage()
 
   function item(key: Category) {
@@ -19,7 +20,17 @@ export function DataSidebar({selected, close}: {selected: Category; close?: () =
     <NavList.Heading visuallyHidden>{t('dataCategories')}</NavList.Heading>
     {item('overview')}
     <NavList.Group title={t('dataCategories')} hideDivider>
-      {categoryKeys.filter(key => key !== 'overview').map(item)}
+      {categoryKeys.filter(key => key !== 'overview' && key !== 'events').map(item)}
+    </NavList.Group>
+    <NavList.Group title={t('dataEventGroup')} hideDivider>
+      {eventViews.map(view => {
+        const {icon: Icon, label} = eventCategories[view]
+        return <NavList.Item key={view} href={dataHref('events', {view: view === 'all' ? undefined : view})}
+          aria-current={selected === 'events' && eventView === view ? 'page' : undefined} onClick={close}>
+          <NavList.LeadingVisual><Icon /></NavList.LeadingVisual>
+          {t(label)}
+        </NavList.Item>
+      })}
     </NavList.Group>
   </NavList>
 }

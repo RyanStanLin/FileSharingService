@@ -14,14 +14,15 @@ interface TableProps {
   current?: string
   sort?: {key: string; direction: 'asc' | 'desc'}
   onSort?: (key: string, direction: 'asc' | 'desc') => void
+  arrivals?: {ids?: ReadonlySet<string>; finish: (id: string) => void}
   open?: (row: ReadingRow) => void
   dialog?: boolean
 }
 
-export function ReadingTable({headingId, nameTitle, columns, rows, icons, current, sort, onSort, open, dialog}: TableProps) {
+export function ReadingTable({headingId, nameTitle, columns, rows, icons, current, sort, onSort, arrivals, open, dialog}: TableProps) {
   const {t} = useLanguage()
   const fields = [{key: 'name', title: nameTitle}, ...columns]
-  return <table aria-labelledby={headingId} aria-label={headingId ? undefined : t('viewInfo')}
+  return <table aria-labelledby={headingId} aria-label={headingId ? undefined : t('viewInfo')} data-event-table={arrivals ? '' : undefined}
     className={dialog ? `${styles.table} ${styles.dialogTable}` : styles.table}>
     <colgroup>
       {icons && <col className={styles.iconColumn} />}
@@ -35,7 +36,9 @@ export function ReadingTable({headingId, nameTitle, columns, rows, icons, curren
         : <th scope="col" key={field.key} className={styles.plainHeading}>{field.title}</th>)}
       {open && <th scope="col" aria-label={t('filesMenu')} />}
     </tr></thead>
-    <tbody>{rows.map(row => <tr key={row.id} data-data-row="" data-selected={row.id === current}>
+    <tbody>{rows.map(row => <tr key={row.id} data-data-row="" data-selected={row.id === current}
+      data-event-arrival={arrivals?.ids?.has(row.id) ? '' : undefined}
+      onAnimationEnd={arrivals && (event => { if (event.target === event.currentTarget) arrivals.finish(row.id) })}>
       {icons && <td className={styles.iconCell} aria-hidden="true">{row.icon}</td>}
       <th scope="row" title={row.name.text}>
         {open && row.value
