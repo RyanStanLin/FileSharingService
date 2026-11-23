@@ -26,6 +26,13 @@ internal static class NotificationEndpoints
         group.MapGet("/deliveries", ListDeliveries).WithSummary("Read filtered notification delivery history");
         group.MapGet("/deliveries/{id}", GetDelivery).WithSummary("Get the latest state of a notification delivery");
         group.MapGet("/updates", ReadUpdates).WithSummary("Replay change summaries from the notification WebSocket topic");
+        group.MapGet("/event-types", EventTypes).WithSummary("Describe notification events, variables, filters and limits");
+        group.MapGet("/rules", ListRules).WithSummary("List notification rules and matching counters");
+        group.MapGet("/rules/{id}", GetRule).WithSummary("Get a notification rule");
+        group.MapPost("/rules", CreateRule).WithSummary("Create a multi-event notification rule");
+        group.MapPut("/rules/{id}", UpdateRule).WithSummary("Replace a notification rule by revision");
+        group.MapDelete("/rules/{id}", DeleteRule).WithSummary("Delete a notification rule by revision");
+        group.MapPost("/rules/preview", PreviewRule).WithSummary("Render a notification template with sample values");
     }
 
     internal static string Actor(HttpContext context) => ((Review)context.Items[typeof(Review)]!).Initiator;
@@ -73,6 +80,44 @@ internal static class NotificationEndpoints
 
     private static async Task<Ok<NotificationDeliveryView>> GetDelivery(string id, INotificationDeliveries deliveries, CancellationToken ct) =>
         TypedResults.Ok(await deliveries.Get(id, ct));
+
+    private static Ok<NotificationCatalogView> EventTypes(NotificationVault vault, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        return TypedResults.Ok(new NotificationCatalogView(NotificationCatalog.Types, vault.Enabled,
+            NotificationRules.Maximum, NotificationChannels.Maximum, NotificationRules.MaximumChannels));
+    }
+
+    private static async Task<Ok<Page<NotificationRuleView>>> ListRules(string? cursor, int? limit, string? deviceId, bool? enabled,
+        INotificationRules rules, CancellationToken ct) =>
+        TypedResults.Ok(await rules.List(cursor, limit, deviceId, enabled, ct));
+
+    private static async Task<Ok<NotificationRuleView>> GetRule(string id, INotificationRules rules, CancellationToken ct) =>
+        TypedResults.Ok(await rules.Get(id, ct));
+
+    private static async Task<Created<NotificationRuleView>> CreateRule(NotificationRuleRequest body, HttpContext context,
+        INotificationRules rules, CancellationToken ct)
+    {
+        var rule = await rules.Save(null, body, Actor(context), ct);
+        return TypedResults.Created($"{Prefix}/rules/{rule.Id}", rule);
+    }
+
+    private static async Task<Ok<NotificationRuleView>> UpdateRule(string id, NotificationRuleRequest body, HttpContext context,
+        INotificationRules rules, CancellationToken ct) =>
+        TypedResults.Ok(await rules.Save(id, body, Actor(context), ct));
+
+    private static async Task<NoContent> DeleteRule(string id, long? revision, HttpContext context, INotificationRules rules,
+        CancellationToken ct)
+    {
+        await rules.Delete(id, revision, Actor(context), ct);
+        return TypedResults.NoContent();
+    }
+
+    private static Ok<NotificationPreview> PreviewRule(NotificationPreviewRequest body, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        return TypedResults.Ok(NotificationTemplates.Preview(body));
+    }
 
     private static async Task<Ok<EventsPage>> ReadUpdates(string? after, int? limit, NotificationUpdates updates, CancellationToken ct)
     {

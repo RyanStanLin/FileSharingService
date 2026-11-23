@@ -66,3 +66,47 @@ Cookie: {{cookie}}
 DELETE {{notifications}}/channels/{{channelId}}?revision=2
 Origin: {{base}}
 Cookie: {{cookie}}
+
+@deviceId = 00000000-0000-0000-0000-000000000000
+@ruleId = 00000000-0000-0000-0000-000000000000
+
+### Discover event types, filters and variables
+GET {{notifications}}/event-types
+Cookie: {{cookie}}
+
+### List enabled rules for a device
+GET {{notifications}}/rules?deviceId={{deviceId}}&enabled=true&limit=50
+Cookie: {{cookie}}
+
+### Create a rule for more than one event
+POST {{notifications}}/rules
+Origin: {{base}}
+Cookie: {{cookie}}
+Content-Type: application/json
+
+{"name":"Lid changes","deviceId":"{{deviceId}}","channelIds":["{{channelId}}"],"enabled":true,"events":["lid.closed","lid.opened"],"template":{"title":"{{device.name}}","body":"{{event.type}} at {{event.occurredAt}}"}}
+
+### Get a rule and its counters
+GET {{notifications}}/rules/{{ruleId}}
+Cookie: {{cookie}}
+
+### Edit a rule
+PUT {{notifications}}/rules/{{ruleId}}
+Origin: {{base}}
+Cookie: {{cookie}}
+Content-Type: application/json
+
+{"name":"Lid changes","deviceId":"{{deviceId}}","channelIds":["{{channelId}}"],"enabled":false,"revision":1,"events":["lid.closed","lid.opened"],"template":{"title":"{{device.name}}","body":"{{event.type}}"}}
+
+### Preview a template
+POST {{notifications}}/rules/preview
+Origin: {{base}}
+Cookie: {{cookie}}
+Content-Type: application/json
+
+{"event":"lid.closed","template":{"title":"{{device.name}}","body":"Closed at {{event.occurredAt}}"},"context":{"device.name":"Desk Mac","lid.closed":"true"}}
+
+### Delete a rule
+DELETE {{notifications}}/rules/{{ruleId}}?revision=2
+Origin: {{base}}
+Cookie: {{cookie}}

@@ -57,7 +57,7 @@ internal sealed class AgentIngest(Database db, AgentBroker broker, WatchRegistry
             return;
         }
         if (frame is not { Type: "event", Id: { } id, Topic: { } topic, Payload: { } payload } ||
-            !Guid.TryParseExact(id, "D", out _))
+            !Guid.TryParseExact(id, "D", out var frameId))
             throw Fault.Bad("invalid_event");
 
         if (topic == "files.changed")
@@ -101,6 +101,7 @@ internal sealed class AgentIngest(Database db, AgentBroker broker, WatchRegistry
                 Secrets.Text(root.Label);
             }
         }
+        id = frameId.ToString("D");
         await db.Write(async (connection, tx) =>
         {
             var now = Clock.Now;
@@ -116,9 +117,14 @@ internal sealed class AgentIngest(Database db, AgentBroker broker, WatchRegistry
                     INSERT INTO Snapshots(DeviceId,Topic,At,Payload) VALUES(@device,@topic,@now,@Payload)
                     ON CONFLICT(DeviceId,Topic) DO UPDATE SET At=excluded.At,Payload=excluded.Payload
                     """, json, tx, cancellationToken: ct));
-            await connection.ExecuteAsync(new CommandDefinition("""
-                INSERT INTO Events(DeviceId,Topic,At,Payload) VALUES(@device,@topic,@now,@Payload)
+            var source = await connection.QuerySingleAsync<long>(new CommandDefinition("""
+                INSERT INTO Events(DeviceId,Topic,At,Payload) VALUES(@device,@topic,@now,@Payload) RETURNING Sequence
                 """, json, tx, cancellationToken: ct));
+            if (broker.CanNotify(link))
+            {
+                var signals = await NotificationSignals.FromFrame(connection, tx, device, topic, snapshot, payload, now, ct);
+                await NotificationMatcher.Match(connection, tx, device, source, now, signals, ct);
+            }
             if (roots is not null)
             {
                 await connection.ExecuteAsync(new CommandDefinition("DELETE FROM ObservedRoots WHERE DeviceId=@device",

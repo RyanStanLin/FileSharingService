@@ -142,7 +142,9 @@ actor AgentTransport {
     @MainActor init(enrollment: Enrollment, state: LocalState) {
         self.id = enrollment.deviceId
         let name = Host.current().localizedName ?? ProcessInfo.processInfo.hostName
-        self.hello = ["type": "hello", "deviceId": .string(enrollment.deviceId), "name": .string(name)]
+        var hello: [String: JSON] = ["type": "hello", "deviceId": .string(enrollment.deviceId), "name": .string(name)]
+        if let key = enrollment.notificationKey { hello["notificationKey"] = .string(key) }
+        self.hello = .object(hello)
         self.state = state
         let files = ScopedFiles(roots: enrollment.roots, state: state)
         self.files = files

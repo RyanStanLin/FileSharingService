@@ -173,7 +173,7 @@ components:
       required: [resource, id, action]
       properties:
         resource:
-          enum: [channel, delivery]
+          enum: [channel, rule, delivery]
         id:
           type: string
           format: uuid

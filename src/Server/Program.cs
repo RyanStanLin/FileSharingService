@@ -26,6 +26,8 @@ public static class Program
         builder.Services.AddHostedService<FtpGateway>();
         builder.Services.AddSingleton<Database>();
         builder.Services.AddSingleton<NotificationOptions>();
+        builder.Services.AddSingleton<NotificationDeviceTrust>();
+        builder.Services.AddSingleton<INotificationRules, NotificationRules>();
         builder.Services.AddSingleton<NotificationVault>();
         builder.Services.AddSingleton<NotificationProviders>();
         builder.Services.AddSingleton<INotificationChannels, NotificationChannels>();

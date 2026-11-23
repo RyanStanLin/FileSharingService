@@ -58,3 +58,59 @@ Base URL 为 `/api/v1/notifications`。所有请求使用已解锁的 Passkey �
 - SQLite 在同一事务写入投递和状态摘要，服务重启恢复队列。渠道编辑、停用或删除时取消尚未发出的旧修订投递。已进入上游调用的请求可能完成。
 - 最多保存 64 个渠道、全局 2,000 笔待投递、单渠道 500 笔。投递和更新保留最多 30 天，同时分别受最近 50,000 与 100,000 个序号限制。测试幂等键随投递保留。
 - 在 `GET /api/v1/events/ws` 收到 `ready` 后发送 `{"type":"subscribe","id":"notify","topic":"notifications.changed"}`。用 `subscribed.cursor` 保存通知游标，收到事件后推进到 `item.sequence`。用 `after` 重订阅，或 `GET /updates?after={cursor}&limit=100` 回放。通知游标独立于其他设备事件的游标。缺省 `after` 的 WS 从当前尾部开始，REST 从最早保留记录开始。过期游标返回 `notification_resync_required`，此时重读配置与投递后重新订阅。`item.payload` 含 `resource,id,action,revision,state,channelId,ruleId`。 [AsyncAPI](asyncapi.yaml)
+
+## 事件规则与模板
+
+| 方法与路径 | 行为 |
+| --- | --- |
+| `GET /event-types` | 返回所有事件类型、变量说明、可用过滤条件、配置上限及凭据功能是否启用。 |
+| `GET /rules?cursor=&limit=&deviceId=&enabled=` | 按设备或启用状态筛选，使用 UUID 游标分页。 |
+| `POST /rules` | 创建规则，返回 201 与 `Location`。 |
+| `GET /rules/{id}` | 读取匹配条件和累计计数。 |
+| `PUT /rules/{id}` | 用当前 `revision` 完整替换规则。 |
+| `DELETE /rules/{id}?revision=N` | 删除规则并取消旧规则的待投递记录。 |
+| `POST /rules/preview` | 用样本上下文渲染模板，返回 `message,missingVariables`。 |
+
+```json
+{
+  "name": "编辑器活动",
+  "deviceId": "1a4e2b2d-fc00-4187-b47a-dfe35c4e7b52",
+  "enabled": true,
+  "events": ["application.launched", "application.terminated"],
+  "channelIds": ["55032126-ea7a-49a1-a849-54f8553c40ab"],
+  "filter": {"bundleId": "com.example.editor"},
+  "cooldownSeconds": 30,
+  "template": {
+    "title": "{{device.name}}",
+    "body": "{{app.name}} · {{event.type}} · {{event.occurredAt}}"
+  }
+}
+```
+
+规则选择一台已登记的 Mac、1–16 个事件类型及 1–8 个渠道。全局可保存 128 条，每台最多 32 条。一个事件可命中多条规则。`bundleId` 不区分大小写，`applicationId` 和 `storageId` 精确匹配，只用于对应类别。阈值规则必须设置 `thresholdPercent` 为 1–100 整数。初次采样建立基线，从低于阈值到达到或超过阈值、从达到或超过阈值到低于阈值时触发相应事件。
+
+`cooldownSeconds` 默认为 0，可设为 0–86400 秒。同一规则与事件类型从上次成功排队起计算冷却。每次匹配增加 `matchedEvents`，每个入队目标增加 `enqueuedDeliveries`。冷却、停用渠道或队列达到上限导致跳过的目标计入 `skippedDeliveries`。修改配置后规则使用新修订并重新开始计算冷却，累计计数保留。渠道被规则引用时先更新或删除规则，再删除渠道。
+
+模板使用 `{{变量名}}`，花括号内允许空格。变量名称由当前规则的事件类型决定，缺失值插入空字符串，值中的花括号按原文发送。正文展开后若为空，以事件标识填充。标题缺省为 `FileSharing`。渲染后标题和正文分别限制在 180 和 2,800 UTF-8 字节，超出会加省略号且保留完整 Unicode 字符。Telegram 以纯文本发送标题和正文，并关闭链接预览。可用以下请求预览，API 自行生成事件类型和当前 UTC 时间。
+
+```json
+{
+  "event": "application.launched",
+  "template": {"title": "{{device.name}}", "body": "{{app.name}} {{app.version}}"},
+  "context": {"device.name": "Desk Mac", "app.name": "Editor"}
+}
+```
+
+| 事件族 | 触发来源 |
+| --- | --- |
+| `device.online/offline` | 服务端观测到获信连接断开及恢复，包括心跳到期。首次绑定建立基线。 |
+| `lid.closed/opened` | Agent 观测到盖状态改变。 |
+| `system.sleeping/woke/locked/unlocked`、`display.slept/woke` | macOS 休眠、唤醒、会话和屏幕事件。网络来不及送达的休眠事件可随 Agent 重连补报。 |
+| `application.*` | 启动、退出、激活、停用、隐藏、取消隐藏、安装、移除及升级。 |
+| `storage.*` | 外接存储插入、移除、挂载和卸载。 |
+| `battery.*`、`power.*` | 充电、外接电源和低电模式切换，以及电量跨阈值。 |
+| `network.*`、`display.configurationChanged` | 可达性、主网卡、VPN 和显示配置的样本变化。 |
+| `cpu.usageAbove/Below`、`memory.usageAbove/Below` | 收到性能样本并跨阈值。需要启用该采样间隔或按需刷新。 |
+| `clipboard.changed`、`telemetry.gap` | 剪贴板变化只提供时间。遥测积压丢失可单独订阅。 |
+
+更新到支持通知的 Agent 后，给它的当前连接授权一次。服务器只保存 Agent 安装凭据的哈希。此后识别同一安装的在线恢复与系统事件，文件与远程控制仍走各自连接授权。旧 Agent 的系统事件需要它的当前连接已授权。重新安装导致凭据变化时，核对并授权新连接即可重新绑定。服务离线期间无实时观测，服务重启后只基于已记录的离线状态判断恢复。系统离散事件超过 10 分钟才送达时只保留在普通设备历史中，采样及连接事件使用服务端接收时间。

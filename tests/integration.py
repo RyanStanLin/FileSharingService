@@ -1,6 +1,7 @@
 import base64
 from contextlib import closing
 import concurrent.futures
+from datetime import datetime, timezone
 import fcntl
 import ftplib
 import hashlib
@@ -597,6 +598,10 @@ class Acceptance(unittest.TestCase):
                 DROP TABLE NotificationChannels;
                 DROP TABLE NotificationDeliveries;
                 DROP TABLE NotificationUpdates;
+                DROP TABLE NotificationCooldowns;
+                DROP TABLE NotificationRules;
+                DROP TABLE NotificationDevices;
+                DROP TABLE NotificationSamples;
                 CREATE TABLE FtpAccountsPrior(
                     Id TEXT PRIMARY KEY, Name TEXT NOT NULL COLLATE NOCASE UNIQUE, Owner TEXT NOT NULL REFERENCES Operators(Id),
                     Mode TEXT NOT NULL CHECK(Mode IN ('ftp','ftps')), SecretHash TEXT NOT NULL,
@@ -615,7 +620,7 @@ class Acceptance(unittest.TestCase):
         self.assertEqual((account["scope"], account["rootIds"], account["passwordRetrievable"]), ("grants", [self.root_id], False))
         self.api("POST", f"{API}/ftp/accounts/{account['id']}/password/reveal", 409)
         with closing(sqlite3.connect(self.work / "db" / "filesharing.db")) as data, data:
-            self.assertEqual(data.execute("PRAGMA user_version").fetchone()[0], 5)
+            self.assertEqual(data.execute("PRAGMA user_version").fetchone()[0], 6)
             self.assertEqual(data.execute("PRAGMA foreign_key_check").fetchall(), [])
             self.assertNotIn("PublicKey", [row[1] for row in data.execute("PRAGMA table_info(Devices)")])
             self.assertEqual(data.execute("SELECT COUNT(*) FROM sqlite_master WHERE name IN ('AgentTokens','Activations')").fetchone()[0], 0)
@@ -1865,6 +1870,139 @@ precondition(board.setString("ISOLATED_CLIPBOARD_CONTENT", forType: .string))
         self.assertEqual(self.api("GET", f"{NOTIFICATIONS}/deliveries/{other['id']}").json()["state"], "sent")
         self.assertNotIn(telegram_token, self.log_tail())
 
+    def notification_channel(self, fixture, name="Ops"):
+        return self.api("POST", NOTIFICATIONS + "/channels", 201,
+                        json={"name": name, "enabled": True, "kind": "bark",
+                              "bark": {"server": fixture.origin, "deviceKey": "FixtureDeviceKey"}}).json()
+
+    def notification_event(self, topic, payload, snapshot=False, event_id=None):
+        return {"type": "event", "id": event_id or str(uuid.uuid4()), "topic": topic, "snapshot": snapshot, "payload": payload}
+
+    def send_agent_frames(self, connection, *frames):
+        self.api("POST", "/agent/v1/frames", 204, headers={"X-FileSharing-Channel": connection["channel"]},
+                 json={"frames": frames})
+
+    def rule_deliveries(self, rule_id):
+        return self.api("GET", NOTIFICATIONS + "/deliveries", params={"ruleId": rule_id}).json()["items"]
+
+    def test_notification_rules_match_trusted_events_and_render_context(self):
+        fixture = self.notification_fixture()
+        self.register()
+        self.unlock()
+        hello = {"deviceId": str(uuid.uuid4()), "name": "Desk Mac", "notificationKey": secrets.token_urlsafe(32)}
+        connection = self.api("POST", "/agent/v1/connect", json=hello).json()
+        self.device_api = f"{API}/devices/{hello['deviceId']}"
+        phone = self.notification_channel(fixture)
+        second = self.notification_channel(fixture, "Support")
+        kinds = self.api("GET", NOTIFICATIONS + "/event-types").json()
+        self.assertIn("app.name", {var["name"] for entry in kinds["events"] if entry["type"] == "application.launched"
+                                   for var in entry["variables"]})
+        body = {"name": "Watch the Editor", "deviceId": hello["deviceId"], "enabled": True,
+                "events": ["application.launched", "application.terminated"], "channelIds": [phone["id"], second["id"]],
+                "filter": {"bundleId": "com.example.editor"}, "cooldownSeconds": 300,
+                "template": {"title": "{{ device.name }}", "body": "{{app.name}} {{event.type}} ({{app.version}})"}}
+        rules = NOTIFICATIONS + "/rules"
+        self.api("POST", rules, 400, json=body | {"template": {"body": "{{app.secret}}"}})
+        self.api("POST", rules, 400, json=body | {"filter": {"thresholdPercent": 55}})
+        self.api("POST", rules, 400, json=body | {"events": ["application.launched", "application.launched"]})
+        preview = self.api("POST", rules + "/preview", json={"event": "application.launched", "template": body["template"],
+                           "context": {"device.name": "Preview", "app.name": "{{event.type}}"}}).json()
+        self.assertEqual(preview, {"message": {"title": "Preview", "body": "{{event.type}} application.launched ()"},
+                                   "missingVariables": ["app.version"]})
+        rule_response = self.api("POST", rules, 201, json=body)
+        rule = rule_response.json()
+        route = rules + "/" + rule["id"]
+        self.assertEqual(rule_response.headers["Location"], route)
+        self.assertEqual(self.api("GET", rules, params={"deviceId": hello["deviceId"], "enabled": "true"}).json()["items"], [rule])
+
+        def app(kind="launched", bundle="com.example.Editor"):
+            return self.notification_event("applications.changed", {
+                "kind": kind, "occurredAt": datetime.now(timezone.utc).isoformat(),
+                "application": {"applicationId": "editor", "bundleId": bundle, "name": "Editor & 閱讀", "version": "3"}
+            })
+
+        self.send_agent_frames(connection, app())
+        self.assertEqual(self.rule_deliveries(rule["id"]), [])
+        current = self.api("GET", self.device_api).json()["connection"]
+        self.set_access(current["connectionId"], True)
+        first = app()
+        self.send_agent_frames(connection, first, first | {"id": first["id"].upper()}, app(), app(bundle="other.application"),
+                               app("terminated"))
+        rows = self.rule_deliveries(rule["id"])
+        self.assertEqual([x["event"] for x in rows], ["application.launched"] * 2 + ["application.terminated"] * 2)
+        self.assertTrue(all(x["deviceId"] == hello["deviceId"] and x["sourceSequence"] for x in rows))
+        self.assertEqual(rows[0]["message"], {"title": "Desk Mac", "body": "Editor & 閱讀 application.launched (3)"})
+        self.assertEqual(rows[0]["context"]["app.bundleId"], "com.example.Editor")
+        self.assertEqual({x["channelId"] for x in rows[:2]}, {phone["id"], second["id"]})
+        state = self.api("GET", route).json()
+        self.assertEqual((state["matchedEvents"], state["enqueuedDeliveries"], state["skippedDeliveries"]), (3, 4, 2))
+        self.api("DELETE", f"{NOTIFICATIONS}/channels/{phone['id']}", 409, params={"revision": phone["revision"]})
+        self.api("PUT", route, 409, json=body | {"revision": 2})
+        updated = self.api("PUT", route, json=body | {"enabled": False, "revision": 1}).json()
+        self.assertEqual(updated["revision"], 2)
+        self.send_agent_frames(connection, app())
+        self.assertEqual(len(self.rule_deliveries(rule["id"])), 4)
+        self.api("DELETE", route, 204, params={"revision": 2})
+        self.api("GET", route, 404)
+
+        metric_rule = self.api("POST", rules, 201, json=body | {
+            "events": ["battery.levelBelow", "battery.levelRecovered", "battery.chargingStarted", "system.sleeping", "lid.closed"],
+            "template": {"body": "{{event.type}} {{metric.previousValue}} → {{battery.chargePercent}} ({{metric.thresholdPercent}})"},
+            "filter": {"thresholdPercent": 25}, "cooldownSeconds": 0, "channelIds": [phone["id"]]
+        }).json()
+        for charge, charging in [(60, False), (24, False), (18, True), (25, True)]:
+            self.send_agent_frames(connection, self.notification_event("battery", {
+                "chargePercent": charge, "charging": charging, "externalPower": charging
+            }, snapshot=True))
+        stamp = datetime.now(timezone.utc).isoformat()
+        self.send_agent_frames(connection, self.notification_event("system.changed", {"kind": "sleeping", "occurredAt": stamp}),
+                               self.notification_event("lid.changed", {"lidClosed": True, "occurredAt": stamp}))
+        signals = self.rule_deliveries(metric_rule["id"])
+        self.assertEqual([x["event"] for x in signals],
+                         ["battery.levelBelow", "battery.chargingStarted", "battery.levelRecovered", "system.sleeping", "lid.closed"])
+        self.assertEqual(signals[0]["message"]["body"], "battery.levelBelow 60 → 24 (25)")
+        self.assertEqual(signals[2]["context"]["metric.value"], "25")
+
+    def test_notification_presence_requires_bound_agent_identity(self):
+        fixture = self.notification_fixture()
+        self.register()
+        self.unlock()
+        phone = self.notification_channel(fixture)
+        hello = {"type": "hello", "deviceId": str(uuid.uuid4()), "name": "Trusted Mac", "notificationKey": secrets.token_urlsafe(32)}
+        self.device_api = f"{API}/devices/{hello['deviceId']}"
+        url = self.origin.replace("http:", "ws:") + "/agent/v1/ws"
+        with connect(url, proxy=None, open_timeout=6) as agent:
+            agent.send(json.dumps(hello))
+            self.receive(agent, lambda f: f["type"] == "ready")
+            rule = self.api("POST", NOTIFICATIONS + "/rules", 201,
+                            json={"name": "Mac availability", "deviceId": hello["deviceId"], "enabled": True,
+                                  "events": ["device.online", "device.offline", "lid.closed"], "channelIds": [phone["id"]],
+                                  "template": {"body": "{{device.name}} {{event.type}} {{connection.protocol}}"}}).json()
+            current = self.api("GET", self.device_api).json()["connection"]
+            self.set_access(current["connectionId"], True)
+            self.assertEqual(self.rule_deliveries(rule["id"]), [])
+        self.wait(lambda: len(self.rule_deliveries(rule["id"])) == 1)
+        first = self.rule_deliveries(rule["id"])[0]
+        self.assertEqual((first["event"], first["context"]["connection.protocol"]), ("device.offline", "wss"))
+
+        forged = self.api("POST", "/agent/v1/connect", json=hello | {"notificationKey": secrets.token_urlsafe(32)}).json()
+        stamp = datetime.now(timezone.utc).isoformat()
+        lid = self.notification_event("lid.changed", {"lidClosed": True, "occurredAt": stamp})
+        self.send_agent_frames(forged, lid)
+        self.api("DELETE", "/agent/v1/connection", 204, headers={"X-FileSharing-Channel": forged["channel"]})
+        self.assertEqual(len(self.rule_deliveries(rule["id"])), 1)
+
+        restored = self.api("POST", "/agent/v1/connect", json=hello).json()
+        self.assertFalse(self.api("GET", self.device_api).json()["connection"]["accessGranted"])
+        self.send_agent_frames(restored, lid | {"id": str(uuid.uuid4())})
+        rows = self.rule_deliveries(rule["id"])
+        self.assertEqual([row["event"] for row in rows], ["device.offline", "device.online", "lid.closed"])
+        self.assertEqual(rows[1]["context"]["connection.protocol"], "https")
+        self.assertEqual(rows[2]["context"]["lid.closed"], "true")
+        with closing(sqlite3.connect(self.work / "db" / "filesharing.db")) as data:
+            proof, = data.execute("SELECT ProofHash FROM NotificationDevices WHERE DeviceId=?", (hello["deviceId"],)).fetchone()
+            self.assertEqual(proof, hashlib.sha256(hello["notificationKey"].encode()).hexdigest().upper())
+
     def test_openapi_contract(self):
         contract = self.api("GET", "/openapi/v1.json").json()
         paths = contract["paths"]
@@ -1876,7 +2014,8 @@ precondition(board.setString("ISOLATED_CLIPBOARD_CONTENT", forType: .string))
                          "/api/v1/devices/{id}/interactions/notifications", "/api/v1/ftp/connections",
                          "/api/v1/ftp/accounts/{id}/password/reveal", "/api/v1/devices/{id}/windows",
                          NOTIFICATIONS + "/channels/{id}/verify", NOTIFICATIONS + "/channels/{id}/test",
-                         NOTIFICATIONS + "/deliveries", NOTIFICATIONS + "/updates"):
+                         NOTIFICATIONS + "/deliveries", NOTIFICATIONS + "/updates",
+                         NOTIFICATIONS + "/event-types", NOTIFICATIONS + "/rules", NOTIFICATIONS + "/rules/preview"):
             self.assertIn(expected, paths)
         self.assertNotIn("/api/v1/enrollments", paths)
         self.assertIn("101", paths["/api/v1/events/ws"]["get"]["responses"])

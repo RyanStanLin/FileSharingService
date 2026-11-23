@@ -1,4 +1,5 @@
 import Foundation
+import Security
 
 struct LocalRoot: Codable, Equatable, Sendable {
     let rootKey: String
@@ -57,6 +58,7 @@ struct LocalRoot: Codable, Equatable, Sendable {
 struct Enrollment: Codable, Sendable {
     let deviceId: String
     let roots: [LocalRoot]
+    let notificationKey: String?
 }
 
 struct LocalState: Sendable {
@@ -100,13 +102,14 @@ struct LocalState: Sendable {
                 stored = try enrollment()
             } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
                 let home = try LocalRoot.authorize(path: Self.home.path(percentEncoded: false), write: homeWritable)
-                let local = Enrollment(deviceId: JSON.id(), roots: [home])
+                let local = Enrollment(deviceId: JSON.id(), roots: [home], notificationKey: try Self.makeNotificationKey())
                 try save(local)
                 return local
             }
             let roots = stored.roots.map { $0.upgradingVolumeIdentity() }
-            if roots == stored.roots { return stored }
-            let upgraded = Enrollment(deviceId: stored.deviceId, roots: roots)
+            if roots == stored.roots && stored.notificationKey != nil { return stored }
+            let key = try stored.notificationKey ?? Self.makeNotificationKey()
+            let upgraded = Enrollment(deviceId: stored.deviceId, roots: roots, notificationKey: key)
             try save(upgraded)
             return upgraded
         }
@@ -116,9 +119,18 @@ struct LocalState: Sendable {
         try withEnrollmentLock {
             let stored = try enrollment()
             let roots = try update(stored.roots)
-            try save(Enrollment(deviceId: stored.deviceId, roots: roots))
+            try save(Enrollment(deviceId: stored.deviceId, roots: roots, notificationKey: stored.notificationKey))
             return roots.count
         }
+    }
+
+    private static func makeNotificationKey() throws -> String {
+        var bytes = [UInt8](repeating: 0, count: 32)
+        let status = bytes.withUnsafeMutableBytes { buffer in
+            SecRandomCopyBytes(kSecRandomDefault, buffer.count, buffer.baseAddress!)
+        }
+        guard status == errSecSuccess else { throw AgentError("random_key_unavailable") }
+        return Data(bytes).base64URL
     }
 
     private func withEnrollmentLock<T>(_ action: () throws -> T) throws -> T {

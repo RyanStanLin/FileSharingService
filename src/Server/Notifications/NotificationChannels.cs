@@ -83,6 +83,10 @@ internal sealed class NotificationChannels(Database db, NotificationOptions opti
         {
             var row = await Require(connection, tx, id, ct);
             RequireRevision(revision, row.Revision);
+            if (await connection.ExecuteScalarAsync<bool>(new CommandDefinition("""
+                SELECT EXISTS(SELECT 1 FROM NotificationRules r, json_each(r.ChannelIds) WHERE value=@id)
+                """, new { id }, tx, cancellationToken: ct)))
+                throw Fault.Conflict("notification_channel_in_use");
             await connection.ExecuteAsync(new CommandDefinition("DELETE FROM NotificationChannels WHERE Id=@id", new { id }, tx,
                 cancellationToken: ct));
             await NotificationDeliveries.CancelPending(connection, tx, id, null, "notification_destination_changed", ct);

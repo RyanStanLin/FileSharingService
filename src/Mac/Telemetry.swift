@@ -284,17 +284,21 @@ final class Telemetry {
         for (notification, state) in [(NSWorkspace.screensDidSleepNotification, true), (NSWorkspace.screensDidWakeNotification, false)] {
             observers.append(workspace.addObserver(forName: notification, object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor in
-                    self?.displaySleeping = state
-                    await self?.sample("system", force: true)
-                    await self?.sample("displays", force: true)
+                    guard let self, self.displaySleeping != state else { return }
+                    self.displaySleeping = state
+                    self.emit("system.changed", ["kind": state ? "displaySlept" : "displayWoke", "occurredAt": .date(Date())], false)
+                    await self.sample("system", force: true)
+                    await self.sample("displays", force: true)
                 }
             })
         }
         for (name, state) in [("com.apple.screenIsLocked", "locked"), ("com.apple.screenIsUnlocked", "unlocked")] {
             observers.append(DistributedNotificationCenter.default().addObserver(forName: NSNotification.Name(name), object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor in
-                    self?.lockState = state
-                    await self?.sample("system", force: true)
+                    guard let self, self.lockState != state else { return }
+                    self.lockState = state
+                    self.emit("system.changed", ["kind": .string(state), "occurredAt": .date(Date())], false)
+                    await self.sample("system", force: true)
                 }
             })
         }

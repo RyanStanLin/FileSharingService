@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Net.WebSockets;
 using System.Text.Json;
+using Dapper;
 
 namespace FileSharing;
 
@@ -10,7 +11,8 @@ internal sealed record AgentFrame(string Type, string? Id, string? Topic, string
 internal sealed record AgentPresence(bool Online, string? Protocol, DateTimeOffset? ConnectedAt, DateTimeOffset? LastCommunicationAt,
     double? LatencyMs, long? ConnectionSeconds, string? ConnectionId, bool AccessGranted, string? PeerAddress);
 
-internal sealed class AgentBroker(Database db, AgentRegistration registration, ILogger<AgentBroker> logger)
+internal sealed class AgentBroker(Database db, AgentRegistration registration, NotificationDeviceTrust trust,
+    IHostApplicationLifetime lifetime, ILogger<AgentBroker> logger)
 {
     internal const string ChannelHeader = "X-FileSharing-Channel";
     private static readonly TimeSpan PresenceWindow = TimeSpan.FromSeconds(45);
@@ -23,7 +25,9 @@ internal sealed class AgentBroker(Database db, AgentRegistration registration, I
         public long LeaseUntil { get; set; }
     }
 
-    internal sealed class Link(string device, string protocol, string? peerAddress)
+    private enum PresenceChange { None, Open, Close }
+
+    internal sealed class Link(string device, string protocol, string? peerAddress, string? notificationProof)
     {
         private readonly CancellationTokenSource stop = new();
 
@@ -31,6 +35,9 @@ internal sealed class AgentBroker(Database db, AgentRegistration registration, I
         public string Id { get; } = Secrets.Id();
         public string Protocol { get; } = protocol;
         public string? PeerAddress { get; } = peerAddress;
+        public string? NotificationProof { get; } = notificationProof;
+        public bool NotificationTrusted { get; set; }
+        public SemaphoreSlim Lifecycle { get; } = new(1, 1);
         public string? Channel { get; } = protocol == "https" ? Secrets.New() : null;
         public CancellationToken Lifetime => stop.Token;
         public Dictionary<string, Pending> Pending { get; } = [];
@@ -57,6 +64,7 @@ internal sealed class AgentBroker(Database db, AgentRegistration registration, I
     {
         var device = Secrets.Identifier(hello.DeviceId);
         var name = Secrets.Text(hello.Name);
+        var proof = NotificationDeviceTrust.Proof(hello.NotificationKey);
         await admissions.WaitAsync(ct);
         try
         {
@@ -67,16 +75,11 @@ internal sealed class AgentBroker(Database db, AgentRegistration registration, I
                     throw Fault.Conflict("device_already_connected");
             }
             await registration.Register(device, name, ct);
-            var link = new Link(device, protocol, context.Connection.RemoteIpAddress?.ToString());
+            var link = new Link(device, protocol, context.Connection.RemoteIpAddress?.ToString(), proof);
+            await Publish(link, CancellationToken.None, PresenceChange.Open);
             links[device] = link;
             if (link.Channel is { } channel)
                 channels[channel] = link;
-            try { await Publish(link, CancellationToken.None); }
-            catch
-            {
-                await Close(link, CancellationToken.None);
-                throw;
-            }
             return link;
         }
         finally
@@ -124,22 +127,44 @@ internal sealed class AgentBroker(Database db, AgentRegistration registration, I
             return Online(link) && link.AccessGranted;
     }
 
+    public bool CanNotify(Link link)
+    {
+        lock (link)
+            return Online(link) && (link.AccessGranted || link.NotificationTrusted);
+    }
+
     public async Task<AgentPresence> SetAccess(string device, string connectionId, bool enabled, string actor, CancellationToken ct)
     {
         var link = Find(device);
-        lock (link)
+        await link.Lifecycle.WaitAsync(ct);
+        try
         {
-            RequireOnline(link);
-            RequireConnection(link, connectionId);
-            link.AccessGranted = enabled;
-            if (!enabled)
+            lock (link)
             {
-                link.Windows.Clear();
-                FailPending(link, Fault.Forbidden("agent_connection_access_required"));
+                RequireOnline(link);
+                RequireConnection(link, connectionId);
             }
+            if (enabled && link.NotificationProof is not null)
+                await trust.Bind(link, ct);
+
+            lock (link)
+            {
+                RequireOnline(link);
+                link.NotificationTrusted |= enabled && link.NotificationProof is not null;
+                link.AccessGranted = enabled;
+                if (!enabled)
+                {
+                    link.Windows.Clear();
+                    FailPending(link, Fault.Forbidden("agent_connection_access_required"));
+                }
+            }
+            await db.Audit("device.connection_access_changed", actor, device, new { connectionId, enabled }, CancellationToken.None);
+            return await Publish(link, CancellationToken.None);
         }
-        await db.Audit("device.connection_access_changed", actor, device, new { connectionId, enabled }, CancellationToken.None);
-        return await Publish(link, ct);
+        finally
+        {
+            link.Lifecycle.Release();
+        }
     }
 
     public async Task Seen(Link link, CancellationToken ct, double? latency = null)
@@ -195,29 +220,37 @@ internal sealed class AgentBroker(Database db, AgentRegistration registration, I
 
     public async Task Close(Link link, CancellationToken ct, bool expiredOnly = false)
     {
-        lock (link)
-        {
-            if (link.Closed || expiredOnly && Online(link))
-                return;
-            link.Closed = true;
-            link.AccessGranted = false;
-            link.Windows.Clear();
-            FailPending(link, Fault.Unavailable());
-        }
-        if (link.Channel is { } channel)
-            channels.TryRemove(channel, out _);
+        await link.Lifecycle.WaitAsync(ct);
         try
         {
-            await link.Cancel();
-            await Publish(link, ct);
-        }
-        catch (Exception error) when (error is not OperationCanceledException)
-        {
-            logger.LogWarning(error, "Could not persist disconnect for agent {DeviceId}", link.Device);
+            lock (link)
+            {
+                if (link.Closed || expiredOnly && Online(link))
+                    return;
+                link.Closed = true;
+                link.AccessGranted = false;
+                link.Windows.Clear();
+                FailPending(link, Fault.Unavailable());
+            }
+            if (link.Channel is { } channel)
+                channels.TryRemove(channel, out _);
+            try
+            {
+                await link.Cancel();
+                await Publish(link, CancellationToken.None, PresenceChange.Close);
+            }
+            catch (Exception error)
+            {
+                logger.LogWarning(error, "Could not persist disconnect for agent {DeviceId}", link.Device);
+            }
+            finally
+            {
+                links.TryRemove(new KeyValuePair<string, Link>(link.Device, link));
+            }
         }
         finally
         {
-            links.TryRemove(new KeyValuePair<string, Link>(link.Device, link));
+            link.Lifecycle.Release();
         }
     }
 
@@ -328,12 +361,33 @@ internal sealed class AgentBroker(Database db, AgentRegistration registration, I
 
     private Link Find(string device) => links.TryGetValue(device, out var link) ? link : throw Fault.Unavailable();
 
-    private async Task<AgentPresence> Publish(Link link, CancellationToken ct)
+    private async Task<AgentPresence> Publish(Link link, CancellationToken ct, PresenceChange change = PresenceChange.None)
     {
         AgentPresence presence;
         lock (link)
             presence = Read(link);
-        await db.AppendEvent(link.Device, "connection.changed", Wire.Element(presence), ct);
+        if (change == PresenceChange.None)
+        {
+            await db.AppendEvent(link.Device, "connection.changed", Wire.Element(presence), ct);
+            return presence;
+        }
+
+        var trusted = await db.Write(async (connection, tx) =>
+        {
+            var now = Clock.Now;
+            var source = await connection.QuerySingleAsync<long>(new CommandDefinition("""
+                INSERT INTO Events(DeviceId,Topic,At,Payload) VALUES(@Device,'connection.changed',@now,@payload) RETURNING Sequence
+                """, new { link.Device, now, payload = Wire.Encode(presence) }, tx, cancellationToken: ct));
+            if (change == PresenceChange.Open)
+                return await NotificationDeviceTrust.Connect(connection, tx, link, presence, source, now, ct);
+
+            await NotificationDeviceTrust.Disconnect(connection, tx, link, presence, source, now,
+                lifetime.ApplicationStopping.IsCancellationRequested, ct);
+            return false;
+        });
+        if (trusted)
+            lock (link)
+                link.NotificationTrusted = true;
         return presence;
     }
 

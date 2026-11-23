@@ -33,6 +33,25 @@ internal static class NotificationStorage
         CREATE INDEX NotificationUpdatesByTime ON NotificationUpdates(At);
         """;
 
+    public const string RulesMigration = """
+        CREATE TABLE NotificationRules(
+            Id TEXT PRIMARY KEY, Name TEXT NOT NULL, DeviceId TEXT NOT NULL REFERENCES Devices(Id),
+            Enabled INTEGER NOT NULL, Revision INTEGER NOT NULL, Created INTEGER NOT NULL, Updated INTEGER NOT NULL,
+            Events TEXT NOT NULL, ChannelIds TEXT NOT NULL, Template TEXT NOT NULL, Filter TEXT NOT NULL,
+            CooldownSeconds INTEGER NOT NULL,
+            MatchedEvents INTEGER NOT NULL DEFAULT 0, EnqueuedDeliveries INTEGER NOT NULL DEFAULT 0,
+            SkippedDeliveries INTEGER NOT NULL DEFAULT 0, LastMatched INTEGER);
+        CREATE INDEX NotificationRulesByDevice ON NotificationRules(DeviceId,Enabled);
+        CREATE TABLE NotificationCooldowns(
+            RuleId TEXT NOT NULL REFERENCES NotificationRules(Id) ON DELETE CASCADE,
+            Event TEXT NOT NULL, LastQueued INTEGER NOT NULL, PRIMARY KEY(RuleId,Event));
+        CREATE TABLE NotificationDevices(
+            DeviceId TEXT PRIMARY KEY REFERENCES Devices(Id), ProofHash TEXT NOT NULL, ConnectionId TEXT, Online INTEGER NOT NULL);
+        CREATE TABLE NotificationSamples(
+            DeviceId TEXT NOT NULL REFERENCES Devices(Id), Topic TEXT NOT NULL, Payload TEXT NOT NULL,
+            PRIMARY KEY(DeviceId,Topic));
+        """;
+
     public static Task Audit(Microsoft.Data.Sqlite.SqliteConnection connection, Microsoft.Data.Sqlite.SqliteTransaction tx,
         string actor, string? device, string action, object detail, CancellationToken ct) =>
         connection.ExecuteAsync(new Dapper.CommandDefinition("""

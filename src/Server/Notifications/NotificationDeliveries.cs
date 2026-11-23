@@ -176,7 +176,10 @@ internal sealed class NotificationDeliveries(Database db, NotificationVault vaul
 
     public Task<NotificationChannelRow?> Destination(NotificationDeliveryRow row, CancellationToken ct) =>
         db.One<NotificationChannelRow>("""
-            SELECT * FROM NotificationChannels WHERE Id=@ChannelId AND Enabled=1 AND Revision=@ChannelRevision
+            SELECT c.* FROM NotificationChannels c
+            WHERE c.Id=@ChannelId AND c.Enabled=1 AND c.Revision=@ChannelRevision AND (@RuleId IS NULL OR EXISTS(
+                SELECT 1 FROM NotificationRules r JOIN Devices d ON d.Id=r.DeviceId AND d.Revoked IS NULL
+                WHERE r.Id=@RuleId AND r.Enabled=1 AND r.Revision=@RuleRevision AND r.DeviceId=@DeviceId))
             """, row, ct);
 
     public Task Complete(NotificationDeliveryRow row, NotificationProviderResult outcome, bool cancelled, CancellationToken ct) =>
