@@ -5,7 +5,7 @@ namespace FileSharing;
 
 internal sealed record TerminalView(string Id, string DeviceId, string RootId, string ConnectionId);
 internal sealed record TerminalFrame(long Index, string Kind, string? CommandId = null, string? Data = null,
-    int? ExitCode = null, string? Code = null, string? Line = null);
+    int? ExitCode = null, string? Code = null, string? Line = null, string? Prompt = null);
 internal sealed record TerminalPage(IReadOnlyList<TerminalFrame> Items, long Cursor, bool Closed, bool Truncated);
 
 internal sealed class TerminalSession(TerminalView view, string rootKey, string reviewId)
@@ -20,6 +20,7 @@ internal sealed class TerminalSession(TerminalView view, string rootKey, string 
     private long index;
     private long lastInput = Stopwatch.GetTimestamp();
     private string? commandId;
+    private string? prompt;
     private bool interruptRequested;
 
     public TerminalView View { get; } = view;
@@ -45,7 +46,7 @@ internal sealed class TerminalSession(TerminalView view, string rootKey, string 
             commandId = id;
             interruptRequested = false;
             lastInput = Stopwatch.GetTimestamp();
-            Append(new(0, "command", id, Line: line));
+            Append(new(0, "command", id, Line: line, Prompt: prompt));
         }
     }
 
@@ -75,14 +76,16 @@ internal sealed class TerminalSession(TerminalView view, string rootKey, string 
             switch (part.Kind)
             {
                 case "ready" when !ready.Task.IsCompleted:
-                    Append(new(0, "ready"));
+                    prompt = ValidPrompt(part.Prompt);
+                    Append(new(0, "ready", Prompt: prompt));
                     ready.TrySetResult(null);
                     break;
                 case "output" when commandId is not null && ValidOutput(part.Data):
                     Append(new(0, "output", commandId, Data: part.Data));
                     break;
                 case "exit" when commandId is not null && commandId == part.CommandId && part.ExitCode is >= 0 and <= 255:
-                    Append(new(0, "exit", commandId, ExitCode: part.ExitCode, Code: ValidCode(part.Code)));
+                    prompt = ValidPrompt(part.Prompt);
+                    Append(new(0, "exit", commandId, ExitCode: part.ExitCode, Code: ValidCode(part.Code), Prompt: prompt));
                     commandId = null;
                     break;
                 case "error":
@@ -137,4 +140,7 @@ internal sealed class TerminalSession(TerminalView view, string rootKey, string 
 
     private static string? ValidCode(string? code) =>
         code is { Length: > 0 and <= 64 } && code.All(c => c is >= 'a' and <= 'z' or '_') ? code : null;
+
+    private static string? ValidPrompt(string? value) =>
+        value is { Length: > 0 and <= 512 } && !value.Any(char.IsControl) ? value : null;
 }

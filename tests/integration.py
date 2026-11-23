@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path
 import plistlib
+import pwd
 import secrets
 import select
 import sqlite3
@@ -1507,9 +1508,13 @@ print(json.dumps({"payload": result}, ensure_ascii=False))
         folder.mkdir()
         (self.home / "Local Link").symlink_to(folder, target_is_directory=True)
         base = self.device_api + "/diagnostics/sessions"
+        identity = f"{pwd.getpwuid(os.getuid()).pw_name}@{socket.gethostname().split('.', 1)[0]}"
+        home_prompt = f"{identity} ~ %"
+        folder_prompt = f"{identity} {folder.name} %"
 
         for protocol in ("wss", "https"):
             with self.subTest(protocol=protocol):
+                prompt = home_prompt
                 if protocol == "https":
                     self.stop(self.agent)
                     self.stop(self.server)
@@ -1537,10 +1542,13 @@ print(json.dumps({"payload": result}, ensure_ascii=False))
                 def submit(line):
                     return self.api("POST", path + "/commands", 202, json={"line": line}).json()["commandId"]
 
-                def assert_result(pages, command_id, expected_text=None, status=0):
+                def assert_result(pages, command_id, expected_text=None, status=0, next_prompt=None):
+                    nonlocal prompt
                     selected = [item for item in pages if item["commandId"] == command_id]
-                    self.assertEqual(selected[0]["kind"], "command")
+                    self.assertEqual((selected[0]["kind"], selected[0]["prompt"]), ("command", prompt))
+                    prompt = next_prompt or prompt
                     self.assertEqual((selected[-1]["kind"], selected[-1]["exitCode"]), ("exit", status))
+                    self.assertEqual(selected[-1]["prompt"], prompt)
                     if expected_text is not None:
                         joined = b"".join(base64.b64decode(item["data"]) for item in selected if item["kind"] == "output")
                         self.assertTrue(joined.endswith(b"\r\n"), "Output should come from the macOS PTY")
@@ -1549,17 +1557,17 @@ print(json.dumps({"payload": result}, ensure_ascii=False))
 
                 cookie = "; ".join(f"{entry.name}={entry.value}" for entry in self.browser.cookies)
                 with connect(self.origin.replace("http:", "ws:") + path + "/ws", origin=self.origin,
-                             additional_headers={"Cookie": cookie}, proxy=None, open_timeout=6) as socket:
-                    ready = json.loads(socket.recv(timeout=6))
-                    self.assertEqual([item["kind"] for item in ready["items"]], ["ready"])
+                             additional_headers={"Cookie": cookie}, proxy=None, open_timeout=6) as channel:
+                    ready = json.loads(channel.recv(timeout=6))
+                    self.assertEqual([(item["kind"], item["prompt"]) for item in ready["items"]], [("ready", home_prompt)])
                     command_id = submit("pwd")
                     frames = []
                     while not any(item["kind"] == "exit" for item in frames):
-                        page = json.loads(socket.recv(timeout=6))
+                        page = json.loads(channel.recv(timeout=6))
                         frames.extend(page["items"])
                     cursor = assert_result(frames, command_id, str(self.home.resolve()))
 
-                def run(line, expected_text=None, status=0):
+                def run(line, expected_text=None, status=0, next_prompt=None):
                     nonlocal cursor
                     command_id = submit(line)
 
@@ -1569,14 +1577,14 @@ print(json.dumps({"payload": result}, ensure_ascii=False))
 
                     items = self.wait(complete)
                     self.assertEqual(items[0]["index"], cursor + 1)
-                    cursor = assert_result(items, command_id, expected_text, status)
+                    cursor = assert_result(items, command_id, expected_text, status, next_prompt)
 
-                run('cd "Project Files"')
+                run('cd "Project Files"', next_prompt=folder_prompt)
                 run("pwd", str(folder.resolve()))
                 run("uname -m", subprocess.check_output(["/usr/bin/uname", "-m"], text=True).strip())
                 run('cd "/Local Link"', status=1)
                 run("pwd", str(folder.resolve()))
-                run("cd ..")
+                run("cd ..", next_prompt=home_prompt)
                 run("cd ..", status=1)
                 run("pwd", str(self.home.resolve()))
                 self.api("DELETE", path, 204)
@@ -1606,7 +1614,9 @@ print(json.dumps({"payload": result}, ensure_ascii=False))
             self.assertTrue(select.select([helper.stderr], [], [], 5)[0], "No response from terminal helper")
             return json.loads(helper.stderr.readline())
 
-        self.assertEqual(frame(), {"kind": "ready"})
+        initial = frame()
+        self.assertEqual(initial["kind"], "ready")
+        self.assertTrue(initial["prompt"].endswith(" ~ %"))
         for payload, code in (
             ({"kind": "run", "executable": "uname", "arguments": ["-invalid"]}, "invalid_diagnostic_command"),
             ({"kind": "run", "executable": "unknown-diagnostic", "arguments": []}, "invalid_diagnostic_command"),
@@ -1615,7 +1625,8 @@ print(json.dumps({"payload": result}, ensure_ascii=False))
             command_id = str(uuid.uuid4())
             helper.stdin.write(json.dumps(payload | {"commandId": command_id}).encode() + b"\n")
             helper.stdin.flush()
-            self.assertEqual(frame(), {"kind": "exit", "commandId": command_id, "exitCode": 1, "code": code})
+            self.assertEqual(frame(), {"kind": "exit", "commandId": command_id, "exitCode": 1,
+                                       "code": code, "prompt": initial["prompt"]})
         helper.stdin.close()
         self.assertEqual(helper.wait(timeout=5), 0)
 

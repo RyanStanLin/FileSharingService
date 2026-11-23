@@ -4,6 +4,8 @@ import itertools
 import json
 import os
 from pathlib import Path
+import pwd
+import socket
 import sqlite3
 import time
 import unittest
@@ -306,6 +308,10 @@ class LocalDemoBrowser(unittest.TestCase):
             document.querySelector('#terminal-open').click()
         """)
         browser.wait("document.querySelector('#terminal-status').textContent.endsWith('WebSocket')")
+        browser.wait("document.querySelector('#terminal-prompt').textContent.endsWith(' ~ %')")
+        identity = f"{pwd.getpwuid(os.getuid()).pw_name}@{socket.gethostname().split('.', 1)[0]}"
+        home_prompt = f"{identity} ~ %"
+        self.assertEqual(browser.evaluate("document.querySelector('#terminal-prompt').textContent"), home_prompt)
 
         def run(line, exit_count):
             browser.evaluate(f"""
@@ -319,8 +325,13 @@ class LocalDemoBrowser(unittest.TestCase):
         browser.evaluate("window.fixtureTerminalSocket.close()")
         browser.wait("document.querySelector('#terminal-status').textContent.endsWith('HTTP 续读')")
         run("cd Downloads", 2)
+        downloads_prompt = f"{identity} Downloads %"
+        self.assertEqual(browser.evaluate("document.querySelector('#terminal-prompt').textContent"), downloads_prompt)
         run("pwd", 3)
-        self.assertIn(str(self.downloads.resolve()), browser.evaluate("document.querySelector('#terminal-output').textContent"))
+        output = browser.evaluate("document.querySelector('#terminal-output').textContent")
+        self.assertIn(str(self.downloads.resolve()), output)
+        self.assertIn(f"{home_prompt} cd Downloads\n", output)
+        self.assertIn(f"{downloads_prompt} pwd\n", output)
         browser.evaluate("document.querySelector('#terminal-close').click()")
         browser.wait("document.querySelector('#terminal-command').disabled && !document.querySelector('#terminal-open').disabled")
 

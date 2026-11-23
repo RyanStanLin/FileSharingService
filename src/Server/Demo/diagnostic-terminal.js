@@ -4,6 +4,7 @@ export function diagnosticTerminal({call, perform, errorText}) {
     const openButton = element("terminal-open")
     const closeButton = element("terminal-close")
     const command = element("terminal-command")
+    const prompt = element("terminal-prompt")
     const runButton = element("terminal-run")
     const interrupt = element("terminal-interrupt")
     const output = element("terminal-output")
@@ -17,6 +18,8 @@ export function diagnosticTerminal({call, perform, errorText}) {
         command.disabled = !session
         runButton.disabled = !session || Boolean(session.submitting || session.running)
         interrupt.disabled = !session?.running
+        const label = session?.prompt ?? (session ? "%" : "命令")
+        if (prompt.textContent !== label) prompt.textContent = label
     }
 
     function append(text) {
@@ -43,9 +46,13 @@ export function diagnosticTerminal({call, perform, errorText}) {
         for (const item of page.items) {
             if (item.index <= current.cursor) continue
             switch (item.kind) {
+                case "ready":
+                    current.prompt = item.prompt
+                    break
                 case "command":
                     current.running = item.commandId
-                    append("$ " + item.line + "\n")
+                    current.prompt = item.prompt
+                    append((item.prompt ?? "%") + " " + item.line + "\n")
                     break
                 case "output": {
                     const bytes = Uint8Array.from(atob(item.data), value => value.charCodeAt(0))
@@ -55,6 +62,7 @@ export function diagnosticTerminal({call, perform, errorText}) {
                 case "exit":
                     append(current.decoder.decode())
                     append("[" + (item.code ? errorText(item.code) + " · " : "") + "退出码 " + item.exitCode + "]\n")
+                    current.prompt = item.prompt
                     current.running = undefined
                     break
                 case "closed":

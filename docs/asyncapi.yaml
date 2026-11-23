@@ -86,6 +86,10 @@ components:
                 line:
                   type: [string, 'null']
                   description: Accepted input for a command frame.
+                prompt:
+                  type: [string, 'null']
+                  maxLength: 512
+                  description: Native terminal prompt on ready and exit frames, or the input prefix on a command frame.
                 data:
                   type: [string, 'null']
                   contentEncoding: base64

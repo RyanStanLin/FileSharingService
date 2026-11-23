@@ -296,11 +296,13 @@ WebSocket 与 REST 输出采用 `{items,cursor,closed,truncated}`。帧的 `inde
 
 | `kind` | 其余字段 |
 | --- | --- |
-| `ready` | PTY 已就绪。 |
-| `command` | `commandId` 和 `line`。 |
+| `ready` | PTY 已就绪，可带初始 `prompt`。 |
+| `command` | `commandId`、`line` 和执行前的可选 `prompt`。 |
 | `output` | `commandId` 和 Base64 `data`，承载合流的 PTY STDOUT/STDERR 原始字节。 |
-| `exit` | `commandId`、`exitCode` 和可选错误 `code`。 |
+| `exit` | `commandId`、`exitCode`、可选错误 `code` 和命令结束后的可选 `prompt`。 |
 | `closed` | 原因 `code`。 |
+
+Agent 0.5.6 起上报 `prompt`，格式为 `用户名@短主机名 当前目录 %`。提示符读取终端进程的实际工作目录，并把用户主目录显示为 `~`。客户端可以用 `ready` 和 `exit` 的提示符标记当前输入位置，以 `command` 的提示符显示命令历史。
 
 浏览器按 `index` 处理输出，按字节增量解码 UTF-8，断开 WebSocket 时通过 REST 从最近的 `cursor` 续读。服务端最多保留 256 帧，游标早于缓存时 `truncated` 为 `true`。会话结束后至多保留 30 秒，重新开会话时清除上一会话的帧。终端专用 WebSocket 不发布到全局事件订阅。 [AsyncAPI](asyncapi.yaml)
 

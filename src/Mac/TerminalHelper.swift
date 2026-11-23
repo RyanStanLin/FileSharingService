@@ -7,6 +7,11 @@ final class TerminalHelper: @unchecked Sendable {
     private let files: ScopedFiles
     private let lock = NSLock()
     private let children = DispatchGroup()
+    private static let identity: String = {
+        var bytes = [CChar](repeating: 0, count: Int(MAXHOSTNAMELEN) + 1)
+        let host = gethostname(&bytes, bytes.count) == 0 ? String(cString: bytes) : "Mac"
+        return "\(NSUserName())@\(host.split(separator: ".").first ?? "Mac")"
+    }()
     private var child: (id: String, process: Process)?
 
     private init(rootKey: String) throws {
@@ -31,7 +36,7 @@ final class TerminalHelper: @unchecked Sendable {
 
     private func run() throws {
         try changeDirectory("")
-        Self.send(["kind": "ready"])
+        Self.send(["kind": "ready", "prompt": prompt()])
         defer {
             lock.withLock { child?.process.terminate() }
             children.wait()
@@ -52,17 +57,17 @@ final class TerminalHelper: @unchecked Sendable {
                     switch input["kind"].string {
                     case "cd":
                         try changeDirectory(resolve(input.requireString("path"), relativeTo: directory))
-                        Self.exited(id, 0)
+                        exited(id, 0)
                     case "pwd":
                         try FileHandle.standardOutput.write(contentsOf: Data((absolutePath(directory) + "\n").utf8))
-                        Self.exited(id, 0)
+                        exited(id, 0)
                     case "run":
                         try start(DiagnosticRunner.customCommand(input), id: id)
                     default:
                         throw AgentError("invalid_diagnostic_command")
                     }
                 } catch {
-                    Self.exited(id, 1, code: (error as? AgentError)?.code ?? "diagnostic_start_failed")
+                    exited(id, 1, code: (error as? AgentError)?.code ?? "diagnostic_start_failed")
                 }
             }
         }
@@ -70,6 +75,16 @@ final class TerminalHelper: @unchecked Sendable {
 
     private func absolutePath(_ relative: String) -> String {
         relative.isEmpty ? root.path : root.path + "/" + relative
+    }
+
+    private func prompt() -> JSON {
+        let directory: String
+        if let relative = try? currentDirectory() {
+            directory = relative.split(separator: "/").last.map(String.init) ?? (root.isHome ? "~" : root.label)
+        } else {
+            directory = "?"
+        }
+        return .string("\(Self.identity) \(directory) %")
     }
 
     private func currentDirectory() throws -> String {
@@ -137,16 +152,17 @@ final class TerminalHelper: @unchecked Sendable {
             self.lock.withLock {
                 let status = process.terminationStatus
                 let exit = process.terminationReason == .uncaughtSignal ? status + 128 : status
-                Self.exited(id, expired ? 124 : exit, code: expired ? "diagnostic_timeout" : nil)
+                self.exited(id, expired ? 124 : exit, code: expired ? "diagnostic_timeout" : nil)
                 self.child = nil
             }
         }
     }
 
-    private static func exited(_ id: String, _ status: Int32, code: String? = nil) {
-        var frame: [String: JSON] = ["kind": "exit", "commandId": .string(id), "exitCode": .integer(Int64(status))]
+    private func exited(_ id: String, _ status: Int32, code: String? = nil) {
+        var frame: [String: JSON] = ["kind": "exit", "commandId": .string(id),
+                                     "exitCode": .integer(Int64(status)), "prompt": prompt()]
         if let code { frame["code"] = .string(code) }
-        send(.object(frame))
+        Self.send(.object(frame))
     }
 
     private static func send(_ frame: JSON) {
