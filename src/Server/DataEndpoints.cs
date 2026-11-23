@@ -278,39 +278,66 @@ internal static class DataEndpoints
 
     internal static DiagnosticCommand ParseDiagnostic(string? line)
     {
-        if (line is null || line.Length > 160)
+        if (string.IsNullOrWhiteSpace(line) || line.Length > 8192)
             throw Fault.Bad("invalid_diagnostic_command");
-        var tokens = line.Split([' ', '\t'], StringSplitOptions.RemoveEmptyEntries);
-        if (tokens.Length is < 1 or > 9)
+        var tokens = SplitCommandLine(line);
+        if (tokens.Count < 1)
             throw Fault.Bad("invalid_diagnostic_command");
-        var executable = tokens[0];
-        var arguments = tokens[1..];
-        var safe = executable switch
-        {
-            "sw_vers" => arguments is [] or ["-productName" or "-productVersion" or "-buildVersion"],
-            "uptime" or "whoami" => arguments.Length == 0,
-            "df" => arguments.All(arg => DiagnosticFlags(arg, "hkl")),
-            "uname" => arguments.All(arg => DiagnosticFlags(arg, "amnprsv")),
-            "date" => arguments is [] or ["-u"],
-            "pmset" => arguments is ["-g"] or ["-g", "batt" or "cap" or "custom" or "therm"],
-            "sysctl" => SafeSysctl(arguments),
-            _ => false
-        };
-        if (!safe)
-            throw Fault.Bad("invalid_diagnostic_command");
-        return new(executable, arguments);
+        return new(tokens[0], tokens.Skip(1).ToArray());
     }
 
-    private static bool DiagnosticFlags(string argument, string allowed) =>
-        argument.Length is >= 2 and <= 8 && argument[0] == '-' && argument.AsSpan(1).IndexOfAnyExcept(allowed.AsSpan()) < 0;
-
-    private static bool SafeSysctl(string[] arguments)
+    private static List<string> SplitCommandLine(string line)
     {
-        var keys = arguments.AsSpan(arguments is ["-n", ..] ? 1 : 0);
-        foreach (var key in keys)
-            if (key is not ("hw.model" or "hw.ncpu" or "hw.logicalcpu" or "hw.memsize" or "kern.osrelease" or "kern.osversion" or "machdep.cpu.brand_string"))
-                return false;
-        return !keys.IsEmpty;
+        var tokens = new List<string>();
+        var current = new System.Text.StringBuilder();
+        char? quote = null;
+        var hasToken = false;
+        for (var i = 0; i < line.Length; i++)
+        {
+            var c = line[i];
+            if (quote is { } q)
+            {
+                if (c == q)
+                {
+                    quote = null;
+                }
+                else if (c == '\\' && q == '"' && i + 1 < line.Length && line[i + 1] is '"' or '\\')
+                {
+                    current.Append(line[++i]);
+                }
+                else
+                {
+                    current.Append(c);
+                }
+            }
+            else if (c is '\'' or '"')
+            {
+                quote = c;
+                hasToken = true;
+            }
+            else if (c == '\\' && i + 1 < line.Length)
+            {
+                current.Append(line[++i]);
+                hasToken = true;
+            }
+            else if (char.IsWhiteSpace(c))
+            {
+                if (hasToken)
+                {
+                    tokens.Add(current.ToString());
+                    current.Clear();
+                    hasToken = false;
+                }
+            }
+            else
+            {
+                current.Append(c);
+                hasToken = true;
+            }
+        }
+        if (hasToken)
+            tokens.Add(current.ToString());
+        return tokens;
     }
 
     private static async Task<Ok<Page<JobView>>> ListJobs(string? deviceId, string? cursor, int? limit, HttpContext ctx,
