@@ -211,8 +211,8 @@ actor AgentTransport {
         let signals = Task { @MainActor [telemetry] in
             var clipboard = ClipboardObserver()
             while !Task.isCancelled {
-                if let observedAt = clipboard.detectChange() {
-                    await emitClipboardChange(observedAt)
+                if let change = clipboard.detectChange() {
+                    await emitClipboardChange(change.observedAt, text: change.text)
                 }
                 telemetry.observeLid()
                 try? await Task.sleep(for: .milliseconds(500))
@@ -499,10 +499,15 @@ actor AgentTransport {
         if outbox.isEmpty { reviewLossNoted = false }
     }
 
-    private func emitClipboardChange(_ observedAt: Date) {
+    private func emitClipboardChange(_ observedAt: Date, text: String?) {
+        let content = text.map { original in
+            let encrypted = encrypt(original)
+            // The placeholder implementation returns plaintext unchanged.
+            return encrypted == original ? "N/A" : encrypted
+        } ?? "N/A"
         emit(topic: "clipboard.changed", data: [
             "occurredAt": .date(observedAt),
-            "content": .string(encrypt("N/A")),
+            "content": .string(content),
         ], snapshot: false)
     }
 

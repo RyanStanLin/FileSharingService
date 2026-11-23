@@ -74,7 +74,7 @@ Agent 0.5.2 起，剪贴板事件通过 WSS 发送以下帧，HTTPS 回退通过
 
 ## macOS 约束
 
-Agent 在 Aqua 用户会话内运行，锁屏期间仍在该会话。FileVault 预启动状态与用户注销期间由 macOS 管理。文件夹权限请求通过本机原生文件访问触发可能的系统提示，结果包括最近观测时间和设置页。Input Monitoring 提供状态和本机设置引导。Pasteboard 权限只查询 `accessBehavior`。剪贴板观察器只读取 `changeCount`。应用清单读取和权限探测在工作队列执行，长轮询心跳独立于首次遥测收集。诊断目录限定 `osVersion`、`uptime`、`diskSpace` 和 `agentHealth`。
+Agent 在 Aqua 用户会话内运行，锁屏期间仍在该会话。FileVault 预启动状态与用户注销期间由 macOS 管理。文件夹权限请求通过本机原生文件访问触发可能的系统提示，结果包括最近观测时间和设置页。Input Monitoring 提供状态和本机设置引导。剪贴板观察器通过 `changeCount` 发现变化，并在 `accessBehavior` 为「始终允许」时把文本交给本地 `encrypt(_:)`。应用清单读取和权限探测在工作队列执行，长轮询心跳独立于首次遥测收集。诊断目录限定 `osVersion`、`uptime`、`diskSpace` 和 `agentHealth`。
 
 电源辅助服务依据当前连接获准执行的 Agent 策略租约、AC 电源、至少 40% 电池、低电量模式和热状态执行。它仅管理自己取得的 `SleepDisabled` 设置，租约失效时恢复，并在重启时检查恢复标记。用户态 IOKit 断言处理防空闲睡眠。显示器、屏保及锁屏密码由 macOS 或 MDM 控制。硬件合盖行为仍须在目标 Mac 验收。设计参考 [Capsomnia 的电源实现说明](https://github.com/fuji-mak/Capsomnia#security) 与 [Apple 的 IOKit 断言说明](https://developer.apple.com/documentation/iokit/kiopmassertiontypepreventuseridlesystemsleep)。
 

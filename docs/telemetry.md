@@ -44,7 +44,7 @@
 | `jobs.output` | `{jobId,index,stream,data}`，诊断标准输出或错误流分片。 |
 | `transfers.changed` | `{id,state,offset,length}`。 |
 
-初次观测只建立本机基线。Mac Agent 在内存排队，上传发现变化的 ISO 8601 时间和固定字符串 `content: "N/A"`。服务端按设备 ID 和事件序号原样保存字符串。浏览器实时推送及补读只提供事件元数据，遵循通用事件保留期限。实时事件清理后仍可查询档案。 [采集代码](../src/Mac/ClipboardObserver.swift) · [上传代码](../src/Mac/AgentTransport.swift) · [查询 API](api.md#交互与剪贴板历史)
+初次观测只建立本机基线。检测到变化且 macOS 已设为「始终允许」时，Agent 将剪贴板文本直接传给本地 `encrypt(_:)`。上报包含 ISO 8601 时间与处理后的 `content`。函数原样返回、系统未允许读取或没有文本时，`content` 为 `N/A`。事件在内存排队，服务端按设备 ID 和事件序号原样保存 `content`。浏览器实时推送及补读提供事件元数据，遵循通用事件保留期限。实时事件清理后仍可查询档案。 [采集代码](../src/Mac/ClipboardObserver.swift) · [上传代码](../src/Mac/AgentTransport.swift) · [查询 API](api.md#交互与剪贴板历史)
 
 窗口观察按需启动。存在 WS 订阅或 REST 请求时，服务端按设备连接合并并续期 20 秒采集租约。Agent 在独立队列约每 250 毫秒采样，窗口属性或 Foreground 变化时上报最新完整快照。服务端只在内存保留当前租约内的最新值。实际更新延迟包含采样、设备传输与浏览器订阅投递。 [窗口接口和字段](api.md#窗口实时状态)
 

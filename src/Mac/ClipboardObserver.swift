@@ -15,11 +15,17 @@ struct ClipboardObserver {
         #endif
     }
 
-    // The ownership counter detects changes without reading the pasteboard contents.
-    mutating func detectChange() -> Date? {
+    mutating func detectChange() -> (observedAt: Date, text: String?)? {
         let current = pasteboard.changeCount
         defer { previous = current }
         guard let previous, current != previous else { return nil }
-        return Date()
+        let observedAt = Date()
+        #if !FILESHARING_TEST
+        guard #available(macOS 15.4, *), pasteboard.accessBehavior == .alwaysAllow else {
+            return (observedAt, nil)
+        }
+        #endif
+        let text = pasteboard.string(forType: .string)
+        return (observedAt, pasteboard.changeCount == current ? text : nil)
     }
 }
