@@ -38,7 +38,7 @@ export function ShareManager({device, local, roots, refresh, close}: Props) {
                 <span>{t(grantRecord?.enabled ? writable ? 'shareWritable' : 'shareReadOnly' : 'shareDisabled')}</span>
               </Stack>
               {!grantRecord?.enabled
-                ? <Button size="medium" disabled={task.busy} onClick={() => grant(scope, grantRecord, false)}>{t('enableShare')}</Button>
+                ? <Button size="medium" disabled={task.busy} onClick={() => grant(scope, grantRecord, grantRecord?.writable ?? scope.writable)}>{t('enableShare')}</Button>
                 : scope.writable && !writable
                   ? <Button size="medium" disabled={task.busy} onClick={() => grant(scope, grantRecord, true)}>{t('enableWrite')}</Button>
                   : null}

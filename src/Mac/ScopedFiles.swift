@@ -104,7 +104,7 @@ final class ScopedFiles: @unchecked Sendable {
 
     static func failure(_ code: Int32 = errno) -> AgentError {
         switch code {
-        case EACCES, EPERM: return AgentError("filesystem_access_denied")
+        case EACCES, EPERM, EROFS: return AgentError("filesystem_access_denied")
         case ELOOP, EXDEV: return AgentError("permission_denied")
         case ENOENT, ENOTDIR: return AgentError("not_found")
         case EEXIST: return AgentError("already_exists")
@@ -192,11 +192,12 @@ final class ScopedFiles: @unchecked Sendable {
         guard !libraryAccessDenied(root, parts[...], write: write) else { throw AgentError("permission_denied") }
         guard write, let component = parts.first else { return }
         let folder = component.lowercased()
+        if root.isHome && folder == "applications" { throw AgentError("permission_denied") }
         let protectedFolder = DevicePermissions.folders[folder] != nil
-        guard root.writable || (root.isHome && parts.count > 1 && DevicePermissions.folders[folder] == component &&
+        guard root.writable || (root.hasHomePolicy && parts.count > 1 && DevicePermissions.folders[folder] == component &&
             DevicePermissions.allowsWriting(folder, state: state)) else { throw AgentError("permission_denied") }
         if root.isHome, parts.count == 1,
-           protectedFolder || ["music", "pictures", "movies", "applications", "public"].contains(folder) {
+           protectedFolder || ["music", "pictures", "movies", "public"].contains(folder) {
             throw AgentError("permission_denied")
         }
     }

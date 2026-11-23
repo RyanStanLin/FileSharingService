@@ -71,21 +71,25 @@ internal sealed class DeviceService(Database db, AgentBroker broker)
         var activeConnection = connectionId ?? broker.Presence(device).ConnectionId;
         var parts = path?.Split('/', 2) ?? [];
         var first = parts.FirstOrDefault();
-        var library = string.Equals(first, "Library", StringComparison.OrdinalIgnoreCase);
+        var readOnlyHomePath = string.Equals(first, "Library", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(first, "Applications", StringComparison.OrdinalIgnoreCase);
         var permission = parts.Length == 2 && first is ("Downloads" or "Documents" or "Desktop")
             ? first.ToLowerInvariant() : null;
         var record = await db.One<RootInfo>("""
             SELECT r.* FROM Roots r JOIN Devices d ON d.Id=r.DeviceId JOIN ObservedRoots o ON o.DeviceId=r.DeviceId AND o.RootKey=r.RootKey
             WHERE r.DeviceId=@device AND r.Id=@root AND r.Enabled=1 AND d.Revoked IS NULL
-              AND (@write=0 OR ((o.[Primary]=0 OR @library=0) AND (
-                (o.Writable=1 AND r.Writable=1) OR (o.[Primary]=1 AND @permission IS NOT NULL AND EXISTS (
+              AND (@write=0 OR ((o.[Primary]=0 OR @readOnlyHomePath=0) AND (
+                (o.Writable=1 AND r.Writable=1) OR (o.[Primary]=1 AND o.Writable=0 AND @permission IS NOT NULL
+                  AND (r.Writable=1 OR (r.Revision=1 AND NOT EXISTS(
+                    SELECT 1 FROM Audit a WHERE a.DeviceId=@device AND a.Action='root.created' AND json_extract(a.Detail,'$.id')=r.Id)))
+                  AND EXISTS (
                     SELECT 1 FROM Snapshots s WHERE s.DeviceId=@device AND s.Topic='permissions'
                     AND (s.Payload -> @permission ->> 'state')='allowed'
                     AND (s.Payload -> @permission ->> 'phase')='completed'
                     AND json_type(s.Payload -> @permission,'$.writable')='true'
                 ))
               )))
-            """, new { device, root, write, library, permission }, ct);
+            """, new { device, root, write, readOnlyHomePath, permission }, ct);
         if (record is null)
             throw Fault.Forbidden("root_access_denied");
         if (activeConnection is null)

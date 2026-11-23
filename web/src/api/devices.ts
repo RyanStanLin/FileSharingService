@@ -14,7 +14,8 @@ export async function readShares(deviceId: string, signal: AbortSignal) {
   const [roots, local] = await Promise.all([readAll<Root>(route, signal), request<LocalRoot[]>(route + '/local', {signal})])
   const shares = local.flatMap(scope => {
     const root = roots.find(item => item.rootKey === scope.rootKey && item.enabled)
-    return root ? [{...root, primary: scope.primary, writable: root.writable && scope.writable}] : []
+    return root ? [{...root, primary: scope.primary, writable: root.writable && scope.writable,
+      folderPermissionWrites: scope.primary && !scope.writable && (root.writable || root.revision === 1)}] : []
   })
   shares.sort((a, b) => Number(b.primary) - Number(a.primary) || a.label.localeCompare(b.label))
   return {shares, roots, local}

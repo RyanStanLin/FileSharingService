@@ -140,7 +140,9 @@ Root 为 `{id,deviceId,rootKey,label,writable,enabled,revision}`。TCC 管理包
 {"topic":"permissions","observedAt":"2026-11-19T08:22:00Z","stale":false,"value":{"documents":{"state":"allowed","phase":"completed","writable":true,"checkedAt":"2026-11-19T08:22:00Z","systemSettingsPane":"Privacy_FilesAndFolders"}}}
 ```
 
-Agent 0.4.7 起，`downloads`、`documents` 和 `desktop` 的权限申请同时检查目录写入能力。`phase:"completed"`、`state:"allowed"`、`writable:true` 生效后，已授权连接可在共享 HOME 的对应目录下新建、上传、改名和移动。移动会检查源路径及目标路径。共享 HOME 中的 `Library` 只读，访问仍取决于目标 Mac 的系统权限。旧版结果可能省略 `writable`。新版 Agent 在接入时重新检查已经获准的目录，确认可写后自动生效。
+Agent 0.5.4 起，自动 HOME 共享对本机用户可写的普通路径开放新建、上传、改名和移动。服务端会升级仍可识别且未经手动修改的旧默认授权，并保留原根 ID。macOS 会检查实际操作权限。移动会检查源路径及目标路径。HOME 中的 `Library` 与 `Applications` 按只读处理。
+
+`downloads`、`documents` 和 `desktop` 的权限申请继续返回目录写入检测结果。旧版结果可能省略 `writable`。对仍使用旧 HOME 写入规则的部署，默认共享中的这三类目录在 `phase:"completed"`、`state:"allowed"`、`writable:true` 后可写。
 
 ## 文件与目录
 

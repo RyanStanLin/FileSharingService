@@ -157,6 +157,22 @@ internal sealed class AgentIngest(Database db, AgentBroker broker, WatchRegistry
                             UPDATE Devices SET AddedDefaultRoot=1 WHERE Id=@device;
                             INSERT INTO Audit(At,DeviceId,Action,Detail) VALUES(@now,@device,'root.default_added',@detail);
                             """, new { device, now, detail = Wire.Encode(new { home.RootKey, home.Writable }) }, tx, cancellationToken: ct));
+                    else if (home.Writable)
+                    {
+                        var rootId = await connection.QuerySingleOrDefaultAsync<string>(new CommandDefinition("""
+                            UPDATE Roots AS r SET Writable=1,Revision=Revision+1
+                            WHERE DeviceId=@device AND RootKey=@RootKey AND Writable=0 AND Enabled=1 AND Revision=1
+                              AND EXISTS(SELECT 1 FROM Audit a WHERE a.DeviceId=@device AND a.Action='root.default_added'
+                                  AND json_extract(a.Detail,'$.rootKey')=@RootKey)
+                              AND NOT EXISTS(SELECT 1 FROM Audit a WHERE a.DeviceId=@device AND a.Action='root.created'
+                                  AND json_extract(a.Detail,'$.id')=r.Id)
+                            RETURNING Id
+                            """, new { device, home.RootKey }, tx, cancellationToken: ct));
+                        if (rootId is not null)
+                            await connection.ExecuteAsync(new CommandDefinition("""
+                                INSERT INTO Audit(At,DeviceId,Action,Detail) VALUES(@now,@device,'root.default_write_enabled',@detail)
+                                """, new { device, now, detail = Wire.Encode(new { rootId }) }, tx, cancellationToken: ct));
+                    }
                 }
             }
             return true;

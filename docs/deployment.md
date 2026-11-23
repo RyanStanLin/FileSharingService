@@ -42,7 +42,7 @@ SFTP 使用独立的 SSH TCP 入口，只需发布一个端口。Compose 在服�
 
 在 Xcode 打开 `FileSharingService.xcodeproj`。App 和后台进程共用一个 App bundle，内置 LaunchAgent 由 `SMAppService` 在首次打开时注册。
 
-- 用 `FILESHARING_ORIGIN=https://filesharing.example.com scripts/build-agent.sh dmg` 构建部署包。产物位于 `artifacts`。可选的 `FILESHARING_MANAGED_USER` 限定登录账户，远程部署可用 `FILESHARING_ALLOW_HOME_WRITE=YES` 允许 HOME 写入。
+- 用 `FILESHARING_ORIGIN=https://filesharing.example.com scripts/build-agent.sh dmg` 构建部署包。产物位于 `artifacts`。可选的 `FILESHARING_MANAGED_USER` 限定登录账户。自动 HOME 共享默认允许普通目录写入。显式设置 `FILESHARING_ALLOW_HOME_WRITE=NO` 可保留仅在获准的系统目录内写入的旧规则。
 - 打开 DMG，把 App 拖入 Applications，再打开已安装的 App。首次打开遵照 macOS 的单 App 放行流程。包内的启动脚本打开已安装 App。
 - 从 `/Applications/FileSharingService.app` 首次打开会通过 Service Management 注册内置 LaunchAgent。App 记录当前构建的指纹并在升级后首次打开时刷新注册。按系统提示在「登录项与扩展」允许后台运行。此后由 launchd 管理登录启动和异常重启。用户可再次打开 App 查看注册状态或停用服务。
 - Agent 上线后，选择当前设备连接开启远程文件操作。Desktop、Documents 和 Downloads 由用户在 macOS 的授权弹窗或系统设置中处理。若需新增企业目录，在受管用户进程调用 App 内的 `roots add read|write /absolute/path`，重启后台服务后在管理端授权。

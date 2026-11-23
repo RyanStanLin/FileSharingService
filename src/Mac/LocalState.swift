@@ -9,13 +9,15 @@ struct LocalRoot: Codable, Equatable, Sendable {
     let deviceNumber: Int32
     let inode: UInt64
     let volumeUUID: UUID?
+    let followsHomePolicy: Bool?
 
     var isHome: Bool { path == LocalState.home.path(percentEncoded: false).trimmingSuffixSlash }
+    var hasHomePolicy: Bool { isHome && followsHomePolicy != false }
     var announcement: JSON {
         ["rootKey": .string(rootKey), "label": .string(label), "writable": .boolean(writable), "primary": .boolean(isHome)]
     }
 
-    static func authorize(path: String, write: Bool) throws -> LocalRoot {
+    static func authorize(path: String, write: Bool, followsHomePolicy: Bool = false) throws -> LocalRoot {
         guard path.hasPrefix("/") else { throw AgentError("absolute_path_required") }
         let home = LocalState.home.path(percentEncoded: false).trimmingSuffixSlash
         let approved = URL(fileURLWithPath: path, isDirectory: true).resolvingSymlinksInPath()
@@ -40,7 +42,8 @@ struct LocalRoot: Codable, Equatable, Sendable {
         let descriptor = try Descriptor(open(absolute, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC))
         let info = try descriptor.info()
         return LocalRoot(rootKey: JSON.id(), label: approved.lastPathComponent, path: absolute, writable: write,
-                         deviceNumber: info.st_dev, inode: info.st_ino, volumeUUID: descriptor.volumeUUID)
+                         deviceNumber: info.st_dev, inode: info.st_ino, volumeUUID: descriptor.volumeUUID,
+                         followsHomePolicy: followsHomePolicy)
     }
 
     func upgradingVolumeIdentity() -> LocalRoot {
@@ -51,7 +54,13 @@ struct LocalRoot: Codable, Equatable, Sendable {
         // Only the OS-selected home can recover from a changed legacy device number.
         guard info.st_dev == deviceNumber || (isHome && info.st_uid == getuid()) else { return self }
         return LocalRoot(rootKey: rootKey, label: label, path: path, writable: writable,
-                         deviceNumber: info.st_dev, inode: inode, volumeUUID: uuid)
+                         deviceNumber: info.st_dev, inode: inode, volumeUUID: uuid, followsHomePolicy: followsHomePolicy)
+    }
+
+    func applyingHomePolicy(writable: Bool) -> LocalRoot {
+        guard hasHomePolicy, self.writable != writable || followsHomePolicy == nil else { return self }
+        return LocalRoot(rootKey: rootKey, label: label, path: path, writable: writable,
+                         deviceNumber: deviceNumber, inode: inode, volumeUUID: volumeUUID, followsHomePolicy: true)
     }
 }
 
@@ -101,12 +110,13 @@ struct LocalState: Sendable {
             do {
                 stored = try enrollment()
             } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
-                let home = try LocalRoot.authorize(path: Self.home.path(percentEncoded: false), write: homeWritable)
+                let home = try LocalRoot.authorize(path: Self.home.path(percentEncoded: false), write: homeWritable,
+                                                   followsHomePolicy: true)
                 let local = Enrollment(deviceId: JSON.id(), roots: [home], notificationKey: try Self.makeNotificationKey())
                 try save(local)
                 return local
             }
-            let roots = stored.roots.map { $0.upgradingVolumeIdentity() }
+            let roots = stored.roots.map { $0.upgradingVolumeIdentity().applyingHomePolicy(writable: homeWritable) }
             if roots == stored.roots && stored.notificationKey != nil { return stored }
             let key = try stored.notificationKey ?? Self.makeNotificationKey()
             let upgraded = Enrollment(deviceId: stored.deviceId, roots: roots, notificationKey: key)

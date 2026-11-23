@@ -49,6 +49,7 @@ export interface LocalRoot {
 
 export interface Share extends Root {
   primary: boolean
+  folderPermissionWrites: boolean
   writableFolders?: PermissionKind[]
 }
 

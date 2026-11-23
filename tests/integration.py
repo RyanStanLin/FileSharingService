@@ -1678,6 +1678,7 @@ precondition(board.setString("ISOLATED_CLIPBOARD_CONTENT", forType: .string))
         self.assertEqual(self.api("GET", route + "/history", params={"topic": "clipboard.changed"}).json()["items"], [])
 
     def test_folder_permission_enables_scoped_writes_and_library_reads(self):
+        self.env["FILESHARING_TEST_HOME_WRITE"] = "NO"
         for folder in ("Downloads", "Documents", "Library/Preferences", "Library/Keychains",
                        "Library/Application Support/FileSharingServiceDemo"):
             (self.home / folder).mkdir(parents=True)
@@ -1704,15 +1705,6 @@ precondition(board.setString("ISOLATED_CLIPBOARD_CONTENT", forType: .string))
             self.set_access(self.wait(reconnected)["connectionId"], True)
 
         grants = self.device_api + "/file-roots"
-        root = self.api("GET", grants + "/" + self.root_id).json()
-        self.api("PUT", grants + "/" + self.root_id, json={"rootKey": root["rootKey"], "label": root["label"],
-                 "writable": False, "enabled": True, "revision": root["revision"]})
-        self.stop(self.agent)
-        enrollment = self.agent_state / "enrollment.json"
-        state = json.loads(enrollment.read_text())
-        state["roots"][0]["writable"] = False
-        enrollment.write_text(json.dumps(state))
-        restart_agent()
         self.wait(lambda: any(root["primary"] and not root["writable"]
                               for root in self.api("GET", grants + "/local").json()))
 
@@ -1760,6 +1752,83 @@ precondition(board.setString("ISOLATED_CLIPBOARD_CONTENT", forType: .string))
         mkdir("Downloads/fixture/after-restart")
         mkdir("Documents/after-upgrade")
         mkdir("Library/still-read-only", 403)
+        grant = grants + "/" + self.root_id
+        current = self.api("GET", grant).json()
+        self.api("PUT", grant, json={"rootKey": current["rootKey"], "label": current["label"],
+                 "writable": False, "enabled": True, "revision": current["revision"]})
+        self.assertEqual(mkdir("Downloads/explicitly-read-only", 403).json()["code"], "root_access_denied")
+
+    def test_home_writes_follow_the_shared_path_permissions(self):
+        for folder in ("Projects/Destination", "Downloads", "Library", "Applications"):
+            (self.home / folder).mkdir(parents=True)
+        locked = self.home / "Locked"
+        locked.mkdir(mode=0o500)
+        self.addCleanup(locked.chmod, 0o700)
+        self.env["FILESHARING_TEST_HOME_WRITE"] = "NO"
+        self.setup_device()
+        grant_route = self.device_api + "/file-roots/" + self.root_id
+        prior = self.api("GET", grant_route).json()
+        self.assertFalse(prior["writable"])
+
+        def mkdir(path, expected=201):
+            return self.api("POST", self.files_api + "/directories", expected, json=self.params(path)).json()
+
+        def reconnect(protocol):
+            self.stop(self.agent)
+            self.stop(self.server)
+            self.start_server(polling=protocol == "https")
+            self.agent = self.spawn([str(APP), "run"], "agent.log", self.env)
+
+            def connected():
+                link = self.api("GET", self.device_api).json()["connection"]
+                return link if link["online"] and link["protocol"] == protocol else None
+
+            self.set_access(self.wait(connected)["connectionId"], True)
+            self.wait(lambda: any(root["rootKey"] == prior["rootKey"] and root["writable"]
+                                  for root in self.api("GET", self.device_api + "/file-roots/local").json()))
+
+        self.assertEqual(mkdir("Projects/blocked-before-upgrade", 403)["code"], "root_access_denied")
+        self.stop(self.agent)
+        enrollment = self.agent_state / "enrollment.json"
+        old_state = json.loads(enrollment.read_text())
+        old_state["roots"][0].pop("followsHomePolicy")
+        enrollment.write_text(json.dumps(old_state))
+        del self.env["FILESHARING_TEST_HOME_WRITE"]
+
+        for protocol in ("wss", "https"):
+            with self.subTest(protocol=protocol):
+                reconnect(protocol)
+                self.wait(lambda: self.api("GET", grant_route).json()["writable"])
+                upgraded = self.api("GET", grant_route).json()
+                self.assertEqual((upgraded["id"], upgraded["rootKey"], upgraded["revision"]),
+                                 (prior["id"], prior["rootKey"], prior["revision"] + 1))
+                mkdir(f"Top-{protocol}")
+                folder = f"Projects/Ordinary-{protocol}"
+                mkdir(folder)
+                payload = b"Writable ordinary directory fixture"
+                upload = self.transfer("upload", folder + "/source.txt", length=len(payload))
+                route = API + "/transfers/" + upload["id"]
+                self.api("PUT", route + "/content", 204, data=payload,
+                         headers={"Upload-Offset": "0", "Content-Type": "application/octet-stream"})
+                written = self.api("POST", route + "/commit").json()
+                renamed = self.api("POST", self.files_api + "/renames",
+                                   json=self.params(written["path"], newName="renamed.txt", version=written["version"])).json()
+                move = self.params(renamed["path"], version=renamed["version"])
+                self.api("POST", self.files_api + "/moves", 403, json=move | {"destination": "Library/renamed.txt"})
+                destination = f"Projects/Destination/{protocol}.txt"
+                self.api("POST", self.files_api + "/moves", json=move | {"destination": destination})
+                self.assertEqual((self.home / destination).read_bytes(), payload)
+                self.assertEqual(mkdir("Locked/denied", 403)["code"], "filesystem_access_denied")
+                self.assertEqual(mkdir("Applications/denied", 403)["code"], "root_access_denied")
+                self.assertFalse((locked / "denied").exists())
+
+        root = self.api("GET", grant_route).json()
+        self.api("PUT", grant_route, json={"rootKey": root["rootKey"], "label": root["label"],
+                 "writable": False, "enabled": True, "revision": root["revision"]})
+        reconnect("wss")
+        self.assertFalse(self.api("GET", grant_route).json()["writable"])
+        self.assertEqual(mkdir("Projects/explicitly-read-only", 403)["code"], "root_access_denied")
+        self.assertEqual(mkdir("Downloads/explicitly-read-only", 403)["code"], "root_access_denied")
 
     def test_window_geometry_focus_and_live_fallback(self):
         fixture = self.work / "windows.json"

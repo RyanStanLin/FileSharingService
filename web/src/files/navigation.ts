@@ -42,7 +42,8 @@ export function permissionFor(share: Share, path: string): PermissionKind | unde
 }
 
 export function canWriteFolder(share: Share, path: string) {
-  if (share.primary && path.split('/')[0].toLowerCase() === 'library') return false
+  const top = path.split('/')[0].toLowerCase()
+  if (share.primary && (top === 'library' || top === 'applications')) return false
   const permission = permissionFor(share, path)
   return share.writable || !!(permission && share.writableFolders?.includes(permission))
 }

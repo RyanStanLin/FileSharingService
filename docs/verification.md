@@ -1,5 +1,9 @@
 # FileSharing 验收记录
 
+## Agent 0.5.4
+
+`test_home_writes_follow_the_shared_path_permissions` 验证旧默认 HOME 授权保留根 ID 并升级可写。WebSocket 和 HTTPS 回退均验证了 HOME 根下新建，以及普通目录的新建、上传、改名和移动。测试也覆盖了 macOS 拒绝写入的目录、受保护目录和手动设为只读的共享。浏览器回归通过 File System 的工具栏实际新建目录，并确认进入 Library 后新建按钮停用。
+
 ## Agent 0.5.3
 
 `submitsConfiguredTextFields` 测量原生 NSAlert 中相邻输入框的 14 pt 间距。普通输入框和遮蔽输入框均贴齐输入区左右边缘，容器变宽后继续占满宽度。短内容窗口实测为 260 pt。

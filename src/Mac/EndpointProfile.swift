@@ -9,7 +9,7 @@ enum EndpointProfile {
         }
         return [url]
     }()
-    static let homeWritable = true
+    static let homeWritable = ProcessInfo.processInfo.environment["FILESHARING_TEST_HOME_WRITE"] != "NO"
     static let localDemo = false
     #else
     static let origins: [URL] = {
@@ -22,7 +22,7 @@ enum EndpointProfile {
         return [primary]
     }()
     static let localDemo = origins[0].host == "localhost"
-    static let homeWritable = !localDemo && setting("FileSharingHomeWritable") == "YES"
+    static let homeWritable = setting("FileSharingHomeWritable") != "NO"
     static let managedUser = setting("FileSharingManagedUser")
 
     private static func setting(_ name: String) -> String? {

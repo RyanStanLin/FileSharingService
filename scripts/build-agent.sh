@@ -27,7 +27,7 @@ case "$mode" in check|dmg) ;; *) printf '%s\n' 'Usage: scripts/build-agent.sh te
 origin="${FILESHARING_ORIGIN:-http://localhost:8847}"
 backup="${FILESHARING_BACKUP_ORIGIN:-}"
 user="${FILESHARING_MANAGED_USER:-}"
-writable="${FILESHARING_ALLOW_HOME_WRITE:-NO}"
+writable="${FILESHARING_ALLOW_HOME_WRITE:-YES}"
 python3 - "$origin" "$backup" "$user" "$writable" <<'PY'
 import re
 import sys

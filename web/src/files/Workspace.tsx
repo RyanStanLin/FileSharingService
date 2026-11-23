@@ -41,7 +41,7 @@ export function Workspace({device, refreshDevice, shareManager, setShareManager,
       const permission = permissions.data?.[kind]
       return permission?.state === 'allowed' && permission.phase === 'completed' && permission.writable === true
     })
-    return (shares.data?.shares ?? []).map(share => share.primary ? {...share, writableFolders} : share)
+    return (shares.data?.shares ?? []).map(share => share.folderPermissionWrites ? {...share, writableFolders} : share)
   }, [shares.data?.shares, permissions.data])
   const {root, location} = useLocation(visibleRoots)
   const [hidden, setHidden] = useState(() => sessionStorage.getItem('filesharing.hidden') === 'true')
