@@ -29,8 +29,8 @@ export function DisplayStage({deviceId, connectionId, display, label, aspect, sn
 
   return <div className={styles.screen} style={{'--activity-aspect': aspect} as CSSProperties}>
     {projected.length === 0 ? <div className={styles.empty} role="status">{t('activityEmpty')}</div> :
-      <ol className={styles.windowList} role="list" aria-label={t('activityScreenLabel', {display: label})}>
-        {projected.map(({window, left, top, width, height}) => {
+      <ol key={display.id} className={styles.windowList} role="list" aria-label={t('activityScreenLabel', {display: label})}>
+        {projected.map(({window, depth, left, top, width, height}) => {
           const app = byPid.get(window.pid)
           const name = textValue(app?.name) ?? window.ownerName ?? t('activityWindowName', {id: number(window.id, locale)})
           const version = textValue(app?.version)
@@ -41,7 +41,7 @@ export function DisplayStage({deviceId, connectionId, display, label, aspect, sn
             runningFor && t('activityUptime', {duration: runningFor})].filter(Boolean).join(' · ')
           return <li className={styles.window} key={`${window.pid}:${window.id}`} data-window-id={window.id}
             data-focused={focused} aria-label={title} title={title}
-            style={{'--window-left': `${100 * left}%`, '--window-top': `${100 * top}%`,
+            style={{'--window-depth': depth, '--window-left': `${100 * left}cqw`, '--window-top': `${100 * top}cqh`,
               '--window-width': `${100 * width}%`, '--window-height': `${100 * height}%`} as CSSProperties}>
             {window.occlusion.state !== 'covered' && <Stack className={styles.windowContent} gap="tight" align="center" justify="center">
               <ApplicationIcon device={deviceId} connectionId={connectionId} app={app} className={styles.appIcon} />

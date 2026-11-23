@@ -54,7 +54,6 @@
 
 .screen {
   position: relative;
-  isolation: isolate;
   box-sizing: border-box;
   overflow: hidden;
   display: grid;
@@ -67,6 +66,8 @@
 }
 
 .windowList {
+  container-type: size;
+  isolation: isolate;
   position: absolute;
   inset: 0;
   margin: 0;
@@ -75,15 +76,17 @@
 }
 
 .window {
+  --window-outline-width: var(--borderWidth-thin);
+  --window-outline-color: var(--borderColor-default);
   container: window / size;
   position: absolute;
   box-sizing: border-box;
-  inset-block-start: var(--window-top);
-  inset-inline-start: var(--window-left);
+  inset: 0 auto auto 0;
+  z-index: var(--window-depth);
+  transform: translate(var(--window-left), var(--window-top));
   inline-size: var(--window-width);
   block-size: var(--window-height);
   overflow: hidden;
-  border: var(--borderWidth-thin) solid var(--borderColor-default);
   border-radius: var(--base-size-16);
   background-color: var(--bgColor-muted);
   color: var(--fgColor-default);
@@ -91,9 +94,37 @@
 }
 
 .window[data-focused='true'] {
-  border-width: var(--borderWidth-thicker);
-  border-color: var(--borderColor-accent-emphasis);
+  --window-outline-width: var(--borderWidth-thicker);
+  --window-outline-color: var(--borderColor-accent-emphasis);
   box-shadow: var(--shadow-floating-medium);
+}
+
+.window::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 var(--window-outline-width) var(--window-outline-color);
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .windowList {
+    --window-move-transition: var(--base-duration-300) var(--base-easing-easeInOut);
+    --window-focus-transition: var(--base-duration-200) var(--base-easing-easeInOut);
+  }
+
+  .window {
+    transition:
+      transform var(--window-move-transition),
+      inline-size var(--window-move-transition),
+      block-size var(--window-move-transition),
+      box-shadow var(--window-focus-transition);
+  }
+
+  .window::after {
+    transition: box-shadow var(--window-focus-transition);
+  }
 }
 
 .windowContent {

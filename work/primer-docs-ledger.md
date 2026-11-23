@@ -181,3 +181,4 @@
 - `displays` 的像素宽高决定画布比例。窗口按逻辑坐标和 zIndex 投影，跨屏窗口由各显示器裁切。按 PID 对应 `apps-running` 的图标、版本和运行时长。授权连接订阅 `windows.changed`，失去 WebSocket 时用修订号长轮询。进入新设备连接、锁定或切页会停止原订阅和请求。 [窗口接口](../docs/api.md#窗口实时状态) · [显示器样本](../docs/telemetry.md)
 - Chromium 与实际服务端及隔离测试 Agent 验证移动、缩放、焦点切换、图标、横竖屏、跨屏裁切、分辨率更新、授权撤销、长轮询和 WebSocket 恢复。WebKit 验证相同的画布比例、20 px 外距、16 px 圆角、4 px 焦点边框、真实 PNG 解码以及 204 长轮询后恢复推送。1280、768、375 和 320 CSS px 下页面无文档溢出。四套主题、简体中文和英文均实测，截图在 `.local/frontend-check/window-activity`。
 - `primerdoc.lint_css` 对两个变更模块及仅含官方前景和背景变量的对照样式均返回错误，未给出诊断。PostCSS 成功解析两份样式，核对四套主题共 228 处变量引用。浏览器截图与 SVG 核对布局关系，窗口内容来自联调数据。
+- 窗口位置用相对画布的 transform 更新，宽高用尺寸过渡。位置和大小使用 `base-duration-300`，焦点描边及阴影使用 `base-duration-200`，均用 `base-easing-easeInOut`。窗口元素按 ID 保持顺序，设备的 zIndex 单独控制画布内的叠放。内描边使用可插值的阴影宽度和颜色。系统启用减少动态效果时直接应用目标状态。Chromium 和 WebKit 逐帧验证了位移、缩放、焦点描边双向变化，以及过渡中收到下一份窗口快照。 [CSS Transitions](https://www.w3.org/TR/css-transitions-1/#starting)

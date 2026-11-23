@@ -38,7 +38,8 @@ export function projectWindows(windows: ObservedWindow[], display: WindowDisplay
     const bounds = relative(window, display)
     if (bounds.width <= 0 || bounds.height <= 0 || bounds.x >= width || bounds.y >= height ||
         bounds.x + bounds.width <= 0 || bounds.y + bounds.height <= 0) return []
-    return [{window, left: bounds.x / width, top: bounds.y / height, width: bounds.width / width, height: bounds.height / height}]
+    return [{window, depth: -window.zIndex, left: bounds.x / width, top: bounds.y / height,
+      width: bounds.width / width, height: bounds.height / height}]
   })
-  return visible.sort((back, front) => front.window.zIndex! - back.window.zIndex!)
+  return visible.sort((first, second) => first.window.id - second.window.id)
 }
