@@ -310,6 +310,19 @@ Agent 0.5.6 起上报 `prompt`，格式为 `用户名@短主机名 当前目录 
 
 `/notifications` 提供渠道、事件目录、规则、预览、目录监听状态、测试消息和投递历史。管理 WebSocket 可订阅全局 `notifications.changed`，配合通知自己的回放游标和 REST 数据。完整请求、变量及授权语义见 [Milestone 3 通知 API](notifications.md)。
 
+## SSH 中继
+
+Mac Agent 0.5.7 起支持原生 SSH 中继。启用 `FileSharing:SshRelay:Enabled` 并运行 SFTP 网关。目标 Mac 通过系统「远程登录」提供 SSH，只有 macOS 远程登录允许的用户能登录。 [Apple 远程登录说明](https://support.apple.com/guide/mac-help/allow-a-remote-computer-to-access-your-mac-mchlp1066/mac)
+
+| 方法与路径 | 请求 | 响应 |
+| --- | --- | --- |
+| `POST /devices/{id}/ssh-relays` | `{"publicKey":"ssh-ed25519 …"}` | `201 {id,host,port,jumpUser,destination,hostKeyFingerprint,expiresAt}` |
+| `DELETE /devices/{id}/ssh-relays/{relayId}` | 无 | `204`，结束待连接或进行中的中继 |
+
+创建需要 Passkey 会话及已授权的当前设备连接。发送一行 OpenSSH 公钥，系统 `ssh` 用对应私钥登录跳板。中继两分钟内可使用一次，只开放所选 Mac 的 SSH 端口。目标 Mac 在第二层 SSH 连接中独立检查帐号和主机密钥。锁定 Passkey 会话、撤销设备授权或设备断线会关闭正在运行的连接。服务端记录创建事件的中继 ID 和连接 ID，SSH 字节在内存中有界转发。
+
+使用 `ssh -o ServerAliveInterval=30 -J JUMP_USER@HOST:PORT -l MAC_USER DESTINATION` 连接。首次连接时核对跳板指纹，再按 OpenSSH 的主机密钥校验流程核对目标主机。SSH 跳板接受公钥认证和单次中继，标准账号、PTY、窗口尺寸及 SSH 会话请求由 Mac 的 SSH 服务处理。 [OpenSSH ProxyJump](https://man.openbsd.org/ssh_config#ProxyJump)
+
 ## 原生对话框和本地通知
 
 两个接口都要求 Passkey 会话和已授权的在线设备连接，并返回 `202 Job` 与作业位置。订阅 `jobs.changed` 接收完成提示，再读取 `GET /jobs/{id}`。WebSocket 不可用时轮询这个作业 API。

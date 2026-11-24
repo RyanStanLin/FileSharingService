@@ -36,6 +36,7 @@ internal static class SftpBridge
             invocation.HttpContext.RequestServices.GetRequiredService<SftpRuntime>().Allows(invocation.HttpContext)
                 ? next(invocation)
                 : throw Fault.Missing());
+        SshRelayEndpoints.MapWorker(bridge);
         bridge.MapPost("/online", (SftpOnline input, SftpRuntime state) =>
         {
             if (input.Fingerprint is not { Length: 50 } fp || !fp.StartsWith("SHA256:", StringComparison.Ordinal) ||

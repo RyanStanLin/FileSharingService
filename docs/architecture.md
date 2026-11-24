@@ -57,6 +57,8 @@ Agent 0.5.2 起，剪贴板事件通过 WSS 发送以下帧，HTTPS 回退通过
 
 远程终端使用长期设备命令 `terminal.open`。Agent 启动持有会话工作目录的原生子进程，命令 stdout 和 stderr 共用 PTY 输出。独立控制管道交付 `ready` 和命令退出状态。服务端向同一设备连接发送 `terminal.input`，携带会话 ID 和已校验的结构化参数。进度帧使用终端 ID 及 `{index,kind,commandId?,data?,exitCode?,code?}`，由同一 Agent WebSocket 或 HTTPS 通道送达，`index` 用于重试去重。控制端可从专用 WebSocket 或 REST 游标续读，设备通道结束时终端子进程也结束。 [终端 API](api.md#远程终端会话)
 
+SSH 中继复用网关的 SSH 监听。Passkey 会话签发绑定公钥、设备连接和授权版本的一次性中继。网关验证公钥后通过已认证的本机 HTTP 升级交付字节流，允许单个发往分配域名及端口 22 的 `direct-tcpip` 通道。Agent 使用既有 WSS 或 HTTPS 设备控制通道接收 `ssh.relay` 请求，只连接本机 SSH daemon 的 `127.0.0.1:22`。字节流经独立 HTTPS 路由 `GET /agent/v1/ssh/{id}/input/{after}` 和 `POST /agent/v1/ssh/{id}/output`，帧为 `{index,data}`，每帧最多 16 KiB 原始数据，`data:null` 表示 EOF。GET 在空闲时返回 `204`，按上一游标重试可重读同一帧，POST 按序号去重。设备 SSH 流由 OpenSSH 在系统客户端和 Mac 间端到端加密。 [SSH 中继 API](api.md#ssh-中继)
+
 `interaction.dialog` 和 `interaction.notification` 复用具有连接权限的命令通道。原生对话框由 AppKit 的事件循环显示。响应直接进入已认证的作业结果。会话锁定时服务端向设备发送 `{type:"cancel",id}`，设备停止等待本地输入。Agent 策略帧的 `accessGranted:false` 同样停止正在等待的交互。通知由本机 UserNotifications 调度，使用 App 的本机通知权限。
 
 ## 目录监听与数据中继

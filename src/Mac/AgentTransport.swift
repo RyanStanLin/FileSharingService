@@ -632,7 +632,7 @@ actor AgentTransport {
         }
         let input = command["payload"]
         let notificationWatch = kind == "files.watch" && input["purpose"].string == "notification"
-        let managed = ["diagnostics.run", "terminal.open", "terminal.input", "interaction.dialog", "interaction.dialog.masked", "interaction.dialog.form",
+        let managed = ["diagnostics.run", "terminal.open", "terminal.input", "ssh.relay", "interaction.dialog", "interaction.dialog.masked", "interaction.dialog.form",
                        "interaction.notification"].contains(kind)
             || notificationWatch
         if managed { managedOperations.insert(id) }
@@ -701,6 +701,13 @@ actor AgentTransport {
             try Task.checkCancellation()
             guard let terminal = terminals[try input.requireString("sessionId")] else { throw AgentError("terminal_closed") }
             try terminal.send(input)
+            return [:]
+        case "ssh.relay":
+            guard linkReady, let session, let activeOrigin else { throw AgentError("connection_unavailable") }
+            try await SshDeviceRelay.run(http: AgentHttp(session: session, base: activeOrigin), id: id,
+                                        channel: input.requireString("channel")) {
+                try await self.diagnosticProgress(["kind": "ready"], id: id)
+            }
             return [:]
         case "permissions.request":
             return try await telemetry.permission(input.requireString("permission"))

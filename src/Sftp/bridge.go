@@ -34,6 +34,7 @@ type bridgeClient struct {
 	address string
 	key     string
 	client  *http.Client
+	relay   *http.Client
 }
 
 func newBridge(address, key string) *bridgeClient {
@@ -47,6 +48,14 @@ func newBridge(address, key string) *bridgeClient {
 				MaxConnsPerHost:     32,
 				MaxIdleConnsPerHost: 16,
 				IdleConnTimeout:     30 * time.Second,
+			},
+			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+		},
+		relay: &http.Client{
+			Transport: &http.Transport{
+				DialContext:           (&net.Dialer{Timeout: 2 * time.Second}).DialContext,
+				ResponseHeaderTimeout: 18 * time.Second,
+				MaxConnsPerHost:       64,
 			},
 			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		},

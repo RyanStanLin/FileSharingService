@@ -185,6 +185,7 @@ internal static class AgentEndpoints
     public static void Map(WebApplication app)
     {
         var group = app.MapGroup("/agent/v1").ExcludeFromDescription();
+        SshRelayEndpoints.MapAgent(group);
         group.MapPost("/connect", async (AgentHello body, HttpContext context, AgentBroker broker, AgentIngest ingest, CancellationToken ct) =>
         {
             var link = await broker.Open(body, "https", context, ct);

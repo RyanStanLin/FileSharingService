@@ -185,6 +185,7 @@ internal static class DataEndpoints
         api.MapGet("/events", Events).WithTags("Events").WithSummary("Read a page of live-event history over REST");
         api.MapGet("/events/ws", BrowserEvents.Handle).WithTags("Events").WithSummary("Subscribe to events using WebSocket");
         TerminalEndpoints.Map(devices);
+        SshRelayEndpoints.MapDevices(devices);
         WindowEndpoints.Map(devices);
         RecordEndpoints.Map(devices);
         InteractionEndpoints.Map(devices);

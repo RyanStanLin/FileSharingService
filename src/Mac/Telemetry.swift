@@ -91,7 +91,7 @@ final class Telemetry {
         }
     }
 
-    static let version = "0.5.6"
+    static let version = "0.5.7"
     private static let applicationQueue = DispatchQueue(label: "FileSharing.applications", qos: .utility)
     private let boot = Date()
     private let roots: [LocalRoot]

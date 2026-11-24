@@ -190,6 +190,30 @@
             <div><h3>STDERR</h3><pre id="diagnostic-stderr" tabindex="0" aria-label="标准错误"></pre></div>
           </div>
         </section>
+        <section aria-labelledby="ssh-relay-heading">
+          <h2 id="ssh-relay-heading">SSH 中继</h2>
+          <p id="ssh-relay-help" class="muted">使用系统终端连接已启用「远程登录」的 Mac，支持 Vim 等全屏终端应用。</p>
+          <form id="ssh-relay-form">
+            <fieldset id="ssh-relay-fields" disabled>
+              <div class="form-grid">
+                <label>Mac 用户名<input id="ssh-relay-user" required maxlength="63"
+                  autocapitalize="off" autocomplete="off" spellcheck="false" pattern="[A-Za-z0-9_][A-Za-z0-9_.\-]{0,62}"></label>
+                <label>SSH 公钥<textarea id="ssh-relay-key" required maxlength="8192" rows="2"
+                  autocapitalize="off" autocomplete="off" spellcheck="false" aria-describedby="ssh-relay-help"></textarea></label>
+              </div>
+              <button type="submit" class="primary">创建 SSH 中继</button>
+            </fieldset>
+          </form>
+          <div id="ssh-relay-connection" hidden>
+            <pre id="ssh-relay-command" tabindex="0" aria-label="SSH 连接命令"></pre>
+            <p class="muted">网关主机密钥 <code id="ssh-relay-fingerprint"></code></p>
+            <div class="row">
+              <button id="ssh-relay-copy" type="button">复制命令</button>
+              <button id="ssh-relay-close" type="button">结束中继</button>
+            </div>
+          </div>
+          <p id="ssh-relay-status" role="status" class="muted"></p>
+        </section>
         <section aria-labelledby="terminal-heading">
           <div class="section-title">
             <h2 id="terminal-heading">远程终端</h2>

@@ -15,6 +15,8 @@ import plistlib
 import pwd
 import secrets
 import select
+import shlex
+import signal
 import sqlite3
 import socket
 import ssl
@@ -22,6 +24,7 @@ import stat
 import struct
 import subprocess
 import tempfile
+import termios
 import threading
 import time
 import unittest
@@ -1000,6 +1003,156 @@ class Acceptance(unittest.TestCase):
         client = self.open_ftp("explicitTls", self.ftps_port, rotated)
         self.assertEqual(client.pwd(), "/")
         client.quit()
+
+    def test_ssh_relay_edits_with_vim_and_limits_jump_destination(self):
+        target_port, gateway_port = ports()[:2]
+        daemon_key = self.work / "relay-server"
+        client_key = self.work / "relay-client"
+        for key in (daemon_key, client_key):
+            subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(key)], check=True, timeout=5)
+        public_key = client_key.with_suffix(".pub").read_text()
+        user = pwd.getpwuid(os.getuid()).pw_name
+        daemon = self.spawn(["/usr/sbin/sshd", "-D", "-e", "-f", "/dev/null", "-h", str(daemon_key), "-p", str(target_port),
+                             "-o", "ListenAddress=127.0.0.1", "-o", f"AuthorizedKeysFile={client_key.with_suffix('.pub')}",
+                             "-o", f"PidFile={self.work / 'fixture-ssh.pid'}", "-o", f"AllowUsers={user}",
+                             "-o", "UsePAM=no", "-o", "StrictModes=no", "-o", "DisableForwarding=yes",
+                             "-o", "PasswordAuthentication=no", "-o", "KbdInteractiveAuthentication=no"],
+                            "sshd.log", self.env)
+
+        def host_key():
+            scan = subprocess.run(["ssh-keyscan", "-T", "1", "-t", "ed25519", "-p", str(target_port), "127.0.0.1"],
+                                  capture_output=True, text=True, timeout=4)
+            if daemon.poll() is not None:
+                self.fail((self.work / "sshd.log").read_text())
+            return scan.stdout.strip()
+
+        self.wait(host_key)
+        self.stop(self.server)
+        self.env.update({"FileSharing__Sftp__Port": str(gateway_port), "FileSharing__Sftp__BridgePort": str(self.http_port),
+                         "FileSharing__Sftp__Binary": str(SFTP), "FileSharing__SshRelay__Enabled": "true",
+                         "FILESHARING_TEST_SSH_PORT": str(target_port)})
+        self.start_server()
+        registration = self.setup_device(allow_access=False)
+        base = self.device_api + "/ssh-relays"
+        self.api("POST", base, 401, session=self.client(), json={"publicKey": public_key})
+        self.api("POST", base, 403, json={"publicKey": public_key})
+        self.set_access(registration["connection"]["connectionId"], True)
+        self.api("POST", base, 400, json={"publicKey": "not a public key"})
+        grant = self.api("POST", base, 201, json={"publicKey": public_key}).json()
+        self.assertEqual(grant["port"], gateway_port)
+        self.assertEqual(grant["destination"], self.device + ".filesharing.invalid")
+        route = base + "/" + grant["id"]
+        stranger = self.client()
+        self.unlock(session=stranger)
+        self.api("DELETE", route, 404, session=stranger)
+
+        keys = subprocess.run(["ssh-keyscan", "-T", "3", "-t", "ed25519", "-p", str(gateway_port), "127.0.0.1"],
+                              check=True, capture_output=True, text=True, timeout=5).stdout
+        scan = next(line for line in keys.splitlines() if " ssh-ed25519 " in line)
+        fingerprint = "SHA256:" + base64.b64encode(digest(base64.b64decode(scan.split()[2]))).decode().rstrip("=")
+        self.assertEqual(fingerprint, grant["hostKeyFingerprint"])
+        known = self.work / "relay-known-hosts"
+        known.write_text(scan + "\n" + grant["destination"] + " " + daemon_key.with_suffix(".pub").read_text())
+        config = self.work / "relay-config"
+        config.write_text(f"""
+Host *
+    UserKnownHostsFile "{known}"
+    StrictHostKeyChecking yes
+    IdentityFile "{client_key}"
+    IdentitiesOnly yes
+    BatchMode yes
+    ConnectTimeout 8
+Host relay-gateway
+    HostName 127.0.0.1
+    Port {gateway_port}
+    User {grant["jumpUser"]}
+Host {grant["destination"]}
+    User {user}
+    ProxyJump relay-gateway
+""")
+        ssh = ["/usr/bin/ssh", "-F", str(config)]
+        rejected = subprocess.run([*ssh, "-W", grant["destination"] + ":23", "relay-gateway"],
+                                  capture_output=True, text=True, timeout=12)
+        self.assertIn("Use the assigned Mac and SSH port", rejected.stderr)
+
+        dest = self.work / "relay-edit.txt"
+        size = self.work / "relay-size.txt"
+        master, slave = os.openpty()
+        self.addCleanup(os.close, master)
+        try:
+            fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 0, 0))
+            editor = "/usr/bin/vim -Nu NONE -i NONE -n " + shlex.quote(str(dest))
+            client = subprocess.Popen([*ssh, "-tt", grant["destination"], editor], stdin=slave, stdout=slave, stderr=slave,
+                                      env=self.env | {"TERM": "xterm-256color"})
+        finally:
+            os.close(slave)
+        self.addCleanup(self.stop, client)
+
+        output = bytearray()
+
+        def read_screen():
+            if select.select([master], [], [], 0.2)[0]:
+                try:
+                    output.extend(os.read(master, 8192))
+                except OSError:
+                    if client.poll() is None:
+                        raise
+
+        def started():
+            read_screen()
+            if client.poll() is not None:
+                self.fail(f"SSH closed before Vim started.\n{output.decode(errors='replace')}\n"
+                          + (self.work / "sshd.log").read_text() + self.log_tail())
+            return b"relay-edit.txt" in output
+
+        self.wait(started, seconds=20)
+        fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", 32, 96, 0, 0))
+        os.kill(client.pid, signal.SIGWINCH)
+        query = f":call writefile([&lines . ',' . &columns], '{size}')\r".encode()
+
+        def resized():
+            os.write(master, query)
+            read_screen()
+            return size.exists() and size.read_text() == "32,96\n"
+
+        self.wait(resized)
+        os.write(master, b"iEdited over standard SSH\x1b:wq\r")
+
+        def exited():
+            read_screen()
+            return client.poll() is not None
+
+        self.wait(exited)
+        self.assertEqual(client.returncode, 0, output.decode(errors="replace"))
+        self.assertEqual(dest.read_text(), "Edited over standard SSH\n")
+        replay = subprocess.run([*ssh, grant["destination"], "/usr/bin/true"], capture_output=True, timeout=10)
+        self.assertNotEqual(replay.returncode, 0)
+
+        self.stop(self.agent)
+        self.stop(self.server)
+        self.start_server(polling=True)
+        self.agent = self.spawn([str(APP), "run"], "agent.log", self.env)
+
+        def fallback():
+            result = self.api("GET", self.device_api).json()["connection"]
+            return result if result["protocol"] == "https" else None
+
+        connection_id = self.wait(fallback)["connectionId"]
+        self.set_access(connection_id, True)
+        new = self.api("POST", base, 201, json={"publicKey": public_key}).json()
+        config.write_text(config.read_text().replace(grant["jumpUser"], new["jumpUser"]))
+        hold = subprocess.Popen([*ssh, new["destination"], "printf 'ready\\n'; /bin/cat"],
+                                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        try:
+            self.assertTrue(select.select([hold.stdout], [], [], 10)[0], "SSH fallback did not return output")
+            self.assertEqual(hold.stdout.readline(), "ready\n")
+            self.set_access(connection_id, False)
+            self.assertNotEqual(hold.wait(timeout=8), 0)
+        finally:
+            self.stop(hold)
+            hold.stdin.close()
+            hold.stdout.close()
+            hold.stderr.close()
 
     def test_sftp_home_paging_download_password_revocation_and_host_key(self):
         self.stop(self.server)

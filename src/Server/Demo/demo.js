@@ -2,6 +2,7 @@ import {deviceData} from "./device-data.js"
 import {deviceJobs} from "./device-jobs.js"
 import {deviceRecords} from "./device-records.js"
 import {diagnosticTerminal} from "./diagnostic-terminal.js"
+import {sshRelay} from "./ssh-relay.js"
 import {gatewayPanel} from "./gateway.js"
 import {dateText, duration, element, eventSocket, status} from "./ui.js"
 
@@ -39,6 +40,10 @@ const errors = { authentication_required: "请先解锁后台。",
     terminal_closed: "终端已结束。",
     terminal_not_found: "终端已结束。",
     terminal_idle: "终端因空闲超时而结束。",
+    invalid_ssh_public_key: "请输入一行 OpenSSH 公钥。",
+    ssh_relay_not_found: "SSH 中继已结束或过期。",
+    ssh_relay_unavailable: "SSH 网关尚未启用或未就绪。",
+    ssh_relay_limit: "中继数量达到上限，请结束已有中继。",
     terminal_unavailable: "Mac 无法打开终端。",
     diagnostic_timeout: "命令运行超时。",
     unsupported: "设备当前版本不支持这项操作。",
@@ -83,6 +88,7 @@ let pane = "files"
 const tabs = [...document.querySelectorAll("[data-pane]")]
 const jobs = deviceJobs({call, perform, errorText, collectCompleted: () => data.refresh()})
 const terminal = diagnosticTerminal({call, perform, errorText})
+const relay = sshRelay({call, perform})
 const data = deviceData({call, perform, submitCollection: topics => jobs.collect(topics)})
 const records = deviceRecords({call, perform})
 const gateway = gatewayPanel({call, perform, authenticate})
@@ -92,6 +98,7 @@ function updatePanes() {
     data.bind(device, pane)
     jobs.bind(device)
     terminal.bind(device)
+    relay.bind(device)
     records.bind(pane === "records" ? device?.id : undefined)
     gateway.bind(unlocked && pane === "gateway")
 }

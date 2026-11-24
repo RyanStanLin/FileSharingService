@@ -51,6 +51,7 @@ public static class Program
         builder.Services.AddSingleton<ReviewService>();
         builder.Services.AddSingleton<AgentRegistration>();
         builder.Services.AddSingleton<AgentBroker>();
+        builder.Services.AddSingleton<SshRelays>();
         builder.Services.AddSingleton<AgentIngest>();
         builder.Services.AddSingleton<DeviceService>();
         builder.Services.AddSingleton<EventFeed>();
