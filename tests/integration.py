@@ -1525,6 +1525,24 @@ print(json.dumps({"payload": result}, ensure_ascii=False))
                                      {"items": [], "cursor": page["cursor"]})
                     self.api("GET", output, 401, session=self.client())
 
+    def test_terminal_catalog_keeps_sessions_without_commands(self):
+        self.setup_device()
+        base = self.device_api + "/diagnostics/sessions"
+        empty = self.api("POST", base, 201, json={}).json()
+        empty_path = base + "/" + empty["id"]
+        page = self.api("GET", base).json()
+        self.assertEqual(page["active"]["id"], empty["id"])
+        self.assertIsNone(page["active"]["firstCommand"])
+        self.assertEqual([(row["id"], row["firstCommand"]) for row in page["items"]], [(empty["id"], None)])
+
+        self.api("POST", empty_path + "/terminate", 202)
+        self.wait(lambda: self.api("GET", empty_path).json()["state"] == "terminated")
+        titled = self.api("POST", base, 201, json={}).json()
+        self.api("POST", base + "/" + titled["id"] + "/commands", 202, json={"line": "pwd"})
+        page = self.api("GET", base).json()
+        self.assertEqual((page["active"]["id"], page["active"]["firstCommand"]), (titled["id"], "pwd"))
+        self.assertEqual({row["id"]: row["firstCommand"] for row in page["items"]}, {empty["id"]: None, titled["id"]: "pwd"})
+
     def test_terminal_vim_accepts_raw_keys_resizes_and_deduplicates_input(self):
         self.setup_device()
         base = self.device_api + "/diagnostics/sessions"
