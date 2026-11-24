@@ -75,8 +75,25 @@
   background: var(--bgColor-neutral-emphasis);
 }
 
-.command {
+.command.command {
   inline-size: var(--filesharing-command-width);
+  padding-inline: var(--base-size-8);
+  justify-content: start;
+  color: var(--fgColor-muted);
+  font-weight: var(--base-text-weight-normal);
+}
+
+.commandLabel {
+  display: inline-block;
+  inline-size: calc(var(--filesharing-command-width) - var(--base-size-48));
+  text-align: start;
+}
+
+.commandGlyph {
+  display: inline-flex;
+  padding-inline-start: var(--base-size-8);
+  border-inline-start: var(--borderWidth-thin) solid var(--borderColor-default);
+  vertical-align: middle;
 }
 
 .divider {
@@ -101,9 +118,20 @@
 }
 
 @media (width < 64rem) {
-  .command,
+  .commandLabel,
   .divider {
     display: none;
+  }
+
+  .command.command {
+    inline-size: var(--base-size-32);
+    padding: 0;
+    justify-content: center;
+  }
+
+  .commandGlyph {
+    border: 0;
+    padding: 0;
   }
 }
 

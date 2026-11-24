@@ -1,0 +1,47 @@
+.command {
+  min-inline-size: 0;
+  padding: var(--base-size-12);
+  border-block-end: var(--borderWidth-thin) solid var(--borderColor-default);
+  font: var(--text-body-shorthand-medium);
+  line-height: var(--base-size-20);
+}
+
+.command[data-preview] {
+  padding-block-start: var(--base-size-8);
+  padding-block-end: var(--base-size-8);
+  border-block-end: 0;
+}
+
+.commandLine {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.prompt {
+  color: var(--fgColor-accent);
+  font-weight: var(--base-text-weight-semibold);
+}
+
+.commandLine .prompt {
+  margin-inline-end: var(--base-size-12);
+}
+
+.commandLine code,
+.output {
+  font-family: var(--fontStack-monospace);
+  font-size: var(--text-codeInline-size);
+}
+
+.output,
+.note,
+.exit {
+  margin: var(--base-size-8) 0 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.note,
+.exit {
+  color: var(--fgColor-muted);
+  font: var(--text-body-shorthand-small);
+}

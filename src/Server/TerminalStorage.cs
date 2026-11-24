@@ -15,6 +15,7 @@ internal sealed record TerminalDispatch(string Kind, string? CommandId = null, s
     string[]? Arguments = null, string? Path = null);
 internal sealed record TerminalSync(string? ConnectionId, IReadOnlyList<TerminalFrame>? Frames);
 internal sealed record TerminalSyncResult(long Acknowledged, bool Terminate, TerminalDispatch? Command, bool Deleted = false);
+internal sealed record TerminalTitle(string Id, string Line);
 
 internal sealed class TerminalStorage(Database db)
 {
@@ -51,6 +52,14 @@ internal sealed class TerminalStorage(Database db)
             SELECT * FROM TerminalSessions WHERE Owner=@owner AND DeviceId=@deviceId AND State<>'terminated'
             ORDER BY Created DESC LIMIT 1
             """, new { owner, deviceId }, ct);
+
+    public async Task<IReadOnlyDictionary<string, string>> Titles(string[] ids, CancellationToken ct) =>
+        (await db.List<TerminalTitle>("""
+            SELECT s.Id, (SELECT json_extract(f.Payload,'$.line') FROM TerminalFrames f
+                         WHERE f.SessionId=s.Id AND json_extract(f.Payload,'$.kind')='command'
+                         ORDER BY f.Ordinal LIMIT 1) AS Line
+            FROM TerminalSessions s WHERE s.Id IN @ids
+            """, new { ids }, ct)).Where(item => item.Line is not null).ToDictionary(item => item.Id, item => item.Line);
 
     public Task Create(TerminalRecord row, CancellationToken ct) => db.Write(async (connection, tx) =>
     {

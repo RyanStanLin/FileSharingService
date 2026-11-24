@@ -2,7 +2,7 @@ namespace FileSharing;
 
 internal sealed record TerminalView(string Id, string DeviceId, string RootId, string? ConnectionId, bool Interactive,
     string State, bool Connected, bool CanControl, string? CommandId, bool CommandStarted, DateTimeOffset CreatedAt,
-    DateTimeOffset UpdatedAt, DateTimeOffset? FinishedAt, string? Code);
+    DateTimeOffset UpdatedAt, DateTimeOffset? FinishedAt, string? Code, string? FirstCommand = null);
 internal sealed record TerminalFrame(long Index, string Kind, string? CommandId = null, string? Data = null,
     int? ExitCode = null, string? Code = null, string? Line = null, string? Prompt = null, bool? Interactive = null,
     long? At = null);

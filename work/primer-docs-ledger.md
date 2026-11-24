@@ -222,3 +222,10 @@
 - `Push` 校验标题、副标题、按钮和字段限制，并调用在线且已授权设备的原生对话框 API。档案用游标续页，收到 `jobs.changed` 或轮询结果后更新。旧档案可显示已有字段。详情用设备返回的精确回复时间，列表用归档时间。遮蔽回复默认折叠。Send again 用归档配置打开 Composer，预填值从新草稿提交。 [原生对话框 API](../docs/api.md#原生对话框和本地通知)
 - 支持单个主按钮或关闭主按钮。API 转发并归档显式 `isPrimary`，旧请求依然采用首个按钮。新版 Agent 为实际主按钮绑定 Return。旧版 Agent 仍采用首个按钮。ASP.NET Core 构建与 Swift 类型检查通过，独立 AppKit 检查验证了无默认按钮、首个与第二个按钮生效。`test_dialog_response_notification_and_session_cancellation` 在 WSS 与 HTTPS 上核对显式设置、重复主按钮报错与档案回读。
 - Chromium 联调通过 `test_alerts_live_composer_and_history` 和 `test_alerts_paging_polling_and_offline`，覆盖表格键盘选择、输入校验、动态字段、投递、回执、重发草稿、失败反馈、离线档案、窄屏与深色高对比度。WebKit 通过详情切换、秒级时间、续页、表单校验与发送回执。剪贴板续页和实时更新回归通过。Primer CSS 工具对变更样式和官方 token 对照均返回空诊断，PostCSS 解析了三份变更样式，并核对四套主题下的 284 处变量引用。
+
+## Terminal 与 Quick Run
+
+- 按 `Commands.svg` 在 1280 × 950 下定位 232 px 会话侧栏、y192 的标题分隔线、x249 的输出和底部输入区。会话侧栏采用可调整宽度的 SplitPageLayout 与 NavList，详情标题复用 ExplorerTitle。正文用分段命令和纯文本输出，复杂画面由独立浏览器小窗呈现。窄屏可在对话框内查看会话并切换。 [SplitPageLayout](https://primer.style/product/components/split-page-layout/) · [NavList](https://primer.style/product/components/nav-list/)
+- `QuickRun.svg` 和 `QuickRun_1.svg` 以各自 viewBox 比较布局。使用 Dialog 标准遮罩与焦点管理，Autocomplete 复用已共享路径解析。实测搜索态 960 × 213 px，建议面板横向内收 32 px，三条建议均为 870 × 32 px。命令预览复用正文结构并提供已保存会话入口。实时数据、焦点、宿主背景及系统字体影响整图差分。 [Dialog](https://primer.style/product/components/dialog/) · [Autocomplete](https://primer.style/product/components/autocomplete/)
+- 会话列表、创建、命令提交、中断、终止、回放、下载和删除接入 Agent 0.5.9 的持久化会话接口。新增列表字段 `firstCommand` 从同一会话的归档帧读取，旧记录可直接使用。WebSocket 和 REST 共用游标与输入确认 ID。沉浸小窗使用 Demo 同版本 xterm.js 和 FitAddon，渲染原始 PTY 字节，协商窗口尺寸及输入。 [远程终端 API](../docs/api.md#远程终端会话) · [xterm.js Terminal](https://xtermjs.org/docs/api/terminal/classes/terminal/)
+- Chromium 验证了路径建议和打开文件、Quick Run 输出、会话搜索与重新加载、断线后输出续读、NDJSON 下载、删除确认、窄屏及真实 Vim 小窗。用中文输入后缩放小窗、断开浏览器 WebSocket 并继续编辑保存。WebKit 验证路径、执行与实时输出、终止和历史分类。后端回归覆盖按键去重与服务端重启续传。Primer CSS 工具返回空诊断，PostCSS 解析了六份样式并核对了四套主题的 684 处变量引用。

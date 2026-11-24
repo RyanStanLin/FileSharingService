@@ -52,9 +52,12 @@ internal sealed class TerminalSessions(Database db, TerminalStorage storage, Age
     {
         var count = Page<TerminalView>.Size(limit);
         var rows = await storage.List(review.Initiator, Secrets.Identifier(deviceId), Page<TerminalView>.After(cursor), count + 1, ct);
-        var page = Page<TerminalView>.From(rows.Select(View).ToArray(), count, item => item.Id);
         var active = cursor is null ? await storage.Active(review.Initiator, deviceId, ct) : null;
-        return new(page.Items, page.NextCursor, active is null ? null : View(active));
+        var ids = rows.Select(row => row.Id).Concat(active is null ? [] : [active.Id]).Distinct().ToArray();
+        IReadOnlyDictionary<string, string> titles = ids.Length == 0 ? new Dictionary<string, string>() : await storage.Titles(ids, ct);
+        TerminalView Listed(TerminalRecord row) => View(row) with { FirstCommand = titles.GetValueOrDefault(row.Id) };
+        var page = Page<TerminalView>.From(rows.Select(Listed).ToArray(), count, item => item.Id);
+        return new(page.Items, page.NextCursor, active is null ? null : Listed(active));
     }
 
     public async Task<TerminalRecord> Find(Review review, string deviceId, string id, CancellationToken ct)

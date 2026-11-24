@@ -6,6 +6,7 @@ import type {Device} from '../api/types'
 import {primaryModifier} from '../files/explorerInput'
 import {Workspace} from '../files/Workspace'
 import {useLanguage} from '../i18n'
+import {terminalLocation} from '../terminal/terminalLocation'
 import {Loading, Retry, State} from '../ui/Feedback'
 import {useRefresh, useResource, useTask} from '../ui/async'
 import {Header} from './Header'
@@ -19,6 +20,9 @@ const ignore = () => undefined
 const DataWorkspace = lazy(() => import('../data/DataWorkspace'))
 const WindowActivity = lazy(() => import('../activity/WindowActivity'))
 const AlertWorkspace = lazy(() => import('../alerts/AlertWorkspace'))
+const TerminalWorkspace = lazy(() => import('../terminal/TerminalWorkspace'))
+const ImmersiveTerminal = lazy(() => import('../terminal/ImmersiveTerminal'))
+const QuickRunDialog = lazy(() => import('../terminal/QuickRunDialog'))
 
 export function App() {
   const {t} = useLanguage()
@@ -29,11 +33,14 @@ export function App() {
   const [deviceId, setDeviceId] = useState(() => sessionStorage.getItem(selectedDevice))
   const [shareManager, setShareManager] = useState(false)
   const [goTo, setGoTo] = useState(false)
+  const [quick, setQuick] = useState(false)
   const connectionTask = useTask()
   const accessRef = useRef<HTMLButtonElement>(null)
+  const commandRef = useRef<HTMLButtonElement>(null)
   const lastDevice = useRef<Device>(undefined)
   const items = devices.data ?? []
-  const device = items.find(item => item.id === deviceId) ?? items.find(item => item.connection.online) ?? items[0]
+  const terminalRoute = terminalLocation(hash)
+  const device = items.find(item => item.id === (terminalRoute.deviceId ?? deviceId)) ?? items.find(item => item.connection.online) ?? items[0]
 
   useEffect(() => {
     if (!unlocked) return
@@ -44,16 +51,19 @@ export function App() {
     }
   }, [unlocked, device, deviceId])
   useRefresh(unlocked, devices.refresh, 8000)
+  useEffect(() => { if (!unlocked) setQuick(false) }, [unlocked])
   useDeviceEvents(page !== 'data' && unlocked && device?.connection.online && !device.connection.accessGranted ? device.id : null,
     undefined, devices.refresh, ignore, ignore)
 
   function select(item: Device) {
     setShareManager(false)
     setGoTo(false)
+    setQuick(false)
     setDeviceId(item.id)
     sessionStorage.setItem(selectedDevice, item.id)
     resetFileLocation()
     if (page === 'files') window.history.replaceState(null, '', window.location.pathname + window.location.search)
+    if (page === 'terminal') window.location.hash = '#terminal'
   }
 
   function authorize(enabled: boolean) {
@@ -100,6 +110,10 @@ export function App() {
   }
 
   const workspace = page === 'files' && unlocked && device?.connection.online && device.connection.accessGranted
+  const terminal = page === 'terminal' && unlocked && device
+  const immersive = terminal && terminalRoute.immersive && (!terminalRoute.deviceId || terminal.id === terminalRoute.deviceId)
+    ? terminalRoute.id : undefined
+  const canQuickRun = unlocked && device?.connection.online && device.connection.accessGranted
   useEffect(() => {
     if (!workspace) {
       setGoTo(false)
@@ -116,12 +130,17 @@ export function App() {
   }, [workspace])
   return (
     <Stack gap="none" className={styles.app}>
-      <Header devices={items} device={device ?? (!unlocked ? lastDevice.current : undefined)} unlocked={unlocked}
+      {!immersive && <Header devices={items} device={device ?? (!unlocked ? lastDevice.current : undefined)} unlocked={unlocked}
         ready={Boolean(session.current)} busy={session.task.busy} toggle={session.change} select={select}
         page={page} filesHref={filesHref} shares={workspace ? () => setShareManager(true) : undefined}
-        revoke={() => authorize(false)} accessRef={accessRef}
-        openPath={workspace ? () => setGoTo(true) : undefined} />
-      {workspace
+        revoke={() => authorize(false)} accessRef={accessRef} commandRef={commandRef}
+        openQuick={canQuickRun ? () => setQuick(true) : undefined}
+        openPath={workspace ? () => setGoTo(true) : undefined} />}
+      {terminal ? <Suspense fallback={<Loading />}>
+        {immersive ? <ImmersiveTerminal key={terminal.id + immersive} deviceId={terminal.id} id={immersive} />
+          : <TerminalWorkspace key={terminal.id} device={terminal} hash={hash} authorize={() => authorize(true)}
+              authorizationBusy={connectionTask.busy} authorizationError={connectionTask.error} />}
+      </Suspense> : workspace
         ? <Workspace key={device.id + device.connection.connectionId} device={device} refreshDevice={devices.refresh}
             shareManager={shareManager} setShareManager={setShareManager} goTo={goTo} closeGoTo={() => setGoTo(false)} />
         : page === 'data' && unlocked && device
@@ -132,6 +151,9 @@ export function App() {
           : <Stack as="main" gap="none" className={page === 'alerts' ? styles.workArea : styles.main}>{content}</Stack>}
       {session.setup && <SetupDialog submit={session.initialize} close={session.closeSetup}
         busy={session.task.busy} error={session.task.error} returnFocusRef={accessRef} />}
+      {quick && unlocked && device && !immersive && <Suspense fallback={null}>
+        <QuickRunDialog key={device.id} device={device} filesHref={filesHref} trigger={commandRef} close={() => setQuick(false)} />
+      </Suspense>}
     </Stack>
   )
 }

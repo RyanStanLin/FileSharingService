@@ -1,5 +1,5 @@
 import {useId, type RefObject} from 'react'
-import {ActionList, ActionMenu, IconButton, Stack, TextInput, ToggleSwitch, UnderlineNav} from '@primer/react'
+import {ActionList, ActionMenu, Button, IconButton, Stack, ToggleSwitch, UnderlineNav} from '@primer/react'
 import {FileDirectoryIcon, GlobeIcon, GraphIcon, PlayIcon, TerminalIcon, ThreeBarsIcon, VersionsIcon} from '@primer/octicons-react'
 import type {Device} from '../api/types'
 import {useLanguage} from '../i18n'
@@ -16,6 +16,8 @@ interface Props {
   ready: boolean
   busy: boolean
   accessRef: RefObject<HTMLButtonElement | null>
+  commandRef: RefObject<HTMLButtonElement | null>
+  openQuick?: () => void
   select: (device: Device) => void
   toggle: (checked: boolean) => void
   shares?: () => void
@@ -104,8 +106,11 @@ export function Header(props: Props) {
           </Stack>
         </Stack.Item>
         <Stack direction="horizontal" align="center" gap="condensed">
-          <TextInput size="medium" disabled className={styles.command} trailingVisual={TerminalIcon}
-            aria-label={t('command')} placeholder={t('command')} />
+          <Button type="button" ref={props.commandRef} size="medium" className={styles.command} alignContent="start"
+            disabled={!props.openQuick} onClick={props.openQuick} aria-haspopup="dialog" aria-label={t('command')}>
+            <span className={styles.commandLabel}>{t('command')}</span>
+            <span className={styles.commandGlyph}><TerminalIcon /></span>
+          </Button>
           <span className={styles.divider} aria-hidden="true" />
           <span id={access}>{t('access')}</span>
           <ToggleSwitch ref={props.accessRef} size="medium" aria-labelledby={access} statusLabelPosition="start"
@@ -120,6 +125,8 @@ export function Header(props: Props) {
           icon={GraphIcon}>{t('data')}</UnderlineNav.Item>
         <UnderlineNav.Item href="#activity" aria-current={props.page === 'activity' ? 'page' : undefined}
           icon={VersionsIcon}>{t('activity')}</UnderlineNav.Item>
+        <UnderlineNav.Item href="#terminal" aria-current={props.page === 'terminal' ? 'page' : undefined}
+          icon={TerminalIcon}>{t('terminal')}</UnderlineNav.Item>
         <UnderlineNav.Item href="#alerts" aria-current={props.page === 'alerts' ? 'page' : undefined}
           icon={PlayIcon}>{t('alerts')}</UnderlineNav.Item>
       </UnderlineNav>

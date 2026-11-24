@@ -283,7 +283,7 @@ Agent 0.5.9 起，SQLite 持久化终端会话、命令、PTY 输出、退出码
 
 | 方法 | 路径 | 请求与响应 |
 | --- | --- | --- |
-| GET | `/` | 用 `limit` 和 `cursor` 分页查询会话。第一页同时返回可继续查看的 `active` 会话。 |
+| GET | `/` | 用 `limit` 和 `cursor` 分页查询会话。列表项含首条已提交命令 `firstCommand`，第一页同时返回 `active` 会话。 |
 | POST | `/` | 发送 `{}` 使用 HOME，或以 `{"rootId":"<UUID>"}` 选择共享根。返回 `201 TerminalView`。 |
 | GET | `/{sessionId}` | 查询状态、当前命令和连接能力。 |
 | POST | `/{sessionId}/commands` | 发送 `{"line":"uname -m"}`，返回 `202 {commandId}`，实际启动及退出通过帧报告。 |

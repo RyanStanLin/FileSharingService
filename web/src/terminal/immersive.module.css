@@ -1,0 +1,28 @@
+.immersive {
+  flex: 1;
+  min-block-size: 0;
+}
+
+.toolbar {
+  flex: none;
+  border-block-end: var(--borderWidth-thin) solid var(--borderColor-default);
+  background: var(--bgColor-muted);
+}
+
+.title {
+  font: var(--text-title-shorthand-small);
+}
+
+.screen {
+  flex: 1;
+  min-block-size: 0;
+  margin: var(--base-size-16);
+  overflow: hidden;
+  font: var(--text-body-shorthand-medium);
+}
+
+.status {
+  margin: var(--base-size-8) var(--base-size-16) 0;
+  color: var(--fgColor-muted);
+  font: var(--text-body-shorthand-small);
+}

@@ -1,0 +1,72 @@
+.composer {
+  flex: none;
+  padding: 0 var(--base-size-16) var(--base-size-16);
+}
+
+.shellPrompt {
+  margin-inline: var(--base-size-32);
+  padding: var(--base-size-8) var(--base-size-12);
+  overflow-wrap: anywhere;
+  border: var(--borderWidth-thin) solid var(--borderColor-default);
+  border-block-end: 0;
+  border-radius: var(--borderRadius-large) var(--borderRadius-large) 0 0;
+  background: var(--bgColor-default);
+  line-height: var(--base-size-20);
+}
+
+.form {
+  min-inline-size: 0;
+  border: var(--borderWidth-thin) solid var(--borderColor-default);
+  border-radius: var(--base-size-16);
+  background: var(--bgColor-default);
+}
+
+.icon {
+  flex: none;
+  margin-inline-start: var(--base-size-4);
+  margin-block-end: var(--base-size-2);
+  color: var(--fgColor-muted);
+}
+
+.commandInput.commandInput {
+  min-inline-size: 0;
+  min-block-size: var(--base-size-32);
+  max-block-size: var(--base-size-80);
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+  font-family: var(--fontStack-monospace);
+  font-size: var(--text-codeInline-size);
+  line-height: var(--base-size-20);
+}
+
+.commandInput textarea {
+  padding: 0 var(--base-size-2);
+  max-block-size: var(--base-size-80);
+  line-height: inherit;
+}
+
+.actions {
+  flex: none;
+}
+
+.feedback {
+  margin-block-end: var(--base-size-8);
+}
+
+@media (width < 37rem) {
+  .form {
+    flex-wrap: wrap;
+  }
+
+  .commandInput.commandInput {
+    flex: 1;
+  }
+
+  .actions {
+    margin-inline-start: auto;
+    justify-content: end;
+    flex-wrap: wrap;
+  }
+}
