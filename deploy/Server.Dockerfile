@@ -14,9 +14,10 @@ COPY src/Server/ src/Server/
 RUN dotnet publish src/Server/FileSharing.Server.csproj -c Release --no-restore -o /out
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0.15
+ARG FILESHARING_UID=$APP_UID
 WORKDIR /app
 COPY --from=build /out/ ./
 COPY --from=sftp /out/filesharing-sftp ./
-RUN mkdir -m 700 /data && chown "$APP_UID" /data
-USER $APP_UID
+RUN mkdir -m 700 /data && chown "$FILESHARING_UID:$FILESHARING_UID" /data
+USER $FILESHARING_UID
 ENTRYPOINT ["sh", "-c", "umask 077; exec dotnet FileSharing.Server.dll"]

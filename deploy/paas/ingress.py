@@ -117,13 +117,16 @@ def active_web_port(repository_id, container_port):
     return int(match[1])
 
 
-def sync_wss(domain, port):
+def sync_direct_route(domain, port):
     if port is None:
         ROUTE_FILE.unlink(missing_ok=True)
         return
     config = {"http": {
         "routers": {"filesharing-wss": {
-            "rule": f"Host(\x60{domain}\x60) && HeaderRegexp(\x60Upgrade\x60, \x60(?i)^websocket$\x60)",
+            "rule": (
+                f"Host(\x60{domain}\x60) && (HeaderRegexp(\x60Upgrade\x60, \x60(?i)^websocket$\x60) "
+                "|| Path(\x60/agent/v1\x60) || PathPrefix(\x60/agent/v1/\x60))"
+            ),
             "entryPoints": ["websecure"], "priority": 1000, "service": "filesharing-wss", "tls": {},
             "middlewares": ["headers"],
         }},
@@ -143,7 +146,7 @@ def sync_wss(domain, port):
             os.replace(temporary, ROUTE_FILE)
         finally:
             temporary.unlink(missing_ok=True)
-    print("Updated the FileSharing WebSocket route", flush=True)
+    print("Updated the FileSharing WebSocket and Agent route", flush=True)
 
 
 def main():
@@ -165,7 +168,7 @@ def main():
     while not stopped.is_set():
         try:
             sync_ports(address, ports, server_address(repository_id))
-            sync_wss(domain, active_web_port(repository_id, config["web"]["port"]))
+            sync_direct_route(domain, active_web_port(repository_id, config["web"]["port"]))
             last_error = None
         except (ValueError, RuntimeError, OSError, sqlite3.Error, subprocess.SubprocessError) as error:
             message = f"{type(error).__name__}: {error}"
@@ -173,7 +176,7 @@ def main():
                 print(message, file=sys.stderr, flush=True)
             last_error = message
         stopped.wait(2)
-    sync_wss(domain, None)
+    sync_direct_route(domain, None)
     sync_ports(address, ports, None)
 
 

@@ -29,7 +29,10 @@
       "type": "worker",
       "build": {
         "context": ".",
-        "dockerfile": "deploy/Server.Dockerfile"
+        "dockerfile": "deploy/Server.Dockerfile",
+        "publicArgs": {
+          "FILESHARING_UID": "10001"
+        }
       },
       "resources": {
         "memoryMiB": 192,

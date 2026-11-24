@@ -7,7 +7,7 @@
 | `web` | 端口 8080 上的独立 Nginx 容器，提供 React 静态资源并转发 API 和 Agent | [filesharing.ryanl.in](https://filesharing.ryanl.in/) · [`/health/ready`](https://filesharing.ryanl.in/health/ready) |
 | `server` | 容器内网端口 8080 上的 ASP.NET Core 容器，内含 FTP、FTPS 和 SFTP 网关 | 公网 HTTPS 与 WSS 经前端；文件协议经独立的 TCP 入口 |
 
-`filesharing.ryanl.in` 由 Cloudflare 和 Traefik 终止 HTTPS。VPS 上的 `filesharing-ingress.service` 将此主机名的 WebSocket 升级请求直接送到当前前端容器的回环端口，保留 Agent 文件传输所用的消息大小。该服务还为项目后端更新 RootlessKit 的 TCP 端口映射，保留客户端源地址。后端切换时，客户端可重连。源地址和端口配置见 [`paas.json`](paas.json)。
+`filesharing.ryanl.in` 由 Cloudflare 和 Traefik 终止 HTTPS。VPS 上的 `filesharing-ingress.service` 将此主机名的 WebSocket 和 `/agent/v1` 请求直接送到当前前端容器的回环端口，支持 Agent 的文件传输消息和 20 秒 HTTPS 长轮询。该服务还为项目后端更新 RootlessKit 的 TCP 端口映射，保留客户端源地址。后端切换时，客户端可重连。源地址和端口配置见 [`paas.json`](paas.json)。
 
 | 协议 | 主机 | TCP 端口 |
 | --- | --- | --- |
