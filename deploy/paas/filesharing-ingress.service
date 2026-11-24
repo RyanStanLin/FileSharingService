@@ -1,0 +1,22 @@
+[Unit]
+Description=FileSharing public TCP ports and WebSocket routing
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=paas-runtime
+ExecStart=/usr/bin/python3 /usr/local/lib/filesharing-paas/ingress.py 1470313713 /etc/filesharing-paas/paas.json
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+ReadWritePaths=/var/lib/paas-routes
+RestrictAddressFamilies=AF_UNIX
+MemoryMax=40M
+TasksMax=32
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

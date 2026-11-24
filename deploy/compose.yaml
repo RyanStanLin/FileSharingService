@@ -50,6 +50,9 @@ services:
     build:
       context: ..
       dockerfile: deploy/Web.Dockerfile
+    user: "0:0"
+    entrypoint: ["/docker-entrypoint.sh"]
+    command: ["nginx", "-g", "daemon off;"]
     depends_on:
       - server
     environment:

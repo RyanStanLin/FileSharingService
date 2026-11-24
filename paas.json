@@ -1,0 +1,75 @@
+{
+  "schemaVersion": 1,
+  "name": "filesharing",
+  "state": "present",
+  "deployBranch": "main",
+  "services": {
+    "web": {
+      "type": "web",
+      "build": {
+        "context": ".",
+        "dockerfile": "deploy/Web.Dockerfile"
+      },
+      "port": 8080,
+      "domain": "filesharing.ryanl.in",
+      "health": {
+        "path": "/health/ready",
+        "status": 200
+      },
+      "resources": {
+        "memoryMiB": 32,
+        "cpu": 0.2,
+        "pids": 32
+      },
+      "dependsOn": [
+        "server"
+      ]
+    },
+    "server": {
+      "type": "worker",
+      "build": {
+        "context": ".",
+        "dockerfile": "deploy/Server.Dockerfile"
+      },
+      "resources": {
+        "memoryMiB": 192,
+        "cpu": 0.6,
+        "pids": 96
+      },
+      "environment": {
+        "ASPNETCORE_ENVIRONMENT": "Production",
+        "ASPNETCORE_URLS": "http://0.0.0.0:8080",
+        "FILESHARING__ORIGIN": "https://filesharing.ryanl.in",
+        "FILESHARING__KNOWNPROXIES": "172.30.253.2,172.30.253.3,172.30.253.4,172.30.253.5,172.30.253.6,172.30.253.7,172.30.253.8,172.30.253.9,172.30.253.10,172.30.253.11,172.30.253.12,172.30.253.13,172.30.253.14",
+        "FILESHARING__DATADIRECTORY": "/data",
+        "FILESHARING__FTP__BIND": "0.0.0.0",
+        "FILESHARING__FTP__HOST": "ftp-filesharing.ryanl.in",
+        "FILESHARING__FTP__PLAINPORT": "2121",
+        "FILESHARING__FTP__EXPLICITPORT": "2122",
+        "FILESHARING__FTP__IMPLICITPORT": "2990",
+        "FILESHARING__SFTP__PORT": "2222",
+        "FILESHARING__FTP__PASSIVEMIN": "41000",
+        "FILESHARING__FTP__PASSIVEMAX": "41031",
+        "FILESHARING__FTP__PASSIVEADDRESS": "23.169.184.53",
+        "FILESHARING__FTP__PLAINCLIENTS": "0.0.0.0/0",
+        "FILESHARING__FTP__CERTIFICATE": "/certs/current/fullchain.pem",
+        "FILESHARING__FTP__CERTIFICATEKEY": "/certs/current/privkey.pem"
+      },
+      "secretRefs": {
+        "FILESHARING__BOOTSTRAPSECRET": "FILESHARING_BOOTSTRAP_SECRET",
+        "FILESHARING__GATEWAYCREDENTIALKEY": "FILESHARING_GATEWAY_KEY",
+        "FILESHARING__NOTIFICATIONS__CREDENTIALKEY": "FILESHARING_NOTIFICATION_KEY"
+      },
+      "volumes": [
+        {
+          "name": "file-data",
+          "target": "/data"
+        },
+        {
+          "name": "ftp-tls",
+          "target": "/certs"
+        }
+      ]
+    }
+  }
+}

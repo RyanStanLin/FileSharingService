@@ -1,0 +1,11 @@
+[Unit]
+Description=Renew the FileSharing FTPS certificate
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/paas-acme/dns.env
+ExecStart=/usr/local/lib/filesharing-paas/ftp-tls.sh 1470313713
+PrivateTmp=true
+UMask=0077
