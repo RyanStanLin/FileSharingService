@@ -61,6 +61,7 @@ public static class Program
         builder.Services.AddSingleton<JobService>();
         builder.Services.AddSingleton<JobOutputs>();
         builder.Services.AddSingleton<TerminalSessions>();
+        builder.Services.AddSingleton<TerminalStorage>();
         builder.Services.AddHostedService<Maintenance>();
         builder.Services.AddExceptionHandler<FaultHandler>();
         builder.Services.AddProblemDetails();

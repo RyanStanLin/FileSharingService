@@ -66,6 +66,9 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflo
 #terminal-output { height: clamp(260px, 48vh, 540px); min-height: 180px; max-height: 85vh; padding: 8px; resize: vertical;
                    overflow: hidden; background: #161b22; border-radius: 5px; }
 #terminal-output .xterm { height: 100%; }
+#terminal-output .xterm[hidden] { display: none; }
+#terminal-transcript { height: 100%; max-height: none; margin: 0; color: #e6edf3; background: transparent;
+                       font-family: ui-monospace, Menlo, monospace; }
 #terminal-prompt { overflow-wrap: anywhere; white-space: pre-wrap; font-family: ui-monospace, Menlo, monospace; }
 #terminal-command { flex: 1 1 240px; font-family: ui-monospace, Menlo, monospace; }
 #next-page { margin-top: 10px; }

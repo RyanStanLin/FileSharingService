@@ -39,6 +39,13 @@ const errors = { authentication_required: "请先解锁后台。",
     terminal_closed: "终端已结束。",
     terminal_not_found: "终端已结束。",
     terminal_idle: "终端因空闲超时而结束。",
+    terminal_terminated: "终端已终止。",
+    terminal_agent_restarted: "Mac Agent 已重启，原进程已结束。",
+    terminal_detached: "终端正在等待与 Mac 重连。",
+    terminal_still_running: "请先终止会话，再删除记录。",
+    terminal_access_revoked: "设备授权已撤销。",
+    terminal_start_failed: "Mac 未确认终端启动。",
+    terminal_record_unavailable: "Mac 无法继续保存终端记录，会话已结束。",
     terminal_interactive_unavailable: "请更新 Mac Agent 后使用交互输入。",
     terminal_input_busy: "程序暂时无法接收更多输入。",
     invalid_terminal_input: "终端输入或窗口尺寸无效。",
@@ -94,7 +101,7 @@ function updatePanes() {
     const device = unlocked ? selected() : undefined
     data.bind(device, pane)
     jobs.bind(device)
-    terminal.bind(device)
+    terminal.bind(device, pane === "actions")
     records.bind(pane === "records" ? device?.id : undefined)
     gateway.bind(unlocked && pane === "gateway")
 }

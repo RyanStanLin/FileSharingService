@@ -1,5 +1,11 @@
 # FileSharing 验收记录
 
+## Agent 0.5.9
+
+`test_terminal_runs_across_server_restart_and_replays_all_output` 关闭服务端并让 Mac 在离线时生成超过一页的 PTY 输出。启动新服务端并用 Passkey 重新解锁后，验证 PID 保持、同一会话自动绑定新设备连接、帧及下载内容完整、退出码可查询，以及等待中的终止请求和删除记录。Chrome 回归验证会话选择、重新加载后查看已终止的记录，以及删除流程。 [终端 API](api.md#远程终端会话)
+
+`test_terminal_uploads_the_local_archive_after_agent_restart` 在 Mac 离线时生成输出，再重启 Agent，确认未上传的输出从本地记录补传，会话标记为 `terminal_agent_restarted`，Mac 收到确认后清理已上传的记录。
+
 ## Agent 0.5.8
 
 `test_terminal_vim_accepts_raw_keys_resizes_and_deduplicates_input` 用真实 Vim 校验 ANSI 输出、UTF-8 输入、运行中尺寸变化、WebSocket 与 REST 之间的按键去重和结束后的输入隔离。 `test_browser_edits_in_vim_and_keeps_input_after_websocket_loss` 用 Chrome 验证浏览器键盘操作、备用屏幕、WebSocket 断开后继续编辑，以及保存退出。 [终端 API](api.md#远程终端会话)

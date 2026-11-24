@@ -277,43 +277,38 @@ SFTP 客户端首次连接时校验 `hostKeyFingerprint`，格式为 `SHA256:…
 
 ### 远程终端会话
 
-Agent 0.5.5 起支持 Mac 原生 PTY。终端子进程在会话期间保持运行，`cd` 通过 macOS 改变进程的工作目录。会话由创建时的 Passkey 会话、共享根和设备连接共同授权。每台 Mac 可打开一个终端，每次可运行一条命令。撤销授权、结束 Passkey 会话、设备断开或空闲 30 分钟会结束终端。命令与输出仅保存在内存中。
+Agent 0.5.9 起，SQLite 持久化终端会话、命令、PTY 输出、退出码和生命周期。记录归属于创建时的 Passkey 管理员，重新解锁可查询历史。每台 Mac 同时可运行一个会话，会话中一次执行一条命令。关闭网页、锁定管理后台、网络断开和服务端重启都会保留 Mac 上的 PTY。断线期间的新增输出保存在 Mac 的私有目录，服务恢复后自动按序入库。重启 Mac 或 Agent 会结束原进程，已保存的会话和输出仍可查询。
 
 以下路由均相对于 `/api/v1/devices/{id}/diagnostics/sessions`。
 
 | 方法 | 路径 | 请求与响应 |
 | --- | --- | --- |
-| POST | `/` | 发送 `{}` 使用 HOME 共享根，或发送 `{"rootId":"<UUID>"}` 选择已授权共享根。PTY 就绪后返回 `201` 及 `{id,deviceId,rootId,connectionId,interactive}`。 |
-| POST | `/{sessionId}/commands` | 发送 `{"line":"uname -m"}`，通过校验后返回 `202 {commandId}`。 |
-| POST | `/{sessionId}/interrupt` | 中断当前命令，返回 `204`。退出帧报告实际退出码。 |
-| POST | `/{sessionId}/input` | 发送下面的终端输入帧，返回 `204`。 |
-| GET | `/{sessionId}/ws?after=0` | 接收新增输出页，也可发送终端输入帧。需要同源 `Origin` 和 Passkey 会话 cookie。 |
-| GET | `/{sessionId}/output?after=0` | 返回相同的输出页及最新游标。 |
-| DELETE | `/{sessionId}` | 关闭终端并返回 `204`。 |
+| GET | `/` | 用 `limit` 和 `cursor` 分页查询会话。第一页同时返回可继续查看的 `active` 会话。 |
+| POST | `/` | 发送 `{}` 使用 HOME，或以 `{"rootId":"<UUID>"}` 选择共享根。返回 `201 TerminalView`。 |
+| GET | `/{sessionId}` | 查询状态、当前命令和连接能力。 |
+| POST | `/{sessionId}/commands` | 发送 `{"line":"uname -m"}`，返回 `202 {commandId}`，实际启动及退出通过帧报告。 |
+| POST | `/{sessionId}/interrupt` | 向当前运行的命令发送中断，返回 `204`。 |
+| POST | `/{sessionId}/input` | 发送终端输入帧，返回 `204`。 |
+| GET | `/{sessionId}/ws?after=0` | 接收实时或历史输出，也可发送输入帧。需要同源 `Origin` 与 Passkey 会话 cookie。 |
+| GET | `/{sessionId}/output?after=0` | 返回同一游标之后的持久化帧。 |
+| GET | `/{sessionId}/transcript` | 下载查询时点的完整 NDJSON 记录。 |
+| POST | `/{sessionId}/terminate` | 返回 `202` 并保存终止意向。Mac 确认关闭 PTY 后，记录为已终止。 |
+| DELETE | `/{sessionId}` | 删除已终止的会话及完整记录，返回 `204`。活动会话返回 `409 terminal_still_running`。 |
 
-可运行上表的诊断程序和参数，以及内置 `cd` 和 `pwd`。例如 `cd "Project Files"` 和 `cd ..`。 `cd`、`cd ~` 和 `cd /` 回到共享根，带前导斜线的输入也从共享根解析。设备端拒绝越界、受保护路径、符号链接和跨卷跳转。两端各自检查程序及参数，会话仅接受一行命令。外部程序限时约 10 秒，超时退出码为 124。
+`TerminalView.state` 为 `starting`、`open`、`terminating` 或 `terminated`。`connected` 表示 PTY 已绑定当前设备连接，`canControl` 表示当前连接已授权并可接受命令。断线期间 `commandId` 和 `commandStarted` 显示最后确认的状态。重新连接后的显示和输出补传可自动恢复。提交新命令、按键和中断前需授权当前设备连接。明确撤销设备访问或共享根授权会排队停止相关会话。
 
-WebSocket 与 REST 输出采用 `{items,cursor,closed,truncated}`。帧的 `index` 从 1 递增，各类型如下。
+WebSocket 和 REST 的输出页使用 `{items,cursor,closed,truncated,hasMore,session}`。每页最多 256 帧。按 `index` 和 `cursor` 续读到 `hasMore:false` 获得完整记录。`truncated` 在持久化实现中为 `false`。`closed` 表示会话已终止且记录已读到末尾。帧的 `at` 是 Unix 秒级时间戳。
 
-| `kind` | 其余字段 |
+| `kind` | 内容 |
 | --- | --- |
-| `ready` | PTY 已就绪，可带初始 `prompt` 和 `interactive`。 |
-| `command` | `commandId`、`line` 和执行前的可选 `prompt`。 |
-| `started` | `commandId` 对应的进程已启动并可接收终端输入。 |
-| `output` | `commandId` 和 Base64 `data`，承载合流的 PTY STDOUT/STDERR 原始字节。 |
-| `exit` | `commandId`、`exitCode`、可选错误 `code` 和命令结束后的可选 `prompt`。 |
-| `closed` | 原因 `code`。 |
+| `ready` | PTY 就绪，可带原生 `prompt` 和交互能力标记 `interactive`。 |
+| `command` | 已持久化的命令请求，含 `commandId`、`line` 与当时的提示符。 |
+| `started` | 进程已启动并可接收按键。 |
+| `output` | `commandId` 与 Base64 `data`，包含合流的 PTY STDOUT/STDERR 字节及终端控制序列。 |
+| `exit` | `commandId`、实际 `exitCode`、可选错误 `code` 和新的提示符。 |
+| `terminating`、`closed` | 终止意向或确认结果及原因 `code`。 |
 
-Agent 0.5.6 起上报 `prompt`，格式为 `用户名@短主机名 当前目录 %`。提示符读取终端进程的实际工作目录，并把用户主目录显示为 `~`。客户端可以用 `ready` 和 `exit` 的提示符标记当前输入位置，以 `command` 的提示符显示命令历史。
-
-Agent 0.5.8 起以 `interactive:true` 报告交互能力。浏览器以原始字节渲染 `output` 中的 ANSI 序列，包括备用屏幕。收到 `started` 后可以按 `commandId` 发送键盘和程序请求的终端回复。每条输入帧使用一个 UUID `id`。
-
-- 按键帧为 `{kind:"keys",id,commandId,data}`，`data` 是最多 4096 字节的 Base64。
-- 尺寸帧为 `{kind:"resize",id,rows,columns}`，行数 2–160，列数 2–300，会话空闲或运行时均可发送。
-- WebSocket 输入确认是 `{type:"input",id,code}`。成功时 `code:null`。确认丢失可用同一 `id` 通过 REST 重试。
-- 程序退出后的按键返回 `409 terminal_command_ended`。当前授权或设备连接结束会关闭双向通道。
-
-浏览器按 `index` 处理输出，按字节增量解码 UTF-8，断开 WebSocket 时通过 REST 从最近的 `cursor` 续读。服务端最多保留 256 帧，游标早于缓存时 `truncated` 为 `true`。会话结束后至多保留 30 秒，重新开会话时清除上一会话的帧。终端专用 WebSocket 不发布到全局事件订阅。 [AsyncAPI](asyncapi.yaml)
+输入帧用 UUID `id` 区分。按键帧为 `{kind:"keys",id,commandId,data}`，`data` 为最多 4096 字节的 Base64。尺寸帧为 `{kind:"resize",id,rows,columns}`，行数 2–160，列数 2–300。WebSocket 以 `{type:"input",id,code}` 确认，成功时 `code:null`。确认丢失可用同一 `id` 通过 REST 重试。原始按键请求不会单独归档，程序回显属于 PTY 输出。 [AsyncAPI](asyncapi.yaml)
 
 ## Bark 与 Telegram 通知
 

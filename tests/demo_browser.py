@@ -333,6 +333,20 @@ class LocalDemoBrowser(unittest.TestCase):
         self.assertIn(f"{downloads_prompt} pwd", output)
         browser.evaluate("document.querySelector('#terminal-close').click()")
         browser.wait("document.querySelector('#terminal-command').disabled && !document.querySelector('#terminal-open').disabled")
+        saved = browser.evaluate("document.querySelector('#terminal-sessions').value")
+        browser.call("Page.reload")
+        browser.wait("!document.querySelector('#workspace').hidden")
+        browser.evaluate("document.querySelector('#tab-actions').click()")
+        browser.wait(f"Boolean(document.querySelector('#terminal-sessions option[value={json.dumps(saved)}]'))")
+        browser.evaluate(f"""
+            document.querySelector('#terminal-sessions').value = {json.dumps(saved)};
+            document.querySelector('#terminal-sessions').dispatchEvent(new Event('change'))
+        """)
+        browser.wait("document.querySelector('#terminal-output').textContent.includes('退出码 0') && "
+                     "document.querySelector('#terminal-state').textContent === '已终止'")
+        self.assertTrue(browser.evaluate("document.querySelector('#terminal-export').href.endsWith('/transcript')"))
+        browser.evaluate("window.confirm = () => true; document.querySelector('#terminal-delete').click()")
+        browser.wait("document.querySelector('#terminal-sessions').options.length === 1")
 
     def test_browser_edits_in_vim_and_keeps_input_after_websocket_loss(self):
         browser = self.start_browser()

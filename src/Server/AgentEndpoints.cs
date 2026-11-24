@@ -13,9 +13,9 @@ internal sealed record LocalRoot(string RootKey, string Label, bool Writable, bo
 internal sealed record AgentFrames(IReadOnlyList<AgentFrame> Frames);
 internal sealed record AgentPulse(double LatencyMs);
 internal sealed record AgentPolicy(string DeviceId, long Revision, bool Inherited, Sampling Settings, bool AccessGranted);
-internal sealed record AgentReady(string Type, string DeviceId,
+internal sealed record AgentReady(string Type, string DeviceId, string ConnectionId,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string[]? PreviouslyAllowedFolders);
-internal sealed record AgentConnected(string DeviceId, string? Channel,
+internal sealed record AgentConnected(string DeviceId, string? Channel, string ConnectionId,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string[]? PreviouslyAllowedFolders);
 
 internal sealed class AgentIngest(Database db, AgentBroker broker, WatchRegistry watches, WindowFeed windows,
@@ -191,7 +191,7 @@ internal static class AgentEndpoints
             try
             {
                 var previouslyAllowedFolders = await ingest.PreviouslyAllowedFolders(link.Device, ct);
-                return TypedResults.Ok(new AgentConnected(link.Device, link.Channel, previouslyAllowedFolders));
+                return TypedResults.Ok(new AgentConnected(link.Device, link.Channel, link.Id, previouslyAllowedFolders));
             }
             catch
             {
@@ -199,6 +199,11 @@ internal static class AgentEndpoints
                 throw;
             }
         }).RequireRateLimiting("agent-connect");
+        group.MapPost("/terminals/{id}/sync", async (string id, TerminalSync body, HttpContext ctx, TerminalSessions terminals, CancellationToken ct) =>
+        {
+            var key = ctx.Request.Headers["X-FileSharing-Terminal"];
+            return TypedResults.Ok(await terminals.Synchronize(id, key.Count == 1 ? key[0] : null, body, ct));
+        });
         group.MapDelete("/connection", async (HttpContext context, AgentBroker broker, CancellationToken ct) =>
         {
             await broker.Close(broker.OpenChannel(context), ct);
@@ -284,7 +289,7 @@ internal static class AgentEndpoints
         try
         {
             var previouslyAllowedFolders = await ingest.PreviouslyAllowedFolders(link.Device, life);
-            await SocketWire.Send(socket, new AgentReady("ready", link.Device, previouslyAllowedFolders), life);
+            await SocketWire.Send(socket, new AgentReady("ready", link.Device, link.Id, previouslyAllowedFolders), life);
             var input = Receive();
             var output = Send();
             await Task.WhenAny(input, output);

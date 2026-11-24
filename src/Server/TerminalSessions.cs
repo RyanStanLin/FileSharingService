@@ -1,13 +1,11 @@
 using System.Collections.Concurrent;
-using System.Text;
-using System.Text.Json;
 
 namespace FileSharing;
 
-internal sealed class TerminalSessions(Database db, AgentBroker broker, DeviceService devices, ReviewService reviews,
-    IHostApplicationLifetime host, ILogger<TerminalSessions> logger)
+internal sealed class TerminalSessions(Database db, TerminalStorage storage, AgentBroker broker, DeviceService devices,
+    ReviewService reviews, IHostApplicationLifetime host)
 {
-    private readonly ConcurrentDictionary<string, TerminalSession> sessions = new();
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> inputs = new();
 
     public async Task<TerminalView> Open(Review review, string deviceId, string? rootId, CancellationToken ct)
     {
@@ -18,91 +16,184 @@ internal sealed class TerminalSessions(Database db, AgentBroker broker, DeviceSe
             WHERE r.DeviceId=@deviceId AND r.Enabled=1 AND o.[Primary]=1
             """, new { deviceId }, ct) ?? throw Fault.Forbidden("root_access_denied");
         var root = await devices.Scope(device.Id, rootId, false, ct);
-        var session = new TerminalSession(new(Secrets.Id(), device.Id, root.Id, root.ConnectionId!), root.RootKey, review.Id);
-        var added = sessions.TryAdd(device.Id, session);
-        if (!added && sessions.TryGetValue(device.Id, out var prior) && prior.Closed.IsCompleted)
-            added = sessions.TryUpdate(device.Id, session, prior);
-        if (!added)
-            throw Fault.Conflict("terminal_busy");
-
-        _ = Relay(session);
+        var key = Secrets.New();
+        var now = Clock.Now;
+        var row = new TerminalRecord(Secrets.Id(), device.Id, root.Id, review.Initiator, Secrets.Hash(key), root.ConnectionId,
+            "starting", now, now, null, 0, 0, null, 0, null, null, 0, null);
+        await storage.Create(row, ct);
         try
         {
-            var error = await session.Ready.WaitAsync(TimeSpan.FromSeconds(20), ct);
-            if (error is not null)
-                throw Fault.Unavailable(error);
-            return session.View with { Interactive = session.Interactive };
+            await broker.Invoke(row.DeviceId, "terminal.create", new { root = root.RootKey, key }, host.ApplicationStopping,
+                row.Id, TimeSpan.FromSeconds(9), row.ConnectionId);
         }
-        catch (TimeoutException)
+        catch (Fault error) when (error.Code is "device_timeout" or "agent_connection_ended" or "device_unavailable"
+            or "agent_connection_access_required")
         {
-            Finish(session, "device_timeout");
-            throw Fault.Unavailable("device_timeout");
+            // The Mac may already own the session. Its next synchronization establishes the actual state.
+            return View(await Read(row.Id, ct));
         }
-        catch
+        catch (Fault error)
         {
-            Finish(session, "terminal_closed");
+            await storage.CloseFailedStart(row.Id, error.Code, CancellationToken.None);
+            throw;
+        }
+
+        for (var i = 0; i < 40; i++)
+        {
+            row = await Read(row.Id, ct);
+            if (row.State != "starting")
+                break;
+            await Task.Delay(100, ct);
+        }
+        return View(row);
+    }
+
+    public async Task<TerminalList> List(Review review, string deviceId, string? cursor, int? limit, CancellationToken ct)
+    {
+        var count = Page<TerminalView>.Size(limit);
+        var rows = await storage.List(review.Initiator, Secrets.Identifier(deviceId), Page<TerminalView>.After(cursor), count + 1, ct);
+        var page = Page<TerminalView>.From(rows.Select(View).ToArray(), count, item => item.Id);
+        var active = cursor is null ? await storage.Active(review.Initiator, deviceId, ct) : null;
+        return new(page.Items, page.NextCursor, active is null ? null : View(active));
+    }
+
+    public async Task<TerminalRecord> Find(Review review, string deviceId, string id, CancellationToken ct)
+    {
+        var row = await Read(Secrets.Identifier(id), ct);
+        if (row.Owner != review.Initiator || row.DeviceId != Secrets.Identifier(deviceId))
+            throw Fault.Missing("terminal_not_found");
+        return row;
+    }
+
+    public TerminalView View(TerminalRecord row)
+    {
+        var connection = broker.Presence(row.DeviceId);
+        var connected = !row.Closed && row.AgentCursor > 0 && connection.Online && connection.ConnectionId == row.ConnectionId;
+        return new(row.Id, row.DeviceId, row.RootId, row.ConnectionId, row.Interactive != 0, row.State, connected,
+            connected && connection.AccessGranted && row.State == "open", row.CommandId, row.Started != 0,
+            Clock.At(row.Created), Clock.At(row.Updated), row.Finished is { } finished ? Clock.At(finished) : null, row.Code);
+    }
+
+    public async Task Transcript(TerminalRecord row, Stream stream, CancellationToken ct)
+    {
+        await using var output = new StreamWriter(stream, leaveOpen: true);
+        for (long after = 0; after < row.Cursor;)
+        {
+            var frames = await storage.Frames(row.Id, after, row.Cursor, ct);
+            if (frames.Count == 0)
+                break;
+            foreach (var frame in frames)
+                await output.WriteLineAsync(frame.AsMemory(), ct);
+            after += frames.Count;
+        }
+    }
+
+    public async Task<TerminalPage> Output(TerminalRecord row, long after, CancellationToken ct)
+    {
+        if (after < 0 || after > row.Cursor)
+            throw Fault.Bad("invalid_output_cursor");
+        var stored = await storage.Frames(row.Id, after, row.Cursor, ct);
+        var items = stored.Select(item => Wire.Model<TerminalFrame>(Wire.Parse(item))).ToArray();
+        var cursor = items.LastOrDefault()?.Index ?? after;
+        var more = cursor < row.Cursor;
+        return new(items, cursor, row.Closed && !more, false, more, View(row));
+    }
+
+    public async Task<string> Execute(TerminalRecord row, string? line, CancellationToken ct)
+    {
+        var command = Parse(line);
+        await Authorize(row, ct);
+        var id = Secrets.Id();
+        await storage.Begin(row.Id, id, line!.Trim(), command with { CommandId = id }, ct);
+        return id;
+    }
+
+    public async Task Interrupt(TerminalRecord row, CancellationToken ct)
+    {
+        await Authorize(row, ct);
+        if (row is { Started: > 0, CommandId: { } id })
+            await broker.Invoke(row.DeviceId, "terminal.input", new { kind = "interrupt", sessionId = row.Id, commandId = id },
+                ct, connectionId: row.ConnectionId);
+    }
+
+    public Task Terminate(TerminalRecord row, CancellationToken ct) =>
+        storage.Terminate(row.Id, "terminal_terminated", ct);
+
+    public Task Delete(TerminalRecord row, CancellationToken ct) => storage.Delete(row.Id, ct);
+
+    public async Task StopDevice(string id, CancellationToken ct)
+    {
+        var active = await db.List<string>("SELECT Id FROM TerminalSessions WHERE DeviceId=@id AND State<>'terminated'", new { id }, ct);
+        foreach (var session in active)
+            await storage.Terminate(session, "terminal_access_revoked", ct);
+    }
+
+    public async Task Control(Review review, string deviceId, string sessionId, TerminalControl input, CancellationToken ct)
+    {
+        var id = Secrets.Identifier(input.Id);
+        var target = ValidateControl(input);
+        var inputGate = inputs.GetOrAdd(deviceId, _ => new SemaphoreSlim(1));
+        await inputGate.WaitAsync(ct);
+        try
+        {
+            if (await reviews.ActiveById(review.Id, ct) is null)
+                throw Fault.Unauthorized();
+            var row = await Find(review, deviceId, sessionId, ct);
+            await Authorize(row, ct);
+            if (await storage.HasInput(row.Id, id, ct))
+                return;
+            if (row.Interactive == 0)
+                throw Fault.Conflict("terminal_interactive_unavailable");
+            if (target is not null && (row.CommandId != target || row.Started == 0))
+                throw Fault.Conflict("terminal_command_ended");
+            await broker.Invoke(row.DeviceId, "terminal.control", new
+            {
+                sessionId = row.Id, input.Kind, input.CommandId, input.Data, input.Rows, input.Columns
+            }, host.ApplicationStopping, id, TimeSpan.FromSeconds(6), row.ConnectionId);
+            await storage.RecordInput(row.Id, id, CancellationToken.None);
+        }
+        finally
+        {
+            inputGate.Release();
+        }
+    }
+
+    public async Task<TerminalSyncResult> Synchronize(string id, string? key, TerminalSync body, CancellationToken ct)
+    {
+        if (key is not { Length: 43 } || body.Frames is not { Count: <= 32 } frames)
+            throw Fault.Bad("invalid_terminal_sync");
+        Secrets.Identifier(id);
+        try
+        {
+            var existing = await Read(id, ct);
+            var presence = broker.Presence(existing.DeviceId);
+            var active = presence.Online && presence.ConnectionId == body.ConnectionId ? presence.ConnectionId : null;
+            var row = await storage.Synchronize(id, key, active, frames, ct);
+            var terminate = row.Closed || row.State == "terminating";
+            TerminalDispatch? dispatch = null;
+            if (!terminate && active is not null && broker.AccessGeneration(row.DeviceId, active) is not null &&
+                row.Pending is { } pending)
+                dispatch = Wire.Model<TerminalDispatch>(Wire.Parse(pending));
+            return new(row.AgentCursor, terminate, dispatch);
+        }
+        catch (Fault error) when (error.Code == "terminal_not_found")
+        {
+            if (await storage.WasDeleted(id, key, ct))
+                return new(0, true, null, Deleted: true);
             throw;
         }
     }
 
-    public TerminalSession Find(Review review, string deviceId, string sessionId)
-    {
-        Secrets.Identifier(sessionId);
-        return sessions.TryGetValue(Secrets.Identifier(deviceId), out var session) &&
-            session.View.Id == sessionId && session.ReviewId == review.Id
-            ? session : throw Fault.Missing("terminal_not_found");
-    }
+    private async Task<TerminalRecord> Read(string id, CancellationToken ct) =>
+        await storage.Find(id, ct) ?? throw Fault.Missing("terminal_not_found");
 
-    public async Task Authorize(TerminalSession session, CancellationToken ct)
+    private async Task Authorize(TerminalRecord row, CancellationToken ct)
     {
-        if (await reviews.ActiveById(session.ReviewId, ct) is null)
-            throw Fault.Unauthorized();
-        var view = session.View;
-        await devices.Scope(view.DeviceId, view.RootId, false, ct, view.ConnectionId);
-    }
-
-    public async Task<string> Execute(TerminalSession session, string? line, CancellationToken ct)
-    {
-        var input = Parse(line);
-        await Authorize(session, ct);
-        var id = Secrets.Id();
-        session.Begin(id, line!.Trim());
-        _ = Forward(session, input with { SessionId = session.View.Id, CommandId = id }, id);
-        return id;
-    }
-
-    public async Task Interrupt(TerminalSession session, CancellationToken ct)
-    {
-        await Authorize(session, ct);
-        if (session.InterruptCommand() is { } id)
-            await Forward(session, new("interrupt", session.View.Id, id), Secrets.Id());
-    }
-
-    public void Close(TerminalSession session) => Finish(session, "terminal_closed");
-
-    public async Task Control(TerminalSession session, TerminalControl input, CancellationToken ct)
-    {
-        var id = Secrets.Identifier(input.Id);
-        var target = ValidateControl(input);
-        await session.InputGate.WaitAsync(ct);
-        try
-        {
-            await Authorize(session, ct);
-            if (session.Delivered(id))
-                return;
-            session.AcceptControl(target);
-            var view = session.View;
-            // Keep the result across a browser transport switch so a retransmit cannot repeat keystrokes.
-            await broker.Invoke(view.DeviceId, "terminal.control", new
-            {
-                sessionId = view.Id, input.Kind, input.CommandId, input.Data, input.Rows, input.Columns
-            }, host.ApplicationStopping, id, TimeSpan.FromSeconds(6), view.ConnectionId);
-            session.RecordInput(id);
-        }
-        finally
-        {
-            session.InputGate.Release();
-        }
+        if (row.State != "open")
+            throw Fault.Conflict("terminal_closed");
+        if (!View(row).Connected)
+            throw Fault.Conflict("terminal_detached");
+        await devices.Scope(row.DeviceId, row.RootId, false, ct, row.ConnectionId);
     }
 
     private static string? ValidateControl(TerminalControl input)
@@ -118,94 +209,7 @@ internal sealed class TerminalSessions(Database db, AgentBroker broker, DeviceSe
         throw Fault.Bad("invalid_terminal_input");
     }
 
-    private async Task Relay(TerminalSession session)
-    {
-        var view = session.View;
-        var stop = host.ApplicationStopping;
-        using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(stop);
-        var run = broker.Invoke(view.DeviceId, "terminal.open", new { root = session.RootKey }, lifetime.Token, view.Id,
-            TimeSpan.FromHours(8), view.ConnectionId, (frame, _) => Progress(session, frame));
-        try
-        {
-            while (true)
-            {
-                var tick = Task.Delay(TimeSpan.FromSeconds(3), lifetime.Token);
-                if (await Task.WhenAny(run, session.Closed, tick) != tick)
-                    break;
-                stop.ThrowIfCancellationRequested();
-                if (session.Idle())
-                    throw Fault.Conflict("terminal_idle");
-                await Authorize(session, lifetime.Token);
-            }
-            if (!run.IsCompleted)
-                CancelAgent(session);
-            await run;
-            session.End("terminal_closed");
-        }
-        catch (Fault error)
-        {
-            Finish(session, error.Code);
-        }
-        catch (OperationCanceledException)
-        {
-            Finish(session, "terminal_closed");
-        }
-        catch (Exception error)
-        {
-            logger.LogError(error, "Terminal {SessionId} ended unexpectedly", view.Id);
-            Finish(session, "terminal_unavailable");
-        }
-        finally
-        {
-            await lifetime.CancelAsync();
-            try { await run; }
-            catch { /* The session is already closed and the failure has been handled. */ }
-        }
-
-        try { await Task.Delay(TimeSpan.FromSeconds(30), stop); }
-        catch (OperationCanceledException) { }
-        sessions.TryRemove(new KeyValuePair<string, TerminalSession>(view.DeviceId, session));
-    }
-
-    private static Task Progress(TerminalSession session, JsonElement frame)
-    {
-        try { session.Accept(frame); }
-        catch (Fault error) { session.End(error.Code); }
-        return Task.CompletedTask;
-    }
-
-    private async Task Forward(TerminalSession session, TerminalInput input, string id)
-    {
-        try
-        {
-            await broker.Invoke(session.View.DeviceId, "terminal.input", input, host.ApplicationStopping, id,
-                TimeSpan.FromSeconds(15), session.View.ConnectionId);
-        }
-        catch (Fault error)
-        {
-            Finish(session, error.Code);
-        }
-        catch (OperationCanceledException)
-        {
-            Finish(session, "terminal_closed");
-        }
-        catch (Exception error)
-        {
-            logger.LogError(error, "Terminal {SessionId} could not accept input", session.View.Id);
-            Finish(session, "terminal_unavailable");
-        }
-    }
-
-    private void Finish(TerminalSession session, string code)
-    {
-        CancelAgent(session);
-        session.End(code);
-    }
-
-    private void CancelAgent(TerminalSession session) =>
-        broker.CancelCommand(session.View.DeviceId, session.View.ConnectionId, session.View.Id);
-
-    private static TerminalInput Parse(string? line)
+    private static TerminalDispatch Parse(string? line)
     {
         if (string.IsNullOrWhiteSpace(line) || line.Length > 8192)
             throw Fault.Bad("invalid_diagnostic_command");
@@ -223,7 +227,4 @@ internal sealed class TerminalSessions(Database db, AgentBroker broker, DeviceSe
         var command = DataEndpoints.ParseDiagnostic(line);
         return new("run", Executable: command.Executable, Arguments: command.Arguments);
     }
-
-    private sealed record TerminalInput(string Kind, string? SessionId = null, string? CommandId = null,
-        string? Executable = null, string[]? Arguments = null, string? Path = null);
 }

@@ -1,7 +1,7 @@
 asyncapi: 3.0.0
 info:
   title: FileSharing browser events
-  version: 1.5.0
+  version: 1.6.0
 servers:
   enterprise:
     host: filesharing.example.com
@@ -27,7 +27,7 @@ channels:
         $ref: '#/components/messages/Error'
   terminalOutput:
     address: /api/v1/devices/{id}/diagnostics/sessions/{sessionId}/ws
-    description: Requires the Passkey session that opened the terminal, the same Origin, and the authorized Mac connection. Resume with the optional integer after query parameter.
+    description: Requires a same-origin Passkey session for the terminal owner. Saved output is available during a device disconnect. Input also requires authorization of the current Mac connection. Resume with the optional integer after query parameter.
     parameters:
       id:
         description: Device UUID.
@@ -125,7 +125,7 @@ components:
       contentType: application/json
       payload:
         type: object
-        required: [items, cursor, closed, truncated]
+        required: [items, cursor, closed, truncated, hasMore, session]
         properties:
           items:
             type: array
@@ -138,7 +138,10 @@ components:
                   type: integer
                   minimum: 1
                 kind:
-                  enum: [ready, command, started, output, exit, closed]
+                  enum: [ready, command, started, output, exit, terminating, closed]
+                at:
+                  type: [integer, 'null']
+                  description: Unix timestamp in seconds.
                 interactive:
                   type: [boolean, 'null']
                   description: Whether the Agent accepts raw PTY input and window size changes.
@@ -170,7 +173,29 @@ components:
             type: boolean
           truncated:
             type: boolean
-            description: The requested cursor predates the oldest retained frame.
+            const: false
+          hasMore:
+            type: boolean
+          session:
+            type: object
+            required: [id, deviceId, state, connected, canControl, commandStarted]
+            properties:
+              id:
+                type: string
+                format: uuid
+              deviceId:
+                type: string
+                format: uuid
+              state:
+                enum: [starting, open, terminating, terminated]
+              connected:
+                type: boolean
+              canControl:
+                type: boolean
+              commandId:
+                type: [string, 'null']
+              commandStarted:
+                type: boolean
     Subscribe:
       contentType: application/json
       payload:

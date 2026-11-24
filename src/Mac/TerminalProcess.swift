@@ -2,12 +2,11 @@ import Darwin
 import Foundation
 
 final class TerminalProcess: @unchecked Sendable {
-    let events: AsyncThrowingStream<JSON, Error>
-    private let input: FileHandle
+    private let input: TerminalCommandPipe
     private let process: Process
     private let pty: TerminalMaster
 
-    init(root: String) throws {
+    init(root: String, archive: TerminalArchive) throws {
         guard let executable = Bundle.main.executableURL else { throw AgentError("terminal_unavailable") }
         var masterFD: Int32 = -1
         var slaveFD: Int32 = -1
@@ -19,11 +18,12 @@ final class TerminalProcess: @unchecked Sendable {
         let slave = FileHandle(fileDescriptor: slaveFD, closeOnDealloc: true)
         let commands = Pipe()
         let control = Pipe()
-        input = commands.fileHandleForWriting
+        let input = TerminalCommandPipe(commands.fileHandleForWriting)
+        self.input = input
         guard fcntl(masterFD, F_SETFD, FD_CLOEXEC) != -1, fcntl(slaveFD, F_SETFD, FD_CLOEXEC) != -1,
               fcntl(masterFD, F_SETFL, O_NONBLOCK) != -1,
-              fcntl(input.fileDescriptor, F_SETNOSIGPIPE, 1) != -1,
-              fcntl(input.fileDescriptor, F_SETFL, O_NONBLOCK) != -1 else {
+              fcntl(input.descriptor, F_SETNOSIGPIPE, 1) != -1,
+              fcntl(input.descriptor, F_SETFL, O_NONBLOCK) != -1 else {
             throw ScopedFiles.failure()
         }
 
@@ -37,18 +37,18 @@ final class TerminalProcess: @unchecked Sendable {
         self.process = process
         try? slave.close()
 
-        let stream = AsyncThrowingStream<JSON, Error>.makeStream(bufferingPolicy: .bufferingOldest(64))
-        events = stream.stream
         DispatchQueue.global(qos: .utility).async {
+            var code: String?
             do {
-                try Self.relay(pty, control.fileHandleForReading.fileDescriptor, into: stream.continuation)
-                stream.continuation.finish()
+                try Self.relay(pty, control.fileHandleForReading.fileDescriptor, archive: archive)
             } catch {
-                stream.continuation.finish(throwing: error)
+                code = (error as? AgentError)?.code ?? "terminal_record_unavailable"
+                Self.stop(process, input: input)
             }
             pty.close()
             try? control.fileHandleForReading.close()
             process.waitUntilExit()
+            archive.finish(code)
         }
     }
 
@@ -56,10 +56,7 @@ final class TerminalProcess: @unchecked Sendable {
         var line = try input.encoded()
         guard line.count <= 8192 else { throw AgentError("invalid_request") }
         line.append(10)
-        let written = line.withUnsafeBytes { buffer in
-            Darwin.write(self.input.fileDescriptor, buffer.baseAddress, buffer.count)
-        }
-        guard written == line.count else { throw AgentError("terminal_closed") }
+        try self.input.write(line)
     }
 
     func control(_ input: JSON) async throws {
@@ -82,40 +79,28 @@ final class TerminalProcess: @unchecked Sendable {
         }
     }
 
-    func close() {
-        try? input.close()
-        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + .seconds(12)) { [process] in
+    func close() { Self.stop(process, input: input) }
+
+    private static func stop(_ process: Process, input: TerminalCommandPipe) {
+        input.close()
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + .seconds(12)) {
             // Allow the helper to close its command and reap it before forcing cleanup.
             if process.isRunning { kill(process.processIdentifier, SIGKILL) }
         }
     }
 
-    private static func relay(_ pty: TerminalMaster, _ control: Int32,
-                              into output: AsyncThrowingStream<JSON, Error>.Continuation) throws {
+    private static func relay(_ pty: TerminalMaster, _ control: Int32, archive: TerminalArchive) throws {
         let master = pty.fd
         var channels = [pollfd(fd: master, events: 0, revents: 0),
                         pollfd(fd: control, events: Int16(POLLIN), revents: 0)]
         var pending = Data()
         var buffer = [UInt8](repeating: 0, count: 2048)
-        var index: Int64 = 0
-
-        func emit(_ frame: JSON) throws {
-            guard case .object(var fields) = frame else { throw AgentError("invalid_terminal_frame") }
-            index += 1
-            fields["index"] = .integer(index)
-            switch output.yield(.object(fields)) {
-            case .enqueued: return
-            case .dropped: throw AgentError("limit_reached")
-            case .terminated: throw CancellationError()
-            @unknown default: throw AgentError("terminal_closed")
-            }
-        }
 
         func drainPTY() throws {
             while channels[0].fd >= 0 {
                 let count = Darwin.read(master, &buffer, buffer.count)
                 if count > 0 {
-                    try emit(["kind": "output", "data": .string(Data(buffer.prefix(count)).base64EncodedString())])
+                    try archive.record(["kind": "output", "data": .string(Data(buffer.prefix(count)).base64EncodedString())])
                 } else if count < 0 && errno == EINTR {
                     continue
                 } else if count < 0 && errno == EAGAIN {
@@ -138,7 +123,10 @@ final class TerminalProcess: @unchecked Sendable {
                 let count = Darwin.read(control, &buffer, buffer.count)
                 if count == -1 && errno == EINTR { continue }
                 guard count >= 0 else { throw ScopedFiles.failure() }
-                if count == 0 { return }
+                if count == 0 {
+                    if channels[0].events != 0 { try drainPTY() }
+                    return
+                }
                 pending.append(contentsOf: buffer.prefix(count))
                 guard pending.count <= 8192 else { throw AgentError("invalid_terminal_frame") }
                 while let newline = pending.firstIndex(of: 10) {
@@ -152,11 +140,37 @@ final class TerminalProcess: @unchecked Sendable {
                     default: break
                     }
                     pty.accept(frame)
-                    try emit(frame)
+                    try archive.record(frame)
                 }
             }
             // Let the browser accept input before a program's first terminal query is rendered.
             if channels[0].events != 0 { try drainPTY() }
+        }
+    }
+}
+
+private final class TerminalCommandPipe: @unchecked Sendable {
+    private let handle: FileHandle
+    private let lock = NSLock()
+    private var closed = false
+
+    init(_ handle: FileHandle) { self.handle = handle }
+
+    var descriptor: Int32 { handle.fileDescriptor }
+
+    func write(_ bytes: Data) throws {
+        try lock.withLock {
+            guard !closed else { throw AgentError("terminal_closed") }
+            let count = bytes.withUnsafeBytes { Darwin.write(descriptor, $0.baseAddress, $0.count) }
+            guard count == bytes.count else { throw AgentError("terminal_input_busy") }
+        }
+    }
+
+    func close() {
+        lock.withLock {
+            guard !closed else { return }
+            closed = true
+            try? handle.close()
         }
     }
 }

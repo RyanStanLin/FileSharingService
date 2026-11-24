@@ -31,8 +31,12 @@ struct AgentHttp: Sendable {
         return request
     }
 
-    func call(_ path: String, body: JSON? = nil, channel: String? = nil) async throws -> JSON {
-        let request = try request(path, method: body == nil ? "GET" : "POST", body: body, channel: channel)
+    func call(_ path: String, body: JSON? = nil, channel: String? = nil, terminal: String? = nil) async throws -> JSON {
+        var request = try request(path, method: body == nil ? "GET" : "POST", body: body, channel: channel)
+        if let terminal {
+            request.setValue(terminal, forHTTPHeaderField: "X-FileSharing-Terminal")
+            request.timeoutInterval = 6
+        }
         let (data, response) = try await session.data(for: request)
         guard let result = response as? HTTPURLResponse, (200..<300).contains(result.statusCode),
               data.count < 2_000_000 else {
@@ -121,7 +125,7 @@ actor AgentTransport {
     private var seen = [String: Date]()
     private var operations = [String: Task<Void, Never>]()
     private var managedOperations = Set<String>()
-    private var terminals = [String: TerminalProcess]()
+    private let terminals: TerminalRuntime
     private var activeOrigin: URL?
     private let interactions: DeviceInteractions
     private var recent = [(id: String, value: JSON)]()
@@ -148,6 +152,7 @@ actor AgentTransport {
         if let key = enrollment.notificationKey { hello["notificationKey"] = .string(key) }
         self.hello = .object(hello)
         self.state = state
+        self.terminals = TerminalRuntime(state: state, origins: EndpointProfile.origins)
         let files = ScopedFiles(roots: enrollment.roots, state: state)
         self.files = files
         let reports = OSAllocatedUnfairLock(initialState: LocalReports())
@@ -167,6 +172,8 @@ actor AgentTransport {
     }
 
     func run(watchdog: AgentWatchdog) async {
+        let terminalSync = Task { await terminals.run() }
+        defer { terminalSync.cancel() }
         monitor.pathUpdateHandler = { [weak self] path in
             let configuration = "\(path.status)-\(path.availableInterfaces)-\(path.gateways)-\(path.supportsIPv4)-\(path.supportsIPv6)"
             let reachability = path.status == .satisfied ? "reachable" : "unavailable"
@@ -351,6 +358,7 @@ actor AgentTransport {
                 guard value["type"].string == "ready", value["deviceId"].string == id else { throw AgentError("invalid_message") }
                 changesObserved = true
                 linkReady = true
+                if let activeOrigin { terminals.connected(activeOrigin, value["connectionId"].string) }
                 logger.notice("WebSocket connection established.")
                 report = Task { await reportConnection(value) }
                 wake?.yield()
@@ -422,6 +430,7 @@ actor AgentTransport {
         let channel = try response.requireString("channel")
         activeOrigin = http.base
         linkReady = true
+        terminals.connected(http.base, response["connectionId"].string)
         pollingHeartbeat = .now
         logger.notice("HTTP polling connection established.")
         let report = Task { await reportConnection(response) }
@@ -520,6 +529,7 @@ actor AgentTransport {
         urgent.removeAll()
         pong = nil
         activeOrigin = nil
+        terminals.disconnected()
         linkReady = false
         policyDelivery?.cancel()
         stopWindowStream()
@@ -632,7 +642,7 @@ actor AgentTransport {
         }
         let input = command["payload"]
         let notificationWatch = kind == "files.watch" && input["purpose"].string == "notification"
-        let managed = ["diagnostics.run", "terminal.open", "terminal.input", "terminal.control", "interaction.dialog", "interaction.dialog.masked", "interaction.dialog.form",
+        let managed = ["diagnostics.run", "terminal.create", "terminal.input", "terminal.control", "interaction.dialog", "interaction.dialog.masked", "interaction.dialog.form",
                        "interaction.notification"].contains(kind)
             || notificationWatch
         if managed { managedOperations.insert(id) }
@@ -684,28 +694,18 @@ actor AgentTransport {
             return try await DiagnosticRunner.run(name, input: input, data: data) { part in
                 try await self.diagnosticProgress(part, id: id)
             }
-        case "terminal.open":
+        case "terminal.create":
             try Task.checkCancellation()
-            guard terminals.isEmpty else { throw AgentError("terminal_busy") }
-            let terminal = try TerminalProcess(root: input.requireString("root"))
-            terminals[id] = terminal
-            defer {
-                terminal.close()
-                terminals.removeValue(forKey: id)
-            }
-            for try await part in terminal.events {
-                try diagnosticProgress(part, id: id)
-            }
+            guard let activeOrigin else { throw AgentError("connection_unavailable") }
+            try await terminals.create(id: id, root: input.requireString("root"), key: input.requireString("key"), origin: activeOrigin)
             return [:]
         case "terminal.input":
             try Task.checkCancellation()
-            guard let terminal = terminals[try input.requireString("sessionId")] else { throw AgentError("terminal_closed") }
-            try terminal.send(input)
+            try await terminals.input(id: input.requireString("sessionId"), value: input)
             return [:]
         case "terminal.control":
             try Task.checkCancellation()
-            guard let terminal = terminals[try input.requireString("sessionId")] else { throw AgentError("terminal_closed") }
-            try await terminal.control(input)
+            try await terminals.control(id: input.requireString("sessionId"), value: input)
             return [:]
         case "permissions.request":
             return try await telemetry.permission(input.requireString("permission"))

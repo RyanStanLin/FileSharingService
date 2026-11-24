@@ -197,11 +197,22 @@
             <h2 id="terminal-heading">远程终端</h2>
             <div class="row">
               <button id="terminal-open" type="button" class="primary" disabled>新建会话</button>
-              <button id="terminal-close" type="button" disabled>结束会话</button>
+              <button id="terminal-close" type="button" disabled>终止会话</button>
+              <button id="terminal-delete" type="button" disabled>删除记录</button>
             </div>
           </div>
+          <div class="row">
+            <label for="terminal-sessions">终端会话</label>
+            <select id="terminal-sessions" disabled><option value="">选择会话</option></select>
+            <button id="terminal-refresh" type="button" disabled>刷新会话</button>
+            <button id="terminal-more" type="button" hidden>加载更多</button>
+            <a id="terminal-export" download hidden>下载记录</a>
+          </div>
+          <p id="terminal-state" class="muted" role="status"></p>
           <p id="terminal-status" class="muted" role="status"></p>
-          <div id="terminal-output" aria-label="远程终端屏幕"></div>
+          <div id="terminal-output" aria-label="远程终端屏幕">
+            <pre id="terminal-transcript" tabindex="0" hidden aria-label="终端记录"></pre>
+          </div>
           <form id="terminal-form" class="row">
             <label for="terminal-command" id="terminal-prompt">命令</label>
             <input id="terminal-command" autocomplete="off" autocapitalize="off" spellcheck="false"

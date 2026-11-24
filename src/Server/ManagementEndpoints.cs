@@ -199,12 +199,15 @@ internal static class ManagementEndpoints
     }
 
     private static async Task<Ok<AgentPresence>> UpdateConnectionAccess(string id, ConnectionAccessInput body,
-        HttpContext context, ReviewService sessions, DeviceService devices, AgentBroker broker, CancellationToken ct)
+        HttpContext context, ReviewService sessions, DeviceService devices, AgentBroker broker, TerminalSessions terminals, CancellationToken ct)
     {
         var session = await sessions.Require(context, ct);
         await devices.Require(id, ct);
         var connectionId = Secrets.Identifier(body.ConnectionId);
-        return TypedResults.Ok(await broker.SetAccess(id, connectionId, body.Enabled, session.Initiator, ct));
+        var presence = await broker.SetAccess(id, connectionId, body.Enabled, session.Initiator, ct);
+        if (!body.Enabled)
+            await terminals.StopDevice(id, CancellationToken.None);
+        return TypedResults.Ok(presence);
     }
 
     private static async Task<NoContent> RevokeDevice(string id, HttpContext ctx, Database db, ReviewService reviews,

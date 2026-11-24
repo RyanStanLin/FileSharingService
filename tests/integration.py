@@ -15,6 +15,7 @@ import plistlib
 import pwd
 import secrets
 import select
+import signal
 import sqlite3
 import socket
 import ssl
@@ -419,13 +420,15 @@ class Acceptance(unittest.TestCase):
         address = self.origin.replace("http:", "ws:") + "/agent/v1/ws"
         with connect(address, proxy=None, open_timeout=6) as agent:
             agent.send(json.dumps({"type": "hello", "deviceId": device, "name": "First public device"}))
-            self.assertEqual(json.loads(agent.recv(timeout=5)), {"type": "ready", "deviceId": device})
+            ready = json.loads(agent.recv(timeout=5))
+            self.assertEqual((ready["type"], ready["deviceId"]), ("ready", device))
             self.api("GET", API + "/devices", 401)
             self.register()
             self.unlock()
             registered = self.api("GET", f"{API}/devices/{device}").json()
             self.assertEqual(registered["name"], "First public device")
             self.assertTrue(registered["connection"]["online"])
+            self.assertEqual(registered["connection"]["connectionId"], ready["connectionId"])
             self.assertFalse(registered["connection"]["accessGranted"])
 
     def test_device_zero_config_reconnect_and_long_poll(self):
@@ -609,6 +612,10 @@ class Acceptance(unittest.TestCase):
                 DROP TABLE NotificationSamples;
                 DROP TABLE ClipboardRecords;
                 DROP TABLE DialogRecords;
+                DROP TABLE TerminalInputReceipts;
+                DROP TABLE TerminalFrames;
+                DROP TABLE TerminalDeletions;
+                DROP TABLE TerminalSessions;
                 CREATE TABLE FtpAccountsPrior(
                     Id TEXT PRIMARY KEY, Name TEXT NOT NULL COLLATE NOCASE UNIQUE, Owner TEXT NOT NULL REFERENCES Operators(Id),
                     Mode TEXT NOT NULL CHECK(Mode IN ('ftp','ftps')), SecretHash TEXT NOT NULL,
@@ -639,7 +646,7 @@ class Acceptance(unittest.TestCase):
         item = self.api("GET", self.device_api + f"/clipboard/records/{clipboard_id}").json()
         self.assertEqual((item["occurredAt"], item["content"]), (stamp, "N/A"))
         with closing(sqlite3.connect(self.work / "db" / "filesharing.db")) as data, data:
-            self.assertEqual(data.execute("PRAGMA user_version").fetchone()[0], 8)
+            self.assertEqual(data.execute("PRAGMA user_version").fetchone()[0], 9)
             self.assertEqual(data.execute("PRAGMA foreign_key_check").fetchall(), [])
             self.assertNotIn("PublicKey", [row[1] for row in data.execute("PRAGMA table_info(Devices)")])
             self.assertEqual(data.execute("SELECT COUNT(*) FROM sqlite_master WHERE name IN ('AgentTokens','Activations')").fetchone()[0], 0)
@@ -1572,10 +1579,127 @@ print(json.dumps({"payload": result}, ensure_ascii=False))
                             json={"line": "vim -Nu NONE -i NONE -n terminal-vim.txt"}).json()["commandId"]
         self.wait(lambda: any(frame["kind"] == "started" and frame["commandId"] == next_run
                               for frame in self.api("GET", path + "/output").json()["items"]))
-        self.api("DELETE", path, 204)
+        self.api("DELETE", path, 409)
+        self.api("POST", path + "/terminate", 202)
+        self.wait(lambda: self.api("GET", path).json()["state"] == "terminated")
         replacement = self.api("POST", base, 201, json={}).json()
         self.assertEqual(replacement["connectionId"], view["connectionId"])
-        self.api("DELETE", base + "/" + replacement["id"], 204)
+        self.api("POST", base + "/" + replacement["id"] + "/terminate", 202)
+        self.api("DELETE", path, 204)
+
+    def test_terminal_runs_across_server_restart_and_replays_all_output(self):
+        self.setup_device()
+        script = self.home / "terminal-reconnect.sh"
+        script.write_text("""#!/bin/sh
+stty -onlcr
+printf '%s\\n' "$$" > terminal-process.id
+printf 'before-disconnect\\n'
+while [ ! -f offline.go ]; do sleep 0.1; done
+printf 'during-disconnect\\n'
+i=0
+while [ "$i" -lt 290 ]; do
+    printf '%02000d\\n' "$i"
+    i=$((i + 1))
+done
+touch offline.done
+while [ ! -f finish.go ]; do sleep 0.1; done
+printf 'after-reconnect\\n'
+""")
+        base = self.device_api + "/diagnostics/sessions"
+        view = self.api("POST", base, 201, json={}).json()
+        path = base + "/" + view["id"]
+        run = self.api("POST", path + "/commands", 202, json={"line": "/bin/sh terminal-reconnect.sh"}).json()["commandId"]
+        self.wait(lambda: (self.home / "terminal-process.id").read_text())
+        original_pid = (self.home / "terminal-process.id").read_text()
+        self.wait(lambda: self.api("GET", path).json()["commandStarted"])
+        self.api("POST", API + "/auth/lock", 204)
+        self.stop(self.server)
+        (self.home / "offline.go").touch()
+        self.wait(lambda: (self.home / "offline.done").exists())
+        self.assertEqual((self.home / "terminal-process.id").read_text(), original_pid)
+        self.assertIsNone(self.agent.poll())
+
+        self.start_server(polling=True)
+        self.unlock()
+
+        def restored():
+            row = self.api("GET", path).json()
+            return row if row["connected"] and row["connectionId"] != view["connectionId"] else None
+
+        restored = self.wait(restored, seconds=25)
+        self.assertEqual((restored["commandId"], restored["commandStarted"], restored["canControl"]), (run, True, False))
+        self.assertIn(view["id"], {row["id"] for row in self.api("GET", base).json()["items"]})
+        self.api("GET", path + "/output", 401, session=self.client())
+        (self.home / "finish.go").touch()
+        self.wait(lambda: self.api("GET", path).json()["commandId"] is None)
+
+        cursor = 0
+        history = []
+        while True:
+            page = self.api("GET", path + "/output", params={"after": cursor}).json()
+            self.assertFalse(page["truncated"])
+            history.extend(page["items"])
+            cursor = page["cursor"]
+            if not page["hasMore"]:
+                break
+        self.assertGreater(len(history), 256)
+        self.assertEqual([frame["index"] for frame in history], list(range(1, cursor + 1)))
+        output = b"".join(base64.b64decode(frame["data"]) for frame in history if frame["kind"] == "output")
+        expected = b"before-disconnect\nduring-disconnect\n" + b"".join(
+            f"{index:02000d}\n".encode() for index in range(290)) + b"after-reconnect\n"
+        self.assertEqual(output, expected)
+        transcript = self.api("GET", path + "/transcript")
+        self.assertEqual([json.loads(line) for line in transcript.text.splitlines()], history)
+        self.assertEqual([(frame["commandId"], frame["exitCode"]) for frame in history if frame["kind"] == "exit"], [(run, 0)])
+        self.assertEqual((self.home / "terminal-process.id").read_text(), original_pid)
+
+        self.set_access(restored["connectionId"], True)
+        active = self.api("POST", path + "/commands", 202, json={"line": "/bin/sleep 60"}).json()["commandId"]
+        self.wait(lambda: self.api("GET", path).json()["commandStarted"])
+        os.kill(self.agent.pid, signal.SIGSTOP)
+        try:
+            self.api("POST", path + "/terminate", 202)
+            self.assertEqual(self.api("GET", path).json()["state"], "terminating")
+            self.api("DELETE", path, 409)
+        finally:
+            os.kill(self.agent.pid, signal.SIGCONT)
+        self.wait(lambda: self.api("GET", path).json()["state"] == "terminated")
+        ended = self.api("GET", path + "/output", params={"after": cursor}).json()
+        self.assertTrue(ended["closed"])
+        self.assertTrue(any(frame["kind"] == "exit" and frame["commandId"] == active for frame in ended["items"]))
+        self.api("DELETE", path, 204)
+        self.api("GET", path, 404)
+        with closing(sqlite3.connect(self.work / "db" / "filesharing.db")) as data:
+            self.assertEqual(data.execute("SELECT COUNT(*) FROM TerminalFrames WHERE SessionId=?", (view["id"],)).fetchone()[0], 0)
+
+    def test_terminal_uploads_the_local_archive_after_agent_restart(self):
+        self.setup_device()
+        (self.home / "terminal-archive.sh").write_text("""#!/bin/sh
+while [ ! -f ready.go ]; do sleep 0.1; done
+printf 'saved on the Mac while offline\\n'
+touch wrote.go
+sleep 60
+""")
+        base = self.device_api + "/diagnostics/sessions"
+        view = self.api("POST", base, 201, json={}).json()
+        path = base + "/" + view["id"]
+        self.api("POST", path + "/commands", 202, json={"line": "/bin/sh terminal-archive.sh"})
+        self.wait(lambda: self.api("GET", path).json()["commandStarted"])
+        self.stop(self.server)
+        (self.home / "ready.go").touch()
+        self.wait(lambda: (self.home / "wrote.go").exists())
+        spool = self.agent_state / "terminals" / view["id"]
+        self.wait(lambda: bool(list(spool.glob("*.frame"))))
+        self.stop(self.agent)
+
+        self.start_server()
+        self.agent = self.spawn([str(APP), "run"], "agent.log", self.env)
+        self.wait(lambda: self.api("GET", path).json()["state"] == "terminated", seconds=25)
+        frames = self.api("GET", path + "/output").json()["items"]
+        output = b"".join(base64.b64decode(frame["data"]) for frame in frames if frame["kind"] == "output")
+        self.assertIn(b"saved on the Mac while offline", output)
+        self.assertEqual(frames[-1]["code"], "terminal_agent_restarted")
+        self.wait(lambda: not spool.exists())
 
     def test_terminal_session_keeps_native_cwd_and_streams_on_wss_and_https(self):
         self.setup_device()
