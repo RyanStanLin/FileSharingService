@@ -140,7 +140,7 @@ final class NativeDialog: NSObject, NSTextFieldDelegate {
             control.isEditable = !field.disabled
             control.isSelectable = !field.disabled
             control.placeholderString = field.hintText
-            let label = field.hintText.flatMap { $0.isEmpty ? nil : $0 } ?? field.id ?? (field.maskText ? "企业审批码" : "说明")
+            let label = field.hintText.flatMap { $0.isEmpty ? nil : $0 } ?? field.id ?? (field.maskText ? "密码" : "说明")
             control.setAccessibilityLabel(label)
             control.sizeToFit()
         }

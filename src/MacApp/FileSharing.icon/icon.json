@@ -1,31 +1,13 @@
 {
-  "fill" : {
-    "linear-gradient" : [
-      "extended-gray:0.50000,1.00000",
-      "extended-gray:0.50000,1.00000"
-    ]
-  },
+  "fill" : "automatic",
   "groups" : [
     {
       "layers" : [
         {
-          "fill-specializations" : [
-            {
-              "value" : {
-                "solid" : "extended-gray:1.00000,1.00000"
-              }
-            },
-            {
-              "appearance" : "dark",
-              "value" : {
-                "solid" : "extended-gray:1.00000,1.00000"
-              }
-            }
-          ],
-          "image-name" : "􀩛.svg",
-          "name" : "􀩛",
+          "image-name" : "Finder.png",
+          "name" : "Finder",
           "position" : {
-            "scale" : 50,
+            "scale" : 5,
             "translation-in-points" : [
               0,
               0
