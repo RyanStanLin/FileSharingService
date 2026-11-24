@@ -181,7 +181,7 @@ Agent 0.3.1 的 13 项本机集成测试和 1 项浏览器回归通过，.NET �
 
 ```bash
 scripts/test-local.sh
-scripts/build-agent.sh dmg
+FILESHARING_ORIGIN=http://localhost:8847 scripts/build-agent.sh dmg
 python3 tests/demo_browser.py
 python3 tests/deployment_smoke.py
 python3 tests/installed_agent_smoke.py

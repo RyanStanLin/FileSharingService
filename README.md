@@ -4,7 +4,7 @@ FileSharing 是面向企业 macOS 设备的内部文件访问与管理服务。A
 
 Agent 的网络配置只需服务端 HTTPS 地址。公网客户端首次连上即可自动登记，重连沿用本机 UUID。设备上线后，管理员可以为当前连接开启远程文件和管理操作。
 
-本机试用使用 `scripts/demo-server.sh start` 和 `scripts/build-agent.sh dmg`。把 DMG 中的 App 拖进 Applications 后打开，网页会显示在线设备、权限状态和实际文件内容。 [本机联调步骤](docs/local-demo.md)
+本机试用使用 `scripts/demo-server.sh start` 和 `FILESHARING_ORIGIN=http://localhost:8847 scripts/build-agent.sh dmg`。把 DMG 中的 App 拖进 Applications 后打开，网页会显示在线设备、权限状态和实际文件内容。 [本机联调步骤](docs/local-demo.md)
 
 | 交付物 | 入口 |
 | --- | --- |

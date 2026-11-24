@@ -30,6 +30,8 @@ SFTP 首连时按管理页的指纹验证主机。FTPS 使用文件协议域名�
 
 将 Xcode 的应用版本更新后推送对应的 `vMAJOR.MINOR.PATCH` 标签。`macOS release` 构建 arm64 和 x86_64 通用 DMG，校验签名、LaunchAgent、内置 HTTPS 地址和文本文件，再把 DMG 与 SHA-256 校验文件上传到 GitHub Release。已有标签可从 Actions 手动打包。
 
+客户端和打包脚本默认连接 `https://filesharing.ryanl.in`。本机联调命令可显式指定回环地址。 [本机联调](docs/local-demo.md)
+
 DMG 中的 `xattr.txt` 包含 `xattr -dr com.apple.quarantine`。安装和首次打开方式见 [macOS 拖装 DMG](docs/deployment.md#macos-拖装-dmg)。
 
 ## 首次生产上线记录
@@ -40,3 +42,5 @@ DMG 中的 `xattr.txt` 包含 `xattr -dr com.apple.quarantine`。安装和首次
 | --- | --- |
 | `web` | `sha256:be7e97ec127e89d682fe37d62c25b01a98c92a60756c7366735d70ed78d3b26d` |
 | `server` | `sha256:7e26aa259ed690d5faec721850ac75db67fdaddba1b98045130c4825bf2722c3` |
+
+后续 `main` 提交 `ac7aa40588ddb6894cc67f227168e6e0521e565e` 自动部署为 `c2c5ad224d7edce6f464914a759bdd307a9c30687156e37b1d903143b0b76169`。复测时管理站仍识别已注册的 Passkey，SFTP 主机指纹与首次上线相同。 [更新工作流](https://github.com/RyanStanLin/FileSharingService/actions/runs/45426083331)

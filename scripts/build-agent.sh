@@ -24,7 +24,7 @@ fi
 
 case "$mode" in check|dmg) ;; *) printf '%s\n' 'Usage: scripts/build-agent.sh test|check|dmg' >&2; exit 1;; esac
 
-origin="${FILESHARING_ORIGIN:-http://localhost:8847}"
+origin="${FILESHARING_ORIGIN:-https://filesharing.ryanl.in}"
 backup="${FILESHARING_BACKUP_ORIGIN:-}"
 user="${FILESHARING_MANAGED_USER:-}"
 writable="${FILESHARING_ALLOW_HOME_WRITE:-YES}"
