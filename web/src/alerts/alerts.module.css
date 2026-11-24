@@ -1,0 +1,87 @@
+.information {
+  flex: none;
+  box-sizing: border-box;
+  max-block-size: 65%;
+  padding: var(--base-size-16);
+  overflow: auto;
+  overscroll-behavior: contain;
+  border-block-end: var(--borderWidth-thin) solid var(--borderColor-default);
+}
+
+.subtitle,
+.note {
+  margin: 0;
+  color: var(--fgColor-muted);
+  font: var(--text-body-shorthand-small);
+  overflow-wrap: anywhere;
+}
+
+.subtitle,
+.reply {
+  white-space: pre-wrap;
+}
+
+.subtitle {
+  line-height: var(--base-size-20);
+}
+
+.information dt {
+  line-height: var(--base-size-16);
+}
+
+.facts,
+.replies {
+  display: grid;
+  gap: var(--base-size-8);
+}
+
+.facts,
+.detailFooter,
+.note {
+  margin-block-start: var(--base-size-8);
+}
+
+.detailFooter,
+.actions,
+.authorization {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--base-size-8);
+}
+
+.detailFooter {
+  align-items: end;
+  justify-content: space-between;
+}
+
+.actions {
+  margin-inline-start: auto;
+}
+
+.history {
+  min-block-size: 0;
+}
+
+.history:focus-visible {
+  outline: var(--focus-outline);
+  outline-offset: calc(-1 * var(--borderWidth-thick));
+}
+
+.historyTable thead {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 1;
+}
+
+.historyTable th:not([aria-sort]) button {
+  color: var(--fgColor-muted);
+  font-weight: var(--base-text-weight-semibold);
+}
+
+.historyTable tbody tr:nth-of-type(even) > :is(td, th) {
+  background: var(--bgColor-default);
+}
+
+.historyTable tbody tr {
+  cursor: pointer;
+}

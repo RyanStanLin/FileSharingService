@@ -1304,6 +1304,20 @@ app.run()
                     result = self.finished_job(job)["result"]
                     self.assertEqual((result["choiceId"], result["text"]), ("submit", "Approved maintenance"))
 
+                    no_default = [{"id": "submit", "label": "Submit", "isPrimary": False}]
+                    second_default = no_default + [{"id": "other", "label": "Continue", "isPrimary": True}]
+                    two_defaults = [dict(choice, isPrimary=True) for choice in second_default]
+                    invalid = self.api("POST", dialogs, 400, json=request | {"choices": two_defaults})
+                    self.assertEqual(invalid.json()["code"], "invalid_dialog_choice")
+                    for choices in (no_default, second_default):
+                        job = self.api("POST", dialogs, 202, json=request | {"choices": choices}).json()
+                        command = next_message()
+                        self.assertEqual((command["id"], command["payload"]["choices"]), (job["id"], choices))
+                        reply({"type": "result", "id": job["id"], "ok": True, "payload": answer})
+                        self.assertEqual(self.finished_job(job)["state"], "completed")
+                        archive = self.api("GET", dialogs + "/" + job["id"]).json()
+                        self.assertEqual(archive["request"]["choices"], choices)
+
                     masked = request | {"maskText": True}
                     self.api("POST", dialogs, 400, json=masked | {"askText": False, "textRequired": False})
                     job = self.api("POST", dialogs, 202, json=masked).json()
@@ -1379,6 +1393,8 @@ app.run()
                         self.assertEqual(finished["result"], expected | {
                             "locallyAuthenticated": True, "respondedAt": stamp.replace("Z", "+00:00")
                         })
+                        archive = self.api("GET", dialogs + "/" + job["id"]).json()
+                        self.assertTrue(archive["request"]["requireLocalAuthentication"])
                     else:
                         self.assertEqual((finished["error"], finished["result"]), ("invalid_dialog_result", None))
 

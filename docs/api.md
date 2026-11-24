@@ -331,6 +331,8 @@ Agent 0.5.8 起以 `interactive:true` 报告交互能力。浏览器以原始字
 
 Agent 0.4.4 起使用独立进程中的 AppKit `NSAlert` 置顶显示应用图标、请求标题、提示、可选输入框及按钮。从 Agent 0.4.5 起，弹窗显示在指针所在屏幕正中间。Agent 0.4.6 起只显示请求中填写的选项。两个标签能放下时，AppKit 横排按钮，首选项为默认按钮。Escape 可取消。每台设备同时展示一个请求。作业的 `result` 为 `{outcome,choiceId,text,respondedAt}`，结果 `submitted` 携带选择与最多 1024 字符的输入，`dismissed` 和 `expired` 的选择与输入为空。已锁定、已注销或退出当前用户的 Mac 不能答复。取消管理会话、撤销远程授权或设备断线会结束进行中的显示。客户端会回收超时或出错的弹窗进程。[AppKit 布局说明](https://developer.apple.com/documentation/macos-release-notes/appkit-release-notes-for-macos-11)
 
+选项可指定 `isPrimary`。所有选项都省略时，Mac 继续使用首选项作为默认按钮。提供时，最多一个选项可以为 `true`。显式提供 `false` 且没有任何 `true` 时，新版 Agent 不设默认按钮。旧 Agent 继续使用首选项。档案保留此选项配置以供再次发送。
+
 Agent 0.4.3 起支持遮蔽企业审批码。提交 `askText:true,maskText:true`，使用 `textRequired` 选择必填或选填。Mac 使用 `NSSecureTextField`，点击选项时按原样回传输入值。创建请求的管理员通过 `GET /jobs/{id}` 的 `result.text` 获取审批码。WebSocket 完成事件只包含作业标识、状态与种类。设备通道使用独立的 `interaction.dialog.masked` 命令，旧 Agent 会返回 `unsupported`。 [Apple NSSecureTextField](https://developer.apple.com/documentation/appkit/nssecuretextfield)
 
 ### 自定义输入框

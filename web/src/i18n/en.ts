@@ -1,11 +1,13 @@
 import {fileMutationEn, fileMutationErrorsEn} from './file-mutations'
 import {dataEn} from './data'
 import {activityEn} from './activity'
+import {alertErrorsEn, alertsEn} from './alerts'
 
 export const en = {
   ...fileMutationEn,
   ...dataEn,
   ...activityEn,
+  ...alertsEn,
   app: 'FileSharing',
   files: 'File System',
   data: 'Data',
@@ -133,6 +135,7 @@ export const en = {
 }
 
 export const errorsEn: Readonly<Record<string, string>> = {
+  ...alertErrorsEn,
   ...fileMutationErrorsEn,
   data_sampling_failed: 'The Mac could not deliver a new sample. Try again.',
   window_snapshot_unavailable: 'The Mac has not sent a window layout yet.',

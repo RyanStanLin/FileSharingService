@@ -101,12 +101,14 @@ final class NativeDialog: NSObject, NSTextFieldDelegate {
             fields = askText ? [DialogField(id: nil, hintText: nil, defaultText: "", disabled: false,
                                             required: textRequired, maskText: maskText)] : []
         }
-        return try await NativeDialog(title: title, message: message, options: options, fields: fields,
+        let primary = choices.firstIndex { $0["isPrimary"].bool == true } ??
+            (choices.allSatisfy { $0["isPrimary"].bool == nil } ? 0 : nil)
+        return try await NativeDialog(title: title, message: message, options: options, primary: primary, fields: fields,
                                       isForm: isForm, requireAuthentication: requireAuthentication)
             .show(for: .seconds(seconds), parent: parent)
     }
 
-    private init(title: String, message: String, options: [(String, String)], fields: [DialogField], isForm: Bool,
+    private init(title: String, message: String, options: [(String, String)], primary: Int?, fields: [DialogField], isForm: Bool,
                  requireAuthentication: Bool) {
         self.options = options
         self.isForm = isForm
@@ -123,7 +125,7 @@ final class NativeDialog: NSObject, NSTextFieldDelegate {
         alert.icon = NSApplication.shared.applicationIconImage
         configureAccessory()
         for (index, option) in options.enumerated() {
-            alert.addButton(withTitle: option.1).keyEquivalent = index == 0 ? "\r" : ""
+            alert.addButton(withTitle: option.1).keyEquivalent = index == primary ? "\r" : ""
         }
         updateButtons()
     }

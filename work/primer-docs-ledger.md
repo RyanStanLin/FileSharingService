@@ -214,3 +214,11 @@
 - 复制把选中的条目和版本暂存在当前 File System 工作区。全选可读取后续分页，粘贴调用现有移动接口并校验源和目标写权限。批量操作逐项提交，同名或版本冲突会显示项目名，已成功移动的条目从待处理清单移除。 [文件 API](../docs/api.md#文件与目录)
 - 文件列表、侧栏树、标题、信息和路径建议按 Agent 的 `hidden` 标记显示 `fgColor-muted` 名称。缩略图和文件夹、文件图标的透明度为 50%。Primer 11.10.0 未提供对应的图标透明度 token。
 - Chromium 联调覆盖键盘多选、包含续页的 83 项全选、文件夹右键和空白处粘贴、跨共享移动、版本冲突、同名冲突后重试和受限目录。实测点号项目及系统隐藏标记的图标和文件名。WebKit 联调验证了快捷键移动和隐藏样式。构建通过，Primer CSS 工具返回空诊断，PostCSS 成功解析三份样式并核对四套主题下的 232 处 token 引用。
+
+## Alerts
+
+- 使用 `Window Activity (1).svg` 作为历史列表和详情的版式基线，使用 `Dialog.svg` 作为创建对话框基线。两个 SVG 在 Chromium 中按各自 viewBox 以 DPR 1 渲染。Alerts 复用 File Explorer 的标题、元数据、表格与排序列头，用 Primer Radio 选择详情。1280 × 950 的页面实测顶部区间 y108–369，表头 28 px，记录行 36 px，列宽依次为 32、312、312、312、312 px。详情区随内容增高，历史独立滚动。 [Primer Radio](https://primer.style/product/components/radio/)
+- 690 × 1164 画布实测 Composer 位于 x105、y142，外框 480 × 880 px，五个输入框均为 448 × 40 px，开关为 48 × 24 px。字段编辑区的外框与输入框位置和 SVG 对齐。复用 Primer Dialog、FormControl、TextInput、ToggleSwitch、ButtonGroup 和焦点管理。窄屏滚动表单主体，页脚保留编辑和发送操作。实时数据、本地字体和弹窗背后的页面会影响整图差分。 [Primer Dialog](https://primer.style/product/components/dialog/) · [ToggleSwitch](https://primer.style/product/components/toggle-switch/) · [Forms](https://primer.style/product/ui-patterns/forms/)
+- `Push` 校验标题、副标题、按钮和字段限制，并调用在线且已授权设备的原生对话框 API。档案用游标续页，收到 `jobs.changed` 或轮询结果后更新。旧档案可显示已有字段。详情用设备返回的精确回复时间，列表用归档时间。遮蔽回复默认折叠。Send again 用归档配置打开 Composer，预填值从新草稿提交。 [原生对话框 API](../docs/api.md#原生对话框和本地通知)
+- 支持单个主按钮或关闭主按钮。API 转发并归档显式 `isPrimary`，旧请求依然采用首个按钮。新版 Agent 为实际主按钮绑定 Return。旧版 Agent 仍采用首个按钮。ASP.NET Core 构建与 Swift 类型检查通过，独立 AppKit 检查验证了无默认按钮、首个与第二个按钮生效。`test_dialog_response_notification_and_session_cancellation` 在 WSS 与 HTTPS 上核对显式设置、重复主按钮报错与档案回读。
+- Chromium 联调通过 `test_alerts_live_composer_and_history` 和 `test_alerts_paging_polling_and_offline`，覆盖表格键盘选择、输入校验、动态字段、投递、回执、重发草稿、失败反馈、离线档案、窄屏与深色高对比度。WebKit 通过详情切换、秒级时间、续页、表单校验与发送回执。剪贴板续页和实时更新回归通过。Primer CSS 工具对变更样式和官方 token 对照均返回空诊断，PostCSS 解析了三份变更样式，并核对四套主题下的 284 处变量引用。

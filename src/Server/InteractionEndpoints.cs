@@ -3,8 +3,9 @@ using System.Text.Json.Serialization;
 
 namespace FileSharing;
 
-/// <summary>A device-local choice with a stable ID for the response.</summary>
-internal sealed record DialogChoice(string Id, string Label);
+/// <summary>A device-local choice with a stable ID and optional default-button override.</summary>
+internal sealed record DialogChoice(string Id, string Label,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? IsPrimary = null);
 
 /// <summary>Configuration for one native text field. Disabled fields display their default value.</summary>
 internal sealed record DialogTextField(string Id, string? HintText = null, string? DefaultText = null,
@@ -55,9 +56,10 @@ internal static class InteractionEndpoints
         {
             if (choice is null || !ValidIdentifier(choice.Id))
                 throw Fault.Bad("invalid_dialog_choice");
-            return new DialogChoice(choice.Id, Secrets.Text(choice.Label, 40));
+            return choice with { Label = Secrets.Text(choice.Label, 40) };
         }).ToArray();
-        if (choices.Select(x => x.Id).Distinct(StringComparer.Ordinal).Count() != choices.Length)
+        if (choices.Select(x => x.Id).Distinct(StringComparer.Ordinal).Count() != choices.Length ||
+            choices.Count(x => x.IsPrimary == true) > 1)
             throw Fault.Bad("invalid_dialog_choice");
         ValidateFields(body.TextFields);
         var request = body with { Title = Secrets.Text(body.Title, 100), Message = Message(body.Message, 1000),

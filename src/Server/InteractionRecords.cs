@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Dapper;
 using Microsoft.Data.Sqlite;
 
@@ -18,7 +19,8 @@ internal sealed record ArchivedDialogField(string Id, string? HintText, bool Dis
 
 /// <summary>The original display context and field configuration of an archived dialog.</summary>
 internal sealed record ArchivedDialogRequest(string Title, string Message, IReadOnlyList<DialogChoice> Choices,
-    bool AskText, bool TextRequired, bool MaskText, IReadOnlyList<ArchivedDialogField>? TextFields);
+    bool AskText, bool TextRequired, bool MaskText, IReadOnlyList<ArchivedDialogField>? TextFields,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool RequireLocalAuthentication = false);
 
 /// <summary>A dialog record with its validated reply and available request context.</summary>
 internal sealed record DialogRecordDetail(DialogRecord Record, ArchivedDialogRequest? Request, DialogResult Result);
@@ -61,7 +63,7 @@ internal static class InteractionRecords
     {
         var context = new ArchivedDialogRequest(request.Title, request.Message, request.Choices, request.AskText,
             request.TextRequired, request.MaskText, request.TextFields?.Select(field => new ArchivedDialogField(
-                field.Id, field.HintText, field.Disabled, field.Required, field.MaskText)).ToArray());
+                field.Id, field.HintText, field.Disabled, field.Required, field.MaskText)).ToArray(), request.RequireLocalAuthentication);
         return connection.ExecuteAsync(new CommandDefinition("""
             INSERT INTO DialogRecords(Id,DeviceId,Owner,Title,Outcome,ChoiceId,Created,Finished,Request,Result)
             VALUES(@Id,@DeviceId,@Owner,@Title,@outcome,@choice,@Created,@stop,@context,@result)

@@ -18,6 +18,7 @@ const selectedDevice = 'filesharing.device'
 const ignore = () => undefined
 const DataWorkspace = lazy(() => import('../data/DataWorkspace'))
 const WindowActivity = lazy(() => import('../activity/WindowActivity'))
+const AlertWorkspace = lazy(() => import('../alerts/AlertWorkspace'))
 
 export function App() {
   const {t} = useLanguage()
@@ -76,6 +77,11 @@ export function App() {
     content = <Loading />
   } else if (!device) {
     content = <State title={t('noDevices')} description={t('waitingDevice')} />
+  } else if (page === 'alerts') {
+    content = <Suspense fallback={<Loading />}>
+      <AlertWorkspace key={device.id} device={device} authorize={() => authorize(true)}
+        authorizationBusy={connectionTask.busy} authorizationError={connectionTask.error} />
+    </Suspense>
   } else if (!device.connection.online) {
     content = <State title={t('deviceOffline', {name: device.name})} />
   } else if (!device.connection.accessGranted) {
@@ -123,7 +129,7 @@ export function App() {
               <DataWorkspace key={device.id} device={device} hash={hash} refreshDevice={devices.refresh}
                 authorize={() => authorize(true)} authorizationBusy={connectionTask.busy} authorizationError={connectionTask.error} />
             </Suspense>
-          : <Stack as="main" gap="none" className={styles.main}>{content}</Stack>}
+          : <Stack as="main" gap="none" className={page === 'alerts' ? styles.workArea : styles.main}>{content}</Stack>}
       {session.setup && <SetupDialog submit={session.initialize} close={session.closeSetup}
         busy={session.task.busy} error={session.task.error} returnFocusRef={accessRef} />}
     </Stack>

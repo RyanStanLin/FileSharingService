@@ -21,9 +21,13 @@
   overflow: clip;
 }
 
-.main {
+.main,
+.workArea {
   flex: 1;
   min-block-size: 0;
+}
+
+.main {
   overflow: auto;
   overscroll-behavior: contain;
 }
