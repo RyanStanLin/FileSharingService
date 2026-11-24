@@ -1,7 +1,7 @@
 asyncapi: 3.0.0
 info:
   title: FileSharing browser events
-  version: 1.4.0
+  version: 1.5.0
 servers:
   enterprise:
     host: filesharing.example.com
@@ -36,13 +36,24 @@ channels:
     messages:
       page:
         $ref: '#/components/messages/TerminalPage'
+      input:
+        $ref: '#/components/messages/TerminalInput'
+      inputAck:
+        $ref: '#/components/messages/TerminalInputAck'
 operations:
+  acceptTerminalInput:
+    action: receive
+    channel:
+      $ref: '#/channels/terminalOutput'
+    messages:
+      - $ref: '#/channels/terminalOutput/messages/input'
   publishTerminalOutput:
     action: send
     channel:
       $ref: '#/channels/terminalOutput'
     messages:
       - $ref: '#/channels/terminalOutput/messages/page'
+      - $ref: '#/channels/terminalOutput/messages/inputAck'
   acceptSubscriptions:
     action: receive
     channel:
@@ -62,6 +73,54 @@ operations:
       - $ref: '#/channels/browserEvents/messages/error'
 components:
   messages:
+    TerminalInput:
+      contentType: application/json
+      payload:
+        oneOf:
+          - type: object
+            required: [kind, id, commandId, data]
+            properties:
+              kind:
+                const: keys
+              id:
+                type: string
+                format: uuid
+              commandId:
+                type: string
+                format: uuid
+              data:
+                type: string
+                contentEncoding: base64
+                maxLength: 5464
+          - type: object
+            required: [kind, id, rows, columns]
+            properties:
+              kind:
+                const: resize
+              id:
+                type: string
+                format: uuid
+              rows:
+                type: integer
+                minimum: 2
+                maximum: 160
+              columns:
+                type: integer
+                minimum: 2
+                maximum: 300
+    TerminalInputAck:
+      contentType: application/json
+      payload:
+        type: object
+        required: [type, id, code]
+        properties:
+          type:
+            const: input
+          id:
+            type: string
+            format: uuid
+          code:
+            type: [string, 'null']
     TerminalPage:
       contentType: application/json
       payload:
@@ -79,10 +138,13 @@ components:
                   type: integer
                   minimum: 1
                 kind:
-                  enum: [ready, command, output, exit, closed]
+                  enum: [ready, command, started, output, exit, closed]
+                interactive:
+                  type: [boolean, 'null']
+                  description: Whether the Agent accepts raw PTY input and window size changes.
                 commandId:
                   type: [string, 'null']
-                  description: Command UUID for command, output, and exit frames.
+                  description: Command UUID for command, started, output, and exit frames.
                 line:
                   type: [string, 'null']
                   description: Accepted input for a command frame.

@@ -1,5 +1,9 @@
 # FileSharing 验收记录
 
+## Agent 0.5.8
+
+`test_terminal_vim_accepts_raw_keys_resizes_and_deduplicates_input` 用真实 Vim 校验 ANSI 输出、UTF-8 输入、运行中尺寸变化、WebSocket 与 REST 之间的按键去重和结束后的输入隔离。 `test_browser_edits_in_vim_and_keeps_input_after_websocket_loss` 用 Chrome 验证浏览器键盘操作、备用屏幕、WebSocket 断开后继续编辑，以及保存退出。 [终端 API](api.md#远程终端会话)
+
 ## Agent 0.5.5
 
 `test_terminal_session_keeps_native_cwd_and_streams_on_wss_and_https` 验证真实 PTY 输出、退出顺序、跨命令目录状态、符号链接限制、Passkey 会话隔离和会话关闭。 `test_terminal_helper_enforces_the_allowlist_and_scope_independently` 验证 Mac helper 独立拒绝非法程序、参数和越界目录。 `test_browser_terminal_streams_then_resumes_over_rest` 在 Chrome 中连接同一个终端，关闭浏览器 WebSocket 后通过 REST 游标继续运行命令并显示输出。 [终端 API](api.md#远程终端会话)

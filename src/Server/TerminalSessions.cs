@@ -31,7 +31,7 @@ internal sealed class TerminalSessions(Database db, AgentBroker broker, DeviceSe
             var error = await session.Ready.WaitAsync(TimeSpan.FromSeconds(20), ct);
             if (error is not null)
                 throw Fault.Unavailable(error);
-            return session.View;
+            return session.View with { Interactive = session.Interactive };
         }
         catch (TimeoutException)
         {
@@ -79,6 +79,44 @@ internal sealed class TerminalSessions(Database db, AgentBroker broker, DeviceSe
     }
 
     public void Close(TerminalSession session) => Finish(session, "terminal_closed");
+
+    public async Task Control(TerminalSession session, TerminalControl input, CancellationToken ct)
+    {
+        var id = Secrets.Identifier(input.Id);
+        var target = ValidateControl(input);
+        await session.InputGate.WaitAsync(ct);
+        try
+        {
+            await Authorize(session, ct);
+            if (session.Delivered(id))
+                return;
+            session.AcceptControl(target);
+            var view = session.View;
+            // Keep the result across a browser transport switch so a retransmit cannot repeat keystrokes.
+            await broker.Invoke(view.DeviceId, "terminal.control", new
+            {
+                sessionId = view.Id, input.Kind, input.CommandId, input.Data, input.Rows, input.Columns
+            }, host.ApplicationStopping, id, TimeSpan.FromSeconds(6), view.ConnectionId);
+            session.RecordInput(id);
+        }
+        finally
+        {
+            session.InputGate.Release();
+        }
+    }
+
+    private static string? ValidateControl(TerminalControl input)
+    {
+        if (input is { Kind: "resize", CommandId: null, Data: null, Rows: >= 2 and <= 160, Columns: >= 2 and <= 300 })
+            return null;
+        if (input is { Kind: "keys", Rows: null, Columns: null, Data.Length: >= 4 and <= 5464 })
+        {
+            Span<byte> bytes = stackalloc byte[4096];
+            if (Convert.TryFromBase64String(input.Data, bytes, out var count) && count > 0)
+                return Secrets.Identifier(input.CommandId);
+        }
+        throw Fault.Bad("invalid_terminal_input");
+    }
 
     private async Task Relay(TerminalSession session)
     {

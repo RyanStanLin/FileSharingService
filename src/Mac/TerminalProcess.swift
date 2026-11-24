@@ -5,6 +5,7 @@ final class TerminalProcess: @unchecked Sendable {
     let events: AsyncThrowingStream<JSON, Error>
     private let input: FileHandle
     private let process: Process
+    private let pty: TerminalMaster
 
     init(root: String) throws {
         guard let executable = Bundle.main.executableURL else { throw AgentError("terminal_unavailable") }
@@ -13,6 +14,8 @@ final class TerminalProcess: @unchecked Sendable {
         var size = winsize(ws_row: 24, ws_col: 100, ws_xpixel: 0, ws_ypixel: 0)
         guard openpty(&masterFD, &slaveFD, nil, nil, &size) == 0 else { throw ScopedFiles.failure() }
         let master = FileHandle(fileDescriptor: masterFD, closeOnDealloc: true)
+        let pty = TerminalMaster(master)
+        self.pty = pty
         let slave = FileHandle(fileDescriptor: slaveFD, closeOnDealloc: true)
         let commands = Pipe()
         let control = Pipe()
@@ -38,12 +41,12 @@ final class TerminalProcess: @unchecked Sendable {
         events = stream.stream
         DispatchQueue.global(qos: .utility).async {
             do {
-                try Self.relay(master.fileDescriptor, control.fileHandleForReading.fileDescriptor, into: stream.continuation)
+                try Self.relay(pty, control.fileHandleForReading.fileDescriptor, into: stream.continuation)
                 stream.continuation.finish()
             } catch {
                 stream.continuation.finish(throwing: error)
             }
-            try? master.close()
+            pty.close()
             try? control.fileHandleForReading.close()
             process.waitUntilExit()
         }
@@ -59,6 +62,26 @@ final class TerminalProcess: @unchecked Sendable {
         guard written == line.count else { throw AgentError("terminal_closed") }
     }
 
+    func control(_ input: JSON) async throws {
+        switch input["kind"].string {
+        case "keys":
+            let id = try input.requireString("commandId")
+            guard let encoded = input["data"].string, encoded.utf8.count <= 5464,
+                  let bytes = Data(base64Encoded: encoded), (1...4096).contains(bytes.count) else {
+                throw AgentError("invalid_terminal_input")
+            }
+            try await pty.write(bytes, for: id)
+        case "resize":
+            guard let rows = input["rows"].int, let columns = input["columns"].int,
+                  (2...160).contains(rows), (2...300).contains(columns) else {
+                throw AgentError("invalid_terminal_input")
+            }
+            try send(input)
+        default:
+            throw AgentError("invalid_terminal_input")
+        }
+    }
+
     func close() {
         try? input.close()
         DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + .seconds(12)) { [process] in
@@ -67,9 +90,10 @@ final class TerminalProcess: @unchecked Sendable {
         }
     }
 
-    private static func relay(_ master: Int32, _ control: Int32,
+    private static func relay(_ pty: TerminalMaster, _ control: Int32,
                               into output: AsyncThrowingStream<JSON, Error>.Continuation) throws {
-        var channels = [pollfd(fd: master, events: Int16(POLLIN), revents: 0),
+        let master = pty.fd
+        var channels = [pollfd(fd: master, events: 0, revents: 0),
                         pollfd(fd: control, events: Int16(POLLIN), revents: 0)]
         var pending = Data()
         var buffer = [UInt8](repeating: 0, count: 2048)
@@ -107,23 +131,80 @@ final class TerminalProcess: @unchecked Sendable {
             let ready = poll(&channels, nfds_t(channels.count), -1)
             if ready == -1 && errno == EINTR { continue }
             guard ready > 0 else { throw ScopedFiles.failure() }
-            if channels[0].revents != 0 { try drainPTY() }
-            guard channels[1].revents != 0 else { continue }
-            let count = Darwin.read(control, &buffer, buffer.count)
-            if count == -1 && errno == EINTR { continue }
-            guard count >= 0 else { throw ScopedFiles.failure() }
-            if count == 0 {
-                try drainPTY()
-                return
+            if channels[0].events == 0 && channels[0].revents != 0 {
+                channels[0].fd = -1
             }
-            pending.append(contentsOf: buffer.prefix(count))
-            guard pending.count <= 8192 else { throw AgentError("invalid_terminal_frame") }
-            while let newline = pending.firstIndex(of: 10) {
-                let frame = try JSON.decode(Data(pending[..<newline]))
-                pending.removeSubrange(...newline)
-                // The child writes its status only after the command stops writing to the PTY.
-                try drainPTY()
-                try emit(frame)
+            if channels[1].revents != 0 {
+                let count = Darwin.read(control, &buffer, buffer.count)
+                if count == -1 && errno == EINTR { continue }
+                guard count >= 0 else { throw ScopedFiles.failure() }
+                if count == 0 { return }
+                pending.append(contentsOf: buffer.prefix(count))
+                guard pending.count <= 8192 else { throw AgentError("invalid_terminal_frame") }
+                while let newline = pending.firstIndex(of: 10) {
+                    let frame = try JSON.decode(Data(pending[..<newline]))
+                    pending.removeSubrange(...newline)
+                    switch frame["kind"].string {
+                    case "started": channels[0].events = Int16(POLLIN)
+                    case "exit":
+                        try drainPTY()
+                        channels[0].events = 0
+                    default: break
+                    }
+                    pty.accept(frame)
+                    try emit(frame)
+                }
+            }
+            // Let the browser accept input before a program's first terminal query is rendered.
+            if channels[0].events != 0 { try drainPTY() }
+        }
+    }
+}
+
+private final class TerminalMaster: @unchecked Sendable {
+    private let handle: FileHandle
+    private let lock = NSLock()
+    private var commandId: String?
+
+    init(_ handle: FileHandle) { self.handle = handle }
+
+    var fd: Int32 { handle.fileDescriptor }
+
+    func accept(_ frame: JSON) {
+        lock.withLock {
+            if frame["kind"].string == "started" {
+                commandId = frame["commandId"].string
+            } else if frame["kind"].string == "exit" {
+                commandId = nil
+            }
+        }
+    }
+
+    func close() {
+        lock.withLock {
+            commandId = nil
+            try? handle.close()
+        }
+    }
+
+    func write(_ bytes: Data, for id: String) async throws {
+        var offset = 0
+        let deadline = ContinuousClock.now + .seconds(2)
+        while offset < bytes.count {
+            try Task.checkCancellation()
+            let written = try lock.withLock {
+                guard commandId == id else { throw AgentError("terminal_command_ended") }
+                let result = bytes.withUnsafeBytes { raw in
+                    Darwin.write(fd, raw.baseAddress!.advanced(by: offset), raw.count - offset)
+                }
+                if result >= 0 { return result }
+                if errno == EINTR || errno == EAGAIN { return 0 }
+                throw ScopedFiles.failure()
+            }
+            offset += written
+            if written == 0 {
+                guard ContinuousClock.now < deadline else { throw AgentError("terminal_input_busy") }
+                try await Task.sleep(for: .milliseconds(10))
             }
         }
     }

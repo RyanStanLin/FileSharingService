@@ -3,10 +3,11 @@ using System.Text.Json;
 
 namespace FileSharing;
 
-internal sealed record TerminalView(string Id, string DeviceId, string RootId, string ConnectionId);
+internal sealed record TerminalView(string Id, string DeviceId, string RootId, string ConnectionId, bool Interactive = false);
 internal sealed record TerminalFrame(long Index, string Kind, string? CommandId = null, string? Data = null,
-    int? ExitCode = null, string? Code = null, string? Line = null, string? Prompt = null);
+    int? ExitCode = null, string? Code = null, string? Line = null, string? Prompt = null, bool? Interactive = null);
 internal sealed record TerminalPage(IReadOnlyList<TerminalFrame> Items, long Cursor, bool Closed, bool Truncated);
+internal sealed record TerminalControl(string? Kind, string? Id, string? CommandId, string? Data, int? Rows, int? Columns);
 
 internal sealed class TerminalSession(TerminalView view, string rootKey, string reviewId)
 {
@@ -21,13 +22,51 @@ internal sealed class TerminalSession(TerminalView view, string rootKey, string 
     private long lastInput = Stopwatch.GetTimestamp();
     private string? commandId;
     private string? prompt;
+    private bool interactive;
+    private bool commandStarted;
     private bool interruptRequested;
+    private readonly Queue<string> deliveredInput = new();
 
     public TerminalView View { get; } = view;
     public string RootKey { get; } = rootKey;
     public string ReviewId { get; } = reviewId;
     public Task<string?> Ready => ready.Task;
     public Task Closed => closed.Task;
+    public SemaphoreSlim InputGate { get; } = new(1);
+
+    public bool Interactive
+    {
+        get
+        {
+            lock (gate)
+                return interactive;
+        }
+    }
+
+    // Calls to these two methods are serialized by InputGate.
+    public bool Delivered(string id) => deliveredInput.Contains(id);
+
+    public void RecordInput(string id)
+    {
+        if (deliveredInput.Count == 128)
+            deliveredInput.Dequeue();
+        deliveredInput.Enqueue(id);
+    }
+
+    public void AcceptControl(string? target)
+    {
+        lock (gate)
+        {
+            if (closed.Task.IsCompleted)
+                throw Fault.Conflict("terminal_closed");
+            if (!interactive)
+                throw Fault.Conflict("terminal_interactive_unavailable");
+            if (target is not null && (!commandStarted || commandId != target))
+                throw Fault.Conflict("terminal_command_ended");
+            if (target is not null)
+                lastInput = Stopwatch.GetTimestamp();
+        }
+    }
 
     public bool Idle()
     {
@@ -44,6 +83,7 @@ internal sealed class TerminalSession(TerminalView view, string rootKey, string 
             if (commandId is not null)
                 throw Fault.Conflict("terminal_busy");
             commandId = id;
+            commandStarted = false;
             interruptRequested = false;
             lastInput = Stopwatch.GetTimestamp();
             Append(new(0, "command", id, Line: line, Prompt: prompt));
@@ -77,16 +117,23 @@ internal sealed class TerminalSession(TerminalView view, string rootKey, string 
             {
                 case "ready" when !ready.Task.IsCompleted:
                     prompt = ValidPrompt(part.Prompt);
-                    Append(new(0, "ready", Prompt: prompt));
+                    interactive = part.Interactive == true;
+                    Append(new(0, "ready", Prompt: prompt, Interactive: interactive));
                     ready.TrySetResult(null);
                     break;
-                case "output" when commandId is not null && ValidOutput(part.Data):
-                    Append(new(0, "output", commandId, Data: part.Data));
+                case "started" when commandId is not null && commandId == part.CommandId && !commandStarted:
+                    commandStarted = true;
+                    Append(new(0, "started", commandId));
+                    break;
+                case "output" when ready.Task.IsCompleted && ValidOutput(part.Data):
+                    if (commandId is not null)
+                        Append(new(0, "output", commandId, Data: part.Data));
                     break;
                 case "exit" when commandId is not null && commandId == part.CommandId && part.ExitCode is >= 0 and <= 255:
                     prompt = ValidPrompt(part.Prompt);
                     Append(new(0, "exit", commandId, ExitCode: part.ExitCode, Code: ValidCode(part.Code), Prompt: prompt));
                     commandId = null;
+                    commandStarted = false;
                     break;
                 case "error":
                     End(ValidCode(part.Code) ?? "terminal_unavailable");

@@ -2,14 +2,14 @@
 
 运行 `scripts/demo-server.sh start`，然后访问 `http://localhost:8847/demo`。本机 DMG 的服务端地址为 `http://localhost:8847`。网页、FTP、FTPS 和 SFTP 均只监听回环地址。Agent 使用独立本机状态。默认 HOME 共享允许在本机用户有写权限的普通路径上修改。演示脚本需要 .NET 10、Go 和 OpenSSL。
 
-1. 打开 `artifacts/FileSharingService-0.5.6.dmg`，把 `FileSharingService.app` 拖到 `Applications`。升级时替换同名 App。
+1. 打开 `artifacts/FileSharingService-0.5.8.dmg`，把 `FileSharingService.app` 拖到 `Applications`。升级时替换同名 App。
 2. 打开已拖装的 App，也可以在 DMG 里双击 `Open FileSharingService.command`。若 macOS 暂拦首次启动，从「系统设置 → 隐私与安全性」为此 App 选择「仍要打开」。[Apple 的首次打开说明](https://support.apple.com/en-us/102445)
 3. App 会注册内置后台服务。升级后首次打开会将旧注册更新到当前构建。系统要求批准时，在「登录项与扩展」允许 FileSharingService。状态窗口显示注册结果，在线状态在本机测试页确认。客户端或服务端重启后，在 Demo 里为新的设备连接授权。
 4. 首次使用网页时，打开仓库的 `.local/demo/.env`，把 `FILESHARING_BOOTSTRAP_SECRET` 等号后的值粘贴到部署密钥栏，注册 Passkey 并解锁。建议使用系统当前版本的 Safari 或 Chrome。
 5. 选在线设备并点击「授权当前连接」。在「系统权限」点击「下载目录」的「申请」，在 Mac 系统弹窗里选择允许。网页会显示通过 WebSocket 推送回来的检测状态。再点击「下载」或在路径框输入 `Downloads`，列出文件，对合适的文本文件点击「预览」确认内容。
 6. 剪贴板权限栏查询 macOS 的访问策略。验证更新事件时复制一段测试文本，打开「历史记录 → 剪贴板更新」并刷新。进入详情核对发生时间、入库时间和 Agent 上报的 `N/A`。 [查询 API](api.md#交互与剪贴板历史)
 7. 验证原生通知时，在已安装的 App 中点「启用本地通知」，再用示例请求创建通知作业。用同一份示例验证原生对话框、诊断输出与回退接口。 [API 示例](../FileSharing.http)
-8. 在「诊断与交互 → 远程终端」点击「新建会话」，依次执行 `cd Downloads`、`pwd` 和 `uname -m`，核对提示符的目录名、实时输出和退出码。 [终端 API](api.md#远程终端会话)
+8. 在「诊断与交互 → 远程终端」新建会话，运行 `vim note.txt`。在终端画面中输入、按方向键或 Esc，并用 `:wq` 保存退出。调整浏览器宽度或拖动终端右下角可更新 PTY 尺寸。 [终端 API](api.md#远程终端会话)
 
 读取目录后，表格会显示从 Mac 取回的缩略图、扩展名、类型、大小和时间。点击表头按名称、类型、大小、创建时间、修改时间或上次打开排序，再点同一表头可反转。翻页会沿用当前排序与隐藏项设置。上次打开时间由 macOS 提供，缺失时显示「—」。
 

@@ -57,6 +57,8 @@ Agent 0.5.2 起，剪贴板事件通过 WSS 发送以下帧，HTTPS 回退通过
 
 远程终端使用长期设备命令 `terminal.open`。Agent 启动持有会话工作目录的原生子进程，命令 stdout 和 stderr 共用 PTY 输出。独立控制管道交付 `ready` 和命令退出状态。服务端向同一设备连接发送 `terminal.input`，携带会话 ID 和已校验的结构化参数。进度帧使用终端 ID 及 `{index,kind,commandId?,data?,exitCode?,code?}`，由同一 Agent WebSocket 或 HTTPS 通道送达，`index` 用于重试去重。控制端可从专用 WebSocket 或 REST 游标续读，设备通道结束时终端子进程也结束。 [终端 API](api.md#远程终端会话)
 
+启动进程时发布 `started` 帧，浏览器通过 xterm.js 解析后续 PTY 原始字节。经同一 Passkey 会话鉴权的 `terminal.control` 请求只向当前进程写入按键，或者更新 PTY 尺寸并通知运行中的进程。浏览器使用 WebSocket 传递输入，并可通过 REST 重试原帧。接收端按输入 ID 去重。 [终端字节编码](https://xtermjs.org/docs/guides/encoding/)
+
 `interaction.dialog` 和 `interaction.notification` 复用具有连接权限的命令通道。原生对话框由 AppKit 的事件循环显示。响应直接进入已认证的作业结果。会话锁定时服务端向设备发送 `{type:"cancel",id}`，设备停止等待本地输入。Agent 策略帧的 `accessGranted:false` 同样停止正在等待的交互。通知由本机 UserNotifications 调度，使用 App 的本机通知权限。
 
 ## 目录监听与数据中继

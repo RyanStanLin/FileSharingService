@@ -77,7 +77,7 @@ class LocalDemoBrowser(unittest.TestCase):
                        "--no-first-run", "--no-default-browser-check", "--remote-debugging-port=0",
                        "--remote-debugging-address=127.0.0.1", "--user-data-dir=" + str(profile), "about:blank"],
                       "chrome.log", fixture.env)
-        port = fixture.wait(lambda: (profile / "DevToolsActivePort").read_text().splitlines()[0])
+        port = fixture.wait(lambda: (profile / "DevToolsActivePort").read_text().partition("\n")[0])
         tabs = fixture.browser.get(f"http://127.0.0.1:{port}/json/list", timeout=5).json()
         target = next(tab for tab in tabs if tab["type"] == "page")
         channel = connect(target["webSocketDebuggerUrl"], proxy=None, open_timeout=5)
@@ -308,10 +308,9 @@ class LocalDemoBrowser(unittest.TestCase):
             document.querySelector('#terminal-open').click()
         """)
         browser.wait("document.querySelector('#terminal-status').textContent.endsWith('WebSocket')")
-        browser.wait("document.querySelector('#terminal-prompt').textContent.endsWith(' ~ %')")
         identity = f"{pwd.getpwuid(os.getuid()).pw_name}@{socket.gethostname().split('.', 1)[0]}"
-        home_prompt = f"{identity} ~ %"
-        self.assertEqual(browser.evaluate("document.querySelector('#terminal-prompt').textContent"), home_prompt)
+        initial_prompt = f"{identity} {self.fixture.home.name} %"
+        browser.wait(f"document.querySelector('#terminal-prompt').textContent === {json.dumps(initial_prompt)}")
 
         def run(line, exit_count):
             browser.evaluate(f"""
@@ -330,10 +329,56 @@ class LocalDemoBrowser(unittest.TestCase):
         run("pwd", 3)
         output = browser.evaluate("document.querySelector('#terminal-output').textContent")
         self.assertIn(str(self.downloads.resolve()), output)
-        self.assertIn(f"{home_prompt} cd Downloads\n", output)
-        self.assertIn(f"{downloads_prompt} pwd\n", output)
+        self.assertIn(f"{initial_prompt} cd Downloads", output)
+        self.assertIn(f"{downloads_prompt} pwd", output)
         browser.evaluate("document.querySelector('#terminal-close').click()")
         browser.wait("document.querySelector('#terminal-command').disabled && !document.querySelector('#terminal-open').disabled")
+
+    def test_browser_edits_in_vim_and_keeps_input_after_websocket_loss(self):
+        browser = self.start_browser()
+        browser.evaluate("""
+            window.WebSocket = class extends WebSocket {
+                constructor(...args) {
+                    super(...args)
+                    if (String(args[0]).includes('/diagnostics/sessions/')) window.fixtureTerminalSocket = this
+                }
+            };
+            window.terminalCspErrors = [];
+            window.addEventListener('securitypolicyviolation', event => window.terminalCspErrors.push(event.violatedDirective));
+            document.querySelector('#tab-actions').click();
+            document.querySelector('#terminal-open').click()
+        """)
+        browser.wait("document.querySelector('#terminal-status').textContent.endsWith('WebSocket')")
+        browser.evaluate("""
+            document.querySelector('#terminal-command').value = 'vim -Nu NONE -i NONE -n Downloads/terminal-edit.txt';
+            document.querySelector('#terminal-form').requestSubmit()
+        """)
+        browser.wait("document.activeElement.matches('#terminal-output textarea') && "
+                     "document.querySelector('#terminal-output').textContent.includes('terminal-edit.txt')")
+
+        def key(name, code=None):
+            number = {"Escape": 27, "ArrowLeft": 37, "Enter": 13}[name]
+            for kind in ("keyDown", "keyUp"):
+                browser.call("Input.dispatchKeyEvent", type=kind, key=name, code=code or name,
+                             windowsVirtualKeyCode=number)
+
+        browser.call("Input.insertText", text="i")
+        browser.call("Input.insertText", text="Vim works")
+        key("Escape")
+        browser.wait("document.querySelector('#terminal-output').textContent.includes('Vim works')")
+        browser.evaluate("window.fixtureTerminalSocket.close()")
+        browser.wait("document.querySelector('#terminal-status').textContent.endsWith('HTTP 续读')")
+        browser.evaluate("document.querySelector('#terminal-output').style.height = '510px'")
+        key("ArrowLeft")
+        browser.call("Input.insertText", text="a!")
+        key("Escape")
+        browser.call("Input.insertText", text=":wq")
+        key("Enter")
+
+        edited = self.downloads / "terminal-edit.txt"
+        browser.wait("document.querySelector('#terminal-output').textContent.includes('[退出码 0]')")
+        self.assertEqual(edited.read_text(), "Vim work!s\n")
+        self.assertEqual(browser.evaluate("window.terminalCspErrors"), [])
 
     def test_browser_streams_application_activity_and_recovers_dialog_and_diagnostics_over_rest(self):
         fixture = self.fixture

@@ -35,13 +35,14 @@ final class TerminalHelper: @unchecked Sendable {
     private func run() throws {
         let initialPath = FileManager.default.fileExists(atPath: root.path) ? root.path : NSHomeDirectory()
         try changeDirectory(initialPath)
-        Self.send(["kind": "ready", "prompt": prompt()])
-        defer {
-            lock.withLock { child?.process.terminate() }
-            children.wait()
-        }
+        Self.send(["kind": "ready", "prompt": prompt(), "interactive": true])
+        defer { stopChild() }
         while let line = readLine() {
             guard line.utf8.count <= 8192, let input = try? JSON.decode(Data(line.utf8)) else { continue }
+            if input["kind"].string == "resize" {
+                lock.withLock { resize(input) }
+                continue
+            }
             guard let id = input["commandId"].string, UUID(uuidString: id) != nil else { continue }
             if input["kind"].string == "interrupt" {
                 lock.withLock {
@@ -71,6 +72,18 @@ final class TerminalHelper: @unchecked Sendable {
                 }
             }
         }
+    }
+
+    private func stopChild() {
+        let process = lock.withLock { child?.process }
+        if let process, process.isRunning {
+            process.terminate()
+            if process.isRunning { kill(process.processIdentifier, SIGCONT) }
+            if children.wait(timeout: .now() + .seconds(2)) == .timedOut, process.isRunning {
+                kill(process.processIdentifier, SIGKILL)
+            }
+        }
+        children.wait()
     }
 
     private func prompt() -> JSON {
@@ -118,14 +131,17 @@ final class TerminalHelper: @unchecked Sendable {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: command.path)
         process.arguments = command.arguments
-        process.environment = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin", "LC_ALL": "C", "TERM": "dumb"]
+        process.environment = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin",
+                               "LC_CTYPE": "UTF-8", "TERM": "xterm-256color"]
         process.standardInput = FileHandle.standardOutput
         process.standardOutput = FileHandle.standardOutput
         process.standardError = FileHandle.standardOutput
         let done = DispatchSemaphore(value: 0)
         process.terminationHandler = { _ in done.signal() }
+        _ = tcflush(STDOUT_FILENO, TCIFLUSH)
         try process.run()
         child = (id, process)
+        Self.send(["kind": "started", "commandId": .string(id)])
         children.enter()
         DispatchQueue.global(qos: .utility).async {
             defer { self.children.leave() }
@@ -133,9 +149,21 @@ final class TerminalHelper: @unchecked Sendable {
             self.lock.withLock {
                 let status = process.terminationStatus
                 let exit = process.terminationReason == .uncaughtSignal ? status + 128 : status
+                _ = tcflush(STDOUT_FILENO, TCIFLUSH)
                 self.exited(id, exit)
                 self.child = nil
             }
+        }
+    }
+
+    private func resize(_ input: JSON) {
+        guard let rows = input["rows"].int, let columns = input["columns"].int,
+              (2...160).contains(rows), (2...300).contains(columns) else { return }
+        var size = winsize(ws_row: UInt16(rows), ws_col: UInt16(columns), ws_xpixel: 0, ws_ypixel: 0)
+        // Darwin _IOW('t', 103, struct winsize), absent from Swift's imported macros.
+        guard ioctl(STDOUT_FILENO, 0x80087467, &size) == 0 else { return }
+        if let process = child?.process, process.isRunning {
+            kill(process.processIdentifier, SIGWINCH)
         }
     }
 

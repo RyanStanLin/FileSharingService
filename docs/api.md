@@ -283,10 +283,11 @@ Agent 0.5.5 起支持 Mac 原生 PTY。终端子进程在会话期间保持运�
 
 | 方法 | 路径 | 请求与响应 |
 | --- | --- | --- |
-| POST | `/` | 发送 `{}` 使用 HOME 共享根，或发送 `{"rootId":"<UUID>"}` 选择已授权共享根。PTY 就绪后返回 `201` 及 `{id,deviceId,rootId,connectionId}`。 |
+| POST | `/` | 发送 `{}` 使用 HOME 共享根，或发送 `{"rootId":"<UUID>"}` 选择已授权共享根。PTY 就绪后返回 `201` 及 `{id,deviceId,rootId,connectionId,interactive}`。 |
 | POST | `/{sessionId}/commands` | 发送 `{"line":"uname -m"}`，通过校验后返回 `202 {commandId}`。 |
 | POST | `/{sessionId}/interrupt` | 中断当前命令，返回 `204`。退出帧报告实际退出码。 |
-| GET | `/{sessionId}/ws?after=0` | 通过 WebSocket 接收新增输出页。需要与 Passkey 页面同源的 `Origin` 和会话 cookie。 |
+| POST | `/{sessionId}/input` | 发送下面的终端输入帧，返回 `204`。 |
+| GET | `/{sessionId}/ws?after=0` | 接收新增输出页，也可发送终端输入帧。需要同源 `Origin` 和 Passkey 会话 cookie。 |
 | GET | `/{sessionId}/output?after=0` | 返回相同的输出页及最新游标。 |
 | DELETE | `/{sessionId}` | 关闭终端并返回 `204`。 |
 
@@ -296,13 +297,21 @@ WebSocket 与 REST 输出采用 `{items,cursor,closed,truncated}`。帧的 `inde
 
 | `kind` | 其余字段 |
 | --- | --- |
-| `ready` | PTY 已就绪，可带初始 `prompt`。 |
+| `ready` | PTY 已就绪，可带初始 `prompt` 和 `interactive`。 |
 | `command` | `commandId`、`line` 和执行前的可选 `prompt`。 |
+| `started` | `commandId` 对应的进程已启动并可接收终端输入。 |
 | `output` | `commandId` 和 Base64 `data`，承载合流的 PTY STDOUT/STDERR 原始字节。 |
 | `exit` | `commandId`、`exitCode`、可选错误 `code` 和命令结束后的可选 `prompt`。 |
 | `closed` | 原因 `code`。 |
 
 Agent 0.5.6 起上报 `prompt`，格式为 `用户名@短主机名 当前目录 %`。提示符读取终端进程的实际工作目录，并把用户主目录显示为 `~`。客户端可以用 `ready` 和 `exit` 的提示符标记当前输入位置，以 `command` 的提示符显示命令历史。
+
+Agent 0.5.8 起以 `interactive:true` 报告交互能力。浏览器以原始字节渲染 `output` 中的 ANSI 序列，包括备用屏幕。收到 `started` 后可以按 `commandId` 发送键盘和程序请求的终端回复。每条输入帧使用一个 UUID `id`。
+
+- 按键帧为 `{kind:"keys",id,commandId,data}`，`data` 是最多 4096 字节的 Base64。
+- 尺寸帧为 `{kind:"resize",id,rows,columns}`，行数 2–160，列数 2–300，会话空闲或运行时均可发送。
+- WebSocket 输入确认是 `{type:"input",id,code}`。成功时 `code:null`。确认丢失可用同一 `id` 通过 REST 重试。
+- 程序退出后的按键返回 `409 terminal_command_ended`。当前授权或设备连接结束会关闭双向通道。
 
 浏览器按 `index` 处理输出，按字节增量解码 UTF-8，断开 WebSocket 时通过 REST 从最近的 `cursor` 续读。服务端最多保留 256 帧，游标早于缓存时 `truncated` 为 `true`。会话结束后至多保留 30 秒，重新开会话时清除上一会话的帧。终端专用 WebSocket 不发布到全局事件订阅。 [AsyncAPI](asyncapi.yaml)
 

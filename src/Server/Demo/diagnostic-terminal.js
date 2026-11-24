@@ -1,4 +1,5 @@
 import {element, status} from "./ui.js"
+import {terminalInput, terminalScreen} from "./terminal-pty.js"
 
 export function diagnosticTerminal({call, perform, errorText}) {
     const openButton = element("terminal-open")
@@ -11,38 +12,71 @@ export function diagnosticTerminal({call, perform, errorText}) {
     let device
     let opening
     let session
+    let screen
 
     function render() {
         openButton.disabled = !device || Boolean(opening || session)
         closeButton.disabled = !session
-        command.disabled = !session
+        command.disabled = !session || Boolean(session.running)
         runButton.disabled = !session || Boolean(session.submitting || session.running)
         interrupt.disabled = !session?.running
         const label = session?.prompt ?? (session ? "%" : "命令")
         if (prompt.textContent !== label) prompt.textContent = label
+        if (screen) screen.terminal.options.disableStdin = !session?.nativeCommand
     }
 
     function append(text) {
-        const follow = output.scrollHeight - output.scrollTop - output.clientHeight < 36
-        output.textContent = (output.textContent + text).slice(-131072)
-        if (follow) output.scrollTop = output.scrollHeight
+        screen.terminal.writeln(text.replace(/[\x00-\x1f\x7f-\x9f]/g, "�"))
+    }
+
+    function sizeChanged(rows, columns) {
+        if (!session?.interactive || session.size === rows + "x" + columns) return
+        session.size = rows + "x" + columns
+        session.input.addSize(rows, columns)
+    }
+
+    async function sendInput(current, packet) {
+        const socket = current.socket
+        if (socket?.readyState === WebSocket.OPEN) {
+            const ack = await new Promise(resolve => {
+                const finish = value => {
+                    clearTimeout(timer)
+                    current.reply = undefined
+                    resolve(value)
+                }
+                const timer = setTimeout(() => finish(null), 7500)
+                current.reply = {id: packet.id, finish}
+                try { socket.send(JSON.stringify(packet)) }
+                catch { finish(null) }
+            })
+            if (ack) {
+                if (ack.code) throw Object.assign(new Error(errorText(ack.code)), {code: ack.code})
+                return
+            }
+            socket.close()
+        }
+        const signal = AbortSignal.any([current.abort.signal, AbortSignal.timeout(8000)])
+        await call(current.path + "/input", {method: "POST", body: packet, signal})
     }
 
     function detach(current) {
         if (session !== current) return
         session = undefined
+        current.input.close()
+        current.abort.abort()
+        current.reply?.finish(null)
         current.socket?.close()
         clearTimeout(current.timer)
-        current.abort.abort()
         render()
     }
 
     function apply(current, page) {
         if (session !== current || page.cursor <= current.cursor) return
         if (page.truncated && page.items[0]?.index > current.cursor + 1) {
-            current.decoder = new TextDecoder()
-            append("\n[较早的终端输出已过期]\n")
+            screen.terminal.reset()
+            append("[较早的终端输出已过期]")
         }
+        let restoreFocus = false
         for (const item of page.items) {
             if (item.index <= current.cursor) continue
             switch (item.kind) {
@@ -52,18 +86,23 @@ export function diagnosticTerminal({call, perform, errorText}) {
                 case "command":
                     current.running = item.commandId
                     current.prompt = item.prompt
-                    append((item.prompt ?? "%") + " " + item.line + "\n")
+                    append((item.prompt ?? "%") + " " + item.line)
+                    break
+                case "started":
+                    current.nativeCommand = item.commandId
+                    if (output.getClientRects().length) screen.terminal.focus()
                     break
                 case "output": {
                     const bytes = Uint8Array.from(atob(item.data), value => value.charCodeAt(0))
-                    append(current.decoder.decode(bytes, {stream: true}).replaceAll("\r", ""))
+                    screen.terminal.write(bytes)
                     break
                 }
                 case "exit":
-                    append(current.decoder.decode())
-                    append("[" + (item.code ? errorText(item.code) + " · " : "") + "退出码 " + item.exitCode + "]\n")
+                    append("[" + (item.code ? errorText(item.code) + " · " : "") + "退出码 " + item.exitCode + "]")
                     current.prompt = item.prompt
                     current.running = undefined
+                    current.nativeCommand = undefined
+                    restoreFocus ||= document.activeElement === screen.terminal.textarea
                     break
                 case "closed":
                     status("terminal-status", errorText(item.code), item.code !== "terminal_closed")
@@ -73,6 +112,7 @@ export function diagnosticTerminal({call, perform, errorText}) {
         }
         current.cursor = page.cursor
         render()
+        if (restoreFocus && !command.disabled) command.focus()
     }
 
     async function poll(current) {
@@ -103,9 +143,17 @@ export function diagnosticTerminal({call, perform, errorText}) {
             clearTimeout(current.timer)
             if (session === current) status("terminal-status", "会话已连接 · WebSocket")
         })
-        socket.addEventListener("message", event => apply(current, JSON.parse(event.data)))
+        socket.addEventListener("message", event => {
+            const frame = JSON.parse(event.data)
+            if (frame.type === "input") {
+                if (current.reply?.id === frame.id) current.reply.finish(frame)
+            } else {
+                apply(current, frame)
+            }
+        })
         socket.addEventListener("close", () => {
             clearTimeout(current.timer)
+            current.reply?.finish(null)
             if (session === current) poll(current)
         })
     }
@@ -118,17 +166,27 @@ export function diagnosticTerminal({call, perform, errorText}) {
         try {
             const base = "/devices/" + target.id + "/diagnostics/sessions"
             const view = await call(base, {method: "POST", body: {}})
-            const current = {path: base + "/" + view.id, cursor: 0, abort: new AbortController(), decoder: new TextDecoder()}
+            const current = {path: base + "/" + view.id, cursor: 0, abort: new AbortController(), interactive: view.interactive}
             if (device !== target) {
                 await call(current.path, {method: "DELETE"}).catch(() => {})
                 return
             }
+            current.input = terminalInput(packet => sendInput(current, packet), text => {
+                if (session === current) status("terminal-status", text, true)
+            })
             session = current
-            output.textContent = ""
+            screen ??= terminalScreen(output, {
+                keys: data => {
+                    if (session?.nativeCommand) session.input.addKeys(session.nativeCommand, data)
+                },
+                resize: sizeChanged
+            })
+            screen.terminal.reset()
             command.value = ""
             render()
             command.focus()
             stream(current)
+            screen.measure()
         } catch (error) {
             if (device === target) status("terminal-status", error.message, true)
             throw error
@@ -189,7 +247,7 @@ export function diagnosticTerminal({call, perform, errorText}) {
                 return
             release()
             device = allowed ? {id: value.id, connectionId: connection.connectionId} : undefined
-            output.textContent = ""
+            screen?.terminal.reset()
             command.value = ""
             status("terminal-status", device ? "" : "请先授权当前设备连接。")
             render()

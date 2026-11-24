@@ -3,8 +3,10 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="terminal-style-nonce" content="FILESHARING_STYLE_NONCE">
   <title>FileSharing 本机联调</title>
   <link rel="stylesheet" href="/demo/demo.css">
+  <link rel="stylesheet" href="/demo/xterm/xterm.css">
   <script type="module" src="/demo/demo.js"></script>
 </head>
 <body>
@@ -199,7 +201,7 @@
             </div>
           </div>
           <p id="terminal-status" class="muted" role="status"></p>
-          <pre id="terminal-output" tabindex="0" aria-label="终端输出"></pre>
+          <div id="terminal-output" aria-label="远程终端屏幕"></div>
           <form id="terminal-form" class="row">
             <label for="terminal-command" id="terminal-prompt">命令</label>
             <input id="terminal-command" autocomplete="off" autocapitalize="off" spellcheck="false"
@@ -207,7 +209,7 @@
             <button id="terminal-run" type="submit" disabled>执行</button>
             <button id="terminal-interrupt" type="button" disabled>中断</button>
           </form>
-          <p id="terminal-examples" class="muted">可输入 <code>pwd</code>、<code>cd Downloads</code> 或 <code>uname -m</code>。</p>
+          <p id="terminal-examples" class="muted">输入 <code>vim note.txt</code> 启动编辑器，再直接在终端内操作。</p>
         </section>
         <section aria-labelledby="dialog-heading">
           <h2 id="dialog-heading">远程原生对话框</h2>

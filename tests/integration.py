@@ -1502,6 +1502,65 @@ print(json.dumps({"payload": result}, ensure_ascii=False))
                                      {"items": [], "cursor": page["cursor"]})
                     self.api("GET", output, 401, session=self.client())
 
+    def test_terminal_vim_accepts_raw_keys_resizes_and_deduplicates_input(self):
+        self.setup_device()
+        base = self.device_api + "/diagnostics/sessions"
+        view = self.api("POST", base, 201, json={}).json()
+        self.assertTrue(view["interactive"])
+        path = base + "/" + view["id"]
+        text = self.home / "terminal-vim.txt"
+        size = self.home / "terminal-size.txt"
+        cookie = "; ".join(f"{entry.name}={entry.value}" for entry in self.browser.cookies)
+        with connect(self.origin.replace("http:", "ws:") + path + "/ws", origin=self.origin,
+                     additional_headers={"Cookie": cookie}, proxy=None, open_timeout=6) as socket:
+            ready = json.loads(socket.recv(timeout=6))
+            self.assertTrue(ready["items"][0]["interactive"])
+
+            def send(packet):
+                socket.send(json.dumps(packet))
+                response = self.receive(socket, lambda frame: frame.get("id") == packet["id"])
+                self.assertEqual(response, {"type": "input", "id": packet["id"], "code": None})
+
+            send({"kind": "resize", "id": str(uuid.uuid4()), "rows": 25, "columns": 81})
+            run = self.api("POST", path + "/commands", 202,
+                           json={"line": "vim -Nu NONE -i NONE -n terminal-vim.txt"}).json()["commandId"]
+            frames = []
+            while not any(frame["kind"] == "started" for frame in frames) or not any(frame["kind"] == "output" for frame in frames):
+                frames.extend(json.loads(socket.recv(timeout=6))["items"])
+            self.assertTrue(any(b"\x1b[" in base64.b64decode(frame["data"]) for frame in frames if frame["kind"] == "output"))
+
+            def keys(data):
+                return {"kind": "keys", "id": str(uuid.uuid4()), "commandId": run,
+                        "data": base64.b64encode(data).decode()}
+
+            resized = {"kind": "resize", "id": str(uuid.uuid4()), "rows": 32, "columns": 96}
+            send(resized)
+            send(keys(f":call writefile([&lines . ',' . &columns], '{size}')\r".encode()))
+            self.wait(lambda: size.exists() and size.read_text() == "32,96\n")
+            content = keys("i可交互的 Vim".encode())
+            send(content)
+
+        self.api("POST", path + "/input", 204, json=content)
+        self.api("POST", path + "/input", 204, json=keys(b"\x1b:wq\r"))
+
+        def exited():
+            frames = self.api("GET", path + "/output").json()["items"]
+            return next((frame for frame in frames if frame["kind"] == "exit" and frame["commandId"] == run), None)
+
+        self.assertEqual(self.wait(exited)["exitCode"], 0)
+        self.assertEqual(text.read_text(), "可交互的 Vim\n")
+        rejected = self.api("POST", path + "/input", 409, json=keys(b"i")).json()
+        self.assertEqual(rejected["code"], "terminal_command_ended")
+
+        next_run = self.api("POST", path + "/commands", 202,
+                            json={"line": "vim -Nu NONE -i NONE -n terminal-vim.txt"}).json()["commandId"]
+        self.wait(lambda: any(frame["kind"] == "started" and frame["commandId"] == next_run
+                              for frame in self.api("GET", path + "/output").json()["items"]))
+        self.api("DELETE", path, 204)
+        replacement = self.api("POST", base, 201, json={}).json()
+        self.assertEqual(replacement["connectionId"], view["connectionId"])
+        self.api("DELETE", base + "/" + replacement["id"], 204)
+
     def test_terminal_session_keeps_native_cwd_and_streams_on_wss_and_https(self):
         self.setup_device()
         folder = self.home / "Project Files"
