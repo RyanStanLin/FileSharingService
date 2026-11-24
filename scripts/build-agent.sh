@@ -92,6 +92,7 @@ cat > "$payload/安装说明.txt" <<'TEXT'
 4. 首次启动会注册后台服务。系统要求确认时，请在「登录项与扩展」允许 FileSharingService。
 5. 再次打开 App 可以查看状态或停用后台服务。
 TEXT
+printf '%s\n' 'xattr -dr com.apple.quarantine' > "$payload/xattr.txt"
 
 image="$stage/FileSharingService.dmg"
 hdiutil create -quiet -volname FileSharingService -srcfolder "$payload" -format UDZO -fs HFS+ "$image"
@@ -101,6 +102,7 @@ mount="$stage/mount"
 verify_app "$mount/FileSharingService.app"
 test "$(readlink "$mount/Applications")" = /Applications
 test -x "$mount/Open FileSharingService.command"
+printf '%s\n' 'xattr -dr com.apple.quarantine' | cmp - "$mount/xattr.txt"
 diskutil eject "$mount" >/dev/null
 mount=""
 version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")"

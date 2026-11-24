@@ -5,7 +5,7 @@
 1. 选择公网可达的 HTTPS origin 和 FTP/FTPS 的内网或 VPN 地址。签发包含这些 DNS 名的证书，并准备 `fullchain.pem` 和 `privkey.pem`。FTPS 校验链需要完整的中间证书，客户端应验证主机名和 CA。
 2. 在部署目录运行 `./init-env.sh`，随机生成 256 位 `FILESHARING_BOOTSTRAP_SECRET` 并以 `0600` 保存到 `deploy/.env`。通过内部密钥交付渠道把密钥交给管理员。首次注册和重置 Passkey 都需要它。更换恢复密钥时更新 `.env` 并重建服务容器。
 3. 设置以下变量。证书目录挂载在 Nginx 和服务容器中，赋予运行服务的容器用户读取权限。运行 `docker compose run --rm --no-deps --entrypoint id server` 可核对实际 UID。将数据卷放在主机加密存储，备份和恢复时同时处理 SQLite 与归档。
-4. 运行 `docker compose up -d --build`。外部测试 `GET https://管理域名/health/ready`。管理端接入前端时让它与 API 同源，保持浏览器 WebAuthn RP ID 和 origin 固定。公网 HTTPS 同时提供 Agent 自动登记。
+4. 运行 `docker compose up -d --build`。Compose 分别构建 React 前端和 ASP.NET Core 后端的镜像。打开管理域名检查页面，再请求同源的 `/health/ready` 检查后端。浏览器 WebAuthn RP ID 和 origin 随管理域名固定。公网 HTTPS 同时提供 Agent 自动登记。
 
 | 设置 | 用途 |
 | --- | --- |

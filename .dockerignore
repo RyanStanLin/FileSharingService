@@ -1,6 +1,8 @@
 .git
 .local
+.paas
 artifacts
+paas.secrets.json
 **/.env
 **/.env.*
 **/bin
@@ -9,3 +11,5 @@ artifacts
 deploy/state
 deploy/tls
 deploy/updates
+web/node_modules
+web/dist

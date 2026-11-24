@@ -13,3 +13,5 @@ artifacts/
 /deploy/state/
 /deploy/tls/
 /deploy/updates/
+/.paas/
+/paas.secrets.json

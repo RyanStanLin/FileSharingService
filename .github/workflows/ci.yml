@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  web:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run build
+
+  integration:
+    runs-on: xcode-27
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version: '1.27.4'
+          cache-dependency-path: src/Sftp/go.sum
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: tests/requirements.txt
+      - run: python3 -m pip install -r tests/requirements.txt
+      - name: Test Passkey, file transports, WebSocket and storage
+        run: |
+          scripts/test-local.sh \
+            Acceptance.test_passkey_bootstrap_unlock_lock_recovery \
+            Acceptance.test_ftp_ftps_locked_sessions_and_password_rotation \
+            Acceptance.test_loopback_ftp_active_listing_and_protected_download \
+            Acceptance.test_sftp_home_paging_download_password_revocation_and_host_key \
+            Acceptance.test_directory_websocket_rename_and_external_change \
+            Acceptance.test_stream_ranges_resume_and_version_precondition \
+            Acceptance.test_running_agent_recovers_when_server_restarts \
+            Acceptance.test_sqlite_upgrade_preserves_preexisting_device_and_grant

@@ -47,7 +47,9 @@ services:
       private:
         ipv4_address: ${FILESHARING_NETWORK_PREFIX:-172.30.253}.20
   proxy:
-    image: nginx:stable-alpine
+    build:
+      context: ..
+      dockerfile: deploy/Web.Dockerfile
     depends_on:
       - server
     environment:
