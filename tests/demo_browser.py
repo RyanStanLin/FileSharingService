@@ -7,7 +7,6 @@ from pathlib import Path
 import pwd
 import socket
 import sqlite3
-import subprocess
 import time
 import unittest
 import uuid
@@ -309,9 +308,10 @@ class LocalDemoBrowser(unittest.TestCase):
             document.querySelector('#terminal-open').click()
         """)
         browser.wait("document.querySelector('#terminal-status').textContent.endsWith('WebSocket')")
+        browser.wait("document.querySelector('#terminal-prompt').textContent.endsWith(' ~ %')")
         identity = f"{pwd.getpwuid(os.getuid()).pw_name}@{socket.gethostname().split('.', 1)[0]}"
-        initial_prompt = f"{identity} {self.fixture.home.name} %"
-        browser.wait(f"document.querySelector('#terminal-prompt').textContent === {json.dumps(initial_prompt)}")
+        home_prompt = f"{identity} ~ %"
+        self.assertEqual(browser.evaluate("document.querySelector('#terminal-prompt').textContent"), home_prompt)
 
         def run(line, exit_count):
             browser.evaluate(f"""
@@ -330,37 +330,10 @@ class LocalDemoBrowser(unittest.TestCase):
         run("pwd", 3)
         output = browser.evaluate("document.querySelector('#terminal-output').textContent")
         self.assertIn(str(self.downloads.resolve()), output)
-        self.assertIn(f"{initial_prompt} cd Downloads\n", output)
+        self.assertIn(f"{home_prompt} cd Downloads\n", output)
         self.assertIn(f"{downloads_prompt} pwd\n", output)
         browser.evaluate("document.querySelector('#terminal-close').click()")
         browser.wait("document.querySelector('#terminal-command').disabled && !document.querySelector('#terminal-open').disabled")
-
-    def test_browser_authorizes_ssh_relay_and_shows_the_native_command(self):
-        fixture = self.fixture
-        fixture.stop(fixture.server)
-        gateway_port = integration.port()
-        fixture.env.update({"FileSharing__Sftp__Port": str(gateway_port),
-                            "FileSharing__Sftp__BridgePort": str(fixture.http_port),
-                            "FileSharing__Sftp__Binary": str(integration.SFTP),
-                            "FileSharing__SshRelay__Enabled": "true"})
-        fixture.start_server()
-        key = fixture.work / "demo-relay-key"
-        subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(key)], check=True, timeout=5)
-        public_key = key.with_suffix(".pub").read_text()
-        browser = self.start_browser()
-        browser.evaluate(f"""
-            document.querySelector('#tab-actions').click();
-            document.querySelector('#ssh-relay-user').value = 'fixture-user';
-            document.querySelector('#ssh-relay-key').value = {json.dumps(public_key)};
-            document.querySelector('#ssh-relay-form').requestSubmit()
-        """)
-        browser.wait("!document.querySelector('#ssh-relay-connection').hidden")
-        command = browser.evaluate("document.querySelector('#ssh-relay-command').textContent")
-        self.assertRegex(command, rf"^ssh -o ServerAliveInterval=30 -J relay-[0-9a-f-]+@localhost:{gateway_port} "
-                                  r"-l fixture-user [0-9a-f-]+\.filesharing\.invalid$")
-        self.assertTrue(browser.evaluate("document.querySelector('#ssh-relay-fingerprint').textContent.startsWith('SHA256:')"))
-        browser.evaluate("document.querySelector('#ssh-relay-close').click()")
-        browser.wait("document.querySelector('#ssh-relay-connection').hidden && !document.querySelector('#ssh-relay-fields').disabled")
 
     def test_browser_streams_application_activity_and_recovers_dialog_and_diagnostics_over_rest(self):
         fixture = self.fixture

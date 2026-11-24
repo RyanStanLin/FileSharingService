@@ -1,9 +1,5 @@
 # FileSharing 验收记录
 
-## Agent 0.5.7
-
-`test_ssh_relay_edits_with_vim_and_limits_jump_destination` 使用隔离的 macOS sshd 和 OpenSSH 客户端，验证 Vim 输入、窗口缩放、保存退出、目标端口限制、一次性公钥授权，以及 Agent 使用 HTTPS 连接时撤销授权后结束活动中继。 `test_browser_authorizes_ssh_relay_and_shows_the_native_command` 验证 Demo 的授权表单、连接命令和关闭操作。 [SSH 中继 API](api.md#ssh-中继)
-
 ## Agent 0.5.5
 
 `test_terminal_session_keeps_native_cwd_and_streams_on_wss_and_https` 验证真实 PTY 输出、退出顺序、跨命令目录状态、符号链接限制、Passkey 会话隔离和会话关闭。 `test_terminal_helper_enforces_the_allowlist_and_scope_independently` 验证 Mac helper 独立拒绝非法程序、参数和越界目录。 `test_browser_terminal_streams_then_resumes_over_rest` 在 Chrome 中连接同一个终端，关闭浏览器 WebSocket 后通过 REST 游标继续运行命令并显示输出。 [终端 API](api.md#远程终端会话)

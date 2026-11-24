@@ -118,7 +118,6 @@ case "${1:-start}" in
             FileSharing__BootstrapSecret="$secret" \
             FileSharing__GatewayCredentialKey="$gateway_key" \
             FileSharing__EnableDemo=true \
-            FileSharing__SshRelay__Enabled=true \
             FileSharing__KnownProxies= \
             FileSharing__BlockAgentWebSocket=false \
             FileSharing__Ftp__Bind=127.0.0.1 \

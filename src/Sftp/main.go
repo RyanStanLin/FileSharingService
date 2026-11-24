@@ -40,7 +40,6 @@ func run() error {
 	}
 	bridge := newBridge(origin.String(), token)
 	defer bridge.client.CloseIdleConnections()
-	defer bridge.relay.CloseIdleConnections()
 	key, err := hostKey(os.Getenv("FILESHARING_SFTP_KEY"))
 	if err != nil {
 		return fmt.Errorf("load SFTP host key: %w", err)
@@ -131,7 +130,6 @@ func serve(ctx context.Context, raw net.Conn, config ssh.ServerConfig, bridge *b
 		session = response.Token
 		return nil, nil
 	}
-	config.PublicKeyCallback = bridge.authorizeJump(ctx)
 	_ = raw.SetDeadline(time.Now().Add(12 * time.Second))
 	server, channels, requests, err := ssh.NewServerConn(connection, &config)
 	if err != nil {
@@ -141,10 +139,6 @@ func serve(ctx context.Context, raw net.Conn, config ssh.ServerConfig, bridge *b
 	_ = raw.SetDeadline(time.Time{})
 	connection.startIdleDeadline()
 	go ssh.DiscardRequests(requests)
-	if server.Permissions != nil && server.Permissions.Extensions["relay"] != "" {
-		bridge.serveJump(ctx, channels, server.Permissions.Extensions)
-		return
-	}
 	go renewSession(ctx, raw, bridge, session)
 
 	used := false
