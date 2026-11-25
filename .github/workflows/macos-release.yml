@@ -42,7 +42,7 @@ jobs:
             exit 1
           fi
           version=${RELEASE_TAG#v}
-          scripts/build-agent.sh dmg
+          scripts/build-agent.sh dmg "$version"
           image="FileSharingService-$version.dmg"
           cd artifacts
           if [[ ! -f "$image" ]]; then

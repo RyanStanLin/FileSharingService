@@ -47,6 +47,8 @@ jobs:
           cache: pip
           cache-dependency-path: tests/requirements.txt
       - run: python3 -m pip install -r tests/requirements.txt
+      - name: Build and verify the universal macOS app
+        run: scripts/build-agent.sh check
       - name: Test Passkey, file transports, WebSocket and storage
         run: |
           scripts/test-local.sh \

@@ -3,6 +3,24 @@ set -euo pipefail
 umask 077
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
+mode="${1:-dmg}"
+case "$mode" in test|check|dmg) ;; *) printf '%s\n' 'Usage: scripts/build-agent.sh test|check|dmg [expected-version]' >&2; exit 1;; esac
+
+settings="$root/src/MacApp/Build.xcconfig"
+build_setting() {
+    awk -v key="$1" '$1 == key && $2 == "=" { print $3 }' "$settings"
+}
+minimum_macos="$(build_setting MACOSX_DEPLOYMENT_TARGET)"
+version="$(build_setting MARKETING_VERSION)"
+build_number="$(build_setting CURRENT_PROJECT_VERSION)"
+: "${minimum_macos:?Missing MACOSX_DEPLOYMENT_TARGET in $settings}"
+: "${version:?Missing MARKETING_VERSION in $settings}"
+: "${build_number:?Missing CURRENT_PROJECT_VERSION in $settings}"
+if [ "${2:-$version}" != "$version" ]; then
+    printf 'Release tag v%s requires app version %s, but Build.xcconfig specifies %s.\n' "$2" "$2" "$version" >&2
+    exit 1
+fi
+
 mkdir -p "$root/.local" "$root/artifacts"
 stage="$(mktemp -d "$root/.local/agent-build.XXXXXXXX")"
 mount=""
@@ -13,16 +31,13 @@ cleanup() {
     rm -rf "$stage"
 }
 trap cleanup EXIT
-mode="${1:-dmg}"
 
 if [ "$mode" = test ]; then
-    swiftc -swift-version 5 -O -target "$(uname -m)-apple-macosx15.0" -D FILESHARING_TEST \
+    swiftc -swift-version 5 -O -target "$(uname -m)-apple-macosx$minimum_macos" -D FILESHARING_TEST \
         "$root"/src/Mac/*.swift -o "$stage/FileSharingAgent.loopback"
     mv "$stage/FileSharingAgent.loopback" "$root/artifacts/FileSharingAgent.loopback"
     exit 0
 fi
-
-case "$mode" in check|dmg) ;; *) printf '%s\n' 'Usage: scripts/build-agent.sh test|check|dmg' >&2; exit 1;; esac
 
 origin="${FILESHARING_ORIGIN:-https://filesharing.ryanl.in}"
 backup="${FILESHARING_BACKUP_ORIGIN:-}"
@@ -58,13 +73,35 @@ app="$stage/DerivedData/Build/Products/Release/FileSharingService.app"
 verify_app() {
     local bundle="$1"
     local binary="$bundle/Contents/MacOS/FileSharingService"
+    local info="$bundle/Contents/Info.plist"
     local plist="$bundle/Contents/Library/LaunchAgents/in.ryanl.filesharing.agent.plist"
-    lipo "$binary" -verify_arch arm64
-    lipo "$binary" -verify_arch x86_64
-    plutil -lint "$bundle/Contents/Info.plist" "$plist"
+    local arch binary_minimum
+    if [ ! -x "$binary" ]; then
+        printf 'App executable is missing or cannot be executed at %s.\n' "$binary" >&2
+        return 1
+    fi
+    for arch in arm64 x86_64; do
+        lipo "$binary" -verify_arch "$arch"
+        binary_minimum="$(xcrun vtool -arch "$arch" -show-build "$binary" | awk '$1 == "minos" { print $2 }')"
+        if [ "$binary_minimum" != "$minimum_macos" ]; then
+            printf 'The %s binary requires macOS %s. Expected macOS %s.\n' "$arch" "$binary_minimum" "$minimum_macos" >&2
+            return 1
+        fi
+    done
+    plutil -lint "$info" "$plist"
     codesign --verify --strict "$bundle"
-    test "$(/usr/libexec/PlistBuddy -c 'Print :FileSharingOrigin' "$bundle/Contents/Info.plist")" = "$origin"
-    test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconName' "$bundle/Contents/Info.plist")" = FileSharing
+    if [ "$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$info")" != "$minimum_macos" ]; then
+        printf 'The app Info.plist must specify macOS %s as the minimum system version.\n' "$minimum_macos" >&2
+        return 1
+    fi
+    if [ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$info")" != "$version" ] ||
+        [ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$info")" != "$build_number" ]; then
+        printf 'The app Info.plist must specify version %s and build %s.\n' "$version" "$build_number" >&2
+        return 1
+    fi
+    test "$("$binary" version)" = "$version"
+    test "$(/usr/libexec/PlistBuddy -c 'Print :FileSharingOrigin' "$info")" = "$origin"
+    test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconName' "$info")" = FileSharing
     test -s "$bundle/Contents/Resources/FileSharing.icns"
     test -s "$bundle/Contents/Resources/Assets.car"
     test "$(/usr/libexec/PlistBuddy -c 'Print :Label' "$plist")" = in.ryanl.filesharing.agent
@@ -72,16 +109,15 @@ verify_app() {
     test "$(/usr/libexec/PlistBuddy -c 'Print :KeepAlive' "$plist")" = true
     test "$(/usr/libexec/PlistBuddy -c 'Print :ProgramArguments:0' "$plist")" = FileSharingService
     test "$(/usr/libexec/PlistBuddy -c 'Print :ProgramArguments:1' "$plist")" = run
-    test -x "$binary"
 }
 
+verify_app "$app"
 if [ "$mode" = check ]; then
-    verify_app "$app"
     exit 0
 fi
 
 payload="$stage/volume"
-mkdir -p "$payload" "$stage/mount"
+mkdir -p "$payload"
 ditto "$app" "$payload/FileSharingService.app"
 ln -s /Applications "$payload/Applications"
 install -m 755 "$root/scripts/open-installed-app.command" "$payload/Open FileSharingService.command"
@@ -97,15 +133,28 @@ printf '%s\n' 'xattr -dr com.apple.quarantine' > "$payload/xattr.txt"
 image="$stage/FileSharingService.dmg"
 hdiutil create -quiet -volname FileSharingService -srcfolder "$payload" -format UDZO -fs HFS+ "$image"
 hdiutil verify -quiet "$image"
-hdiutil attach -quiet -readonly -nobrowse -mountpoint "$stage/mount" "$image"
-mount="$stage/mount"
+mount="$(hdiutil attach -readonly -nobrowse -mountrandom "$stage" -plist "$image" | python3 -c '
+import plistlib
+import sys
+
+entities = plistlib.loads(sys.stdin.buffer.read())["system-entities"]
+mounts = [entity["mount-point"] for entity in entities if "mount-point" in entity]
+if len(mounts) != 1:
+    raise SystemExit("Expected one mounted volume in the DMG.")
+print(mounts[0])
+')"
+for ((attempt = 0; attempt < 5; attempt++)); do
+    if [ -x "$mount/FileSharingService.app/Contents/MacOS/FileSharingService" ]; then
+        break
+    fi
+    sleep 1
+done
 verify_app "$mount/FileSharingService.app"
 test "$(readlink "$mount/Applications")" = /Applications
 test -x "$mount/Open FileSharingService.command"
 printf '%s\n' 'xattr -dr com.apple.quarantine' | cmp - "$mount/xattr.txt"
 diskutil eject "$mount" >/dev/null
 mount=""
-version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")"
 name="FileSharingService-$version.dmg"
 mv "$image" "$root/artifacts/$name"
 cd "$root/artifacts"

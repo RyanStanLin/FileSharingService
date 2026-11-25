@@ -76,6 +76,7 @@
 		B1010000000000000000000B /* TerminalArchive.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalArchive.swift; sourceTree = "<group>"; };
 		B1010000000000000000000C /* TerminalRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalRuntime.swift; sourceTree = "<group>"; };
 		B1010000000000000000000D /* RestartMaintenance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestartMaintenance.swift; sourceTree = "<group>"; };
+		B1010000000000000000000E /* Build.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Build.xcconfig; sourceTree = "<group>"; };
 		ED8F7DF021C9E9C519408A96 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		FF45F7C56E4634D42B8B5B3A /* JSON.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSON.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -143,6 +144,7 @@
 		FC233BDA2344D97687F5A251 /* App */ = {
 			isa = PBXGroup;
 			children = (
+				B1010000000000000000000E /* Build.xcconfig */,
 				ACDB3D7698DE3C076C245E16 /* FirstLaunch.swift */,
 				ED8F7DF021C9E9C519408A96 /* Info.plist */,
 				B10100000000000000000007 /* FileSharing.icon */,
@@ -245,13 +247,13 @@
 /* Begin XCBuildConfiguration section */
 		2A04C20BF6D5C20A63A1D4CC /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = B1010000000000000000000E /* Build.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_APPICON_NAME = FileSharing;
 				CODE_SIGNING_REQUIRED = YES;
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 27;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_APP_SANDBOX = NO;
 				FILESHARING_ALLOW_HOME_WRITE = YES;
@@ -260,8 +262,6 @@
 				FILESHARING_ORIGIN = "https://filesharing.ryanl.in";
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = src/MacApp/Info.plist;
-				MACOSX_DEPLOYMENT_TARGET = "$(RECOMMENDED_MACOSX_DEPLOYMENT_TARGET)";
-				MARKETING_VERSION = 0.5.13;
 				PRODUCT_BUNDLE_IDENTIFIER = in.ryanl.filesharing.agent;
 				PRODUCT_NAME = FileSharingService;
 				SDKROOT = macosx;
@@ -287,13 +287,13 @@
 		};
 		E28089EB494F94D6F9770EC2 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = B1010000000000000000000E /* Build.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_APPICON_NAME = FileSharing;
 				CODE_SIGNING_REQUIRED = YES;
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 27;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_APP_SANDBOX = NO;
 				FILESHARING_ALLOW_HOME_WRITE = YES;
@@ -302,8 +302,6 @@
 				FILESHARING_ORIGIN = "https://filesharing.ryanl.in";
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = src/MacApp/Info.plist;
-				MACOSX_DEPLOYMENT_TARGET = "$(RECOMMENDED_MACOSX_DEPLOYMENT_TARGET)";
-				MARKETING_VERSION = 0.5.13;
 				ONLY_ACTIVE_ARCH = NO;
 				PRODUCT_BUNDLE_IDENTIFIER = in.ryanl.filesharing.agent;
 				PRODUCT_NAME = FileSharingService;

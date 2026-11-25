@@ -28,7 +28,9 @@ SFTP 首连时按管理页的指纹验证主机。FTPS 使用文件协议域名�
 
 ## macOS Release
 
-将 Xcode 的应用版本更新后推送对应的 `vMAJOR.MINOR.PATCH` 标签。`macOS release` 构建 arm64 和 x86_64 通用 DMG，校验签名、LaunchAgent、内置 HTTPS 地址和文本文件，再把 DMG 与 SHA-256 校验文件上传到 GitHub Release。已有标签可从 Actions 手动打包。
+客户端支持 macOS 14.0 Sonoma 及以上版本。`src/MacApp/Build.xcconfig` 统一设置 Debug、Release 和测试构建的最低系统版本，并记录 App 版本和构建号。
+
+发布时先更新 `Build.xcconfig` 的 `MARKETING_VERSION` 并递增 `CURRENT_PROJECT_VERSION`。将提交推送到 `main`，待 CI 通过后给同一提交加上与 App 版本对应的 `vMAJOR.MINOR.PATCH` 标签。`macOS release` 在打包前核对标签版本，构建 arm64 和 x86_64 通用 DMG，并验证两种架构的最低系统版本、签名、LaunchAgent、内置 HTTPS 地址和安装说明。DMG 与 SHA-256 校验文件上传到 GitHub Release。已有标签可从 Actions 手动打包以补发 Release。
 
 客户端和打包脚本默认连接 `https://filesharing.ryanl.in`。本机联调命令可显式指定回环地址。 [本机联调](docs/local-demo.md)
 
