@@ -52,6 +52,8 @@ export const en = {
   loadingFolder: 'Reading folder…',
   retry: 'Retry',
   close: 'Close',
+  back: 'Back',
+  backTo: 'Back to {destination}',
   cancel: 'Cancel',
   save: 'Save',
   folderTree: 'Folder tree',

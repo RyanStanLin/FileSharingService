@@ -23,7 +23,6 @@ const terminal = {
   terminalExit: ['Exit code {code}', '退出码 {code}'],
   terminalOpenImmersive: ['Open in immersive terminal', '在沉浸终端中打开'],
   terminalImmersive: ['Immersive terminal', '沉浸终端'],
-  terminalBack: ['Back to Terminal', '返回终端'],
   terminalScreenOutput: ['Interactive output is available in the immersive terminal.', '可在沉浸终端中查看交互画面。'],
   terminalOutputPreview: ['Showing the latest output. The complete transcript is available for download.', '正在显示最新输出。可下载完整记录。'],
   terminalDownload: ['Download transcript', '下载终端记录'],

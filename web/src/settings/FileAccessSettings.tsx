@@ -4,6 +4,7 @@ import {readShares} from '../api/devices'
 import {deleteRoot, revokeDevice, writeRoot} from '../api/settings'
 import type {Device, LocalRoot, Root} from '../api/types'
 import {useLanguage} from '../i18n'
+import {BackButton} from '../ui/BackButton'
 import {Loading, Retry} from '../ui/Feedback'
 import {useResource, useTask} from '../ui/async'
 import {DeleteSetting} from './DeleteSetting'
@@ -68,7 +69,7 @@ function GrantEditor({device, scope, grant, refresh}: {
   }
 
   return <SettingsPanel title={base?.label ?? scope?.label ?? t('sharedFolders')} description={t('settingsFileAccessHelp')}
-    actions={<Link href={settingsHref('fileAccess')}>{t('sharedFolders')}</Link>}
+    actions={<BackButton to={settingsHref('fileAccess')} destination={t('sharedFolders')} />}
     busy={task.busy} disabled={!scope || !label.trim() || !dirty} onApply={scope && (() => void task.run(async signal => {
       show(await writeRoot(device.id, base, scope, {label: label.trim(), enabled, writable}, signal))
       setSaved(true)

@@ -1,5 +1,4 @@
 import {useState} from 'react'
-import {Link} from '@primer/react'
 import {deleteRule, readRules, readWatches, saveRule} from '../api/notifications'
 import type {NotificationCatalog, NotificationChannel, NotificationRule} from '../api/notificationTypes'
 import type {Device} from '../api/types'
@@ -8,6 +7,7 @@ import {DeleteSetting} from '../settings/DeleteSetting'
 import {SettingsRow, SettingsRows} from '../settings/SettingsFields'
 import {SettingsBand, SettingsNotice, SettingsPanel} from '../settings/SettingsPanel'
 import {subscriptionHref} from '../settings/settingsLocation'
+import {BackButton} from '../ui/BackButton'
 import {useRefresh, useResource, useTask} from '../ui/async'
 import {RuleChoices} from './RuleChoices'
 import {RuleFilters} from './RuleFilters'
@@ -70,7 +70,7 @@ export function RuleEditor({rule, device, devices, channels, catalog, refresh, r
     draft, disabled: task.busy, attempted, change: (patch: Partial<RuleDraft>) => setDraft(previous => ({...previous, ...patch})),
   }
   return <SettingsPanel title={base?.name ?? t('notificationNewRule')} description={t('notificationRulesHelp')}
-    actions={<Link href={subscriptionHref()}>{t('notificationAllRules')}</Link>}
+    actions={<BackButton to={subscriptionHref()} destination={t('notificationAllRules')} />}
     notice={!!(task.error || (saved && !dirty)) && <SettingsNotice error={task.error} saved={saved && !dirty} reload={base && (() => void task.run(async signal => {
         const latest = (await readRules(signal)).find(item => item.id === base.id)
         if (latest) show(latest)

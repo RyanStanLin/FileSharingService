@@ -1,7 +1,8 @@
 import {Button, Heading, Stack} from '@primer/react'
-import {ArrowLeftIcon, DownloadIcon} from '@primer/octicons-react'
+import {DownloadIcon} from '@primer/octicons-react'
 import {terminalDownload} from '../api/terminals'
 import {useLanguage} from '../i18n'
+import {BackButton} from '../ui/BackButton'
 import {Loading, Retry} from '../ui/Feedback'
 import {TerminalComposer} from './TerminalComposer'
 import {terminalHref} from './terminalLocation'
@@ -16,7 +17,7 @@ export default function ImmersiveTerminal({deviceId, id}: {deviceId: string; id:
   return <Stack as="main" className={styles.immersive} gap="none" aria-label={t('terminalImmersive')}>
     <Stack as="header" direction="horizontal" align="center" justify="space-between" wrap="wrap" gap="condensed"
       paddingBlock="cozy" paddingInline="normal" className={styles.toolbar}>
-      <Button as="a" href={terminalHref(id, deviceId)} size="medium" leadingVisual={ArrowLeftIcon}>{t('terminalBack')}</Button>
+      <BackButton to={terminalHref(id, deviceId)} destination={t('terminal')} />
       <Heading as="h1" className={styles.title}>{t('terminalImmersive')}</Heading>
       <Button as="a" href={terminalDownload({deviceId, id})} size="medium" leadingVisual={DownloadIcon} download>{t('terminalDownload')}</Button>
     </Stack>

@@ -53,6 +53,8 @@ export const zh: Record<keyof typeof en, string> = {
   loadingFolder: '正在读取文件夹…',
   retry: '重试',
   close: '关闭',
+  back: '返回',
+  backTo: '返回{destination}',
   cancel: '取消',
   save: '保存',
   folderTree: '目录树',

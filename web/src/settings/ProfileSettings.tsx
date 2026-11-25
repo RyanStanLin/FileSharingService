@@ -3,6 +3,7 @@ import {Button, Link} from '@primer/react'
 import {PlusIcon} from '@primer/octicons-react'
 import {deleteProfile, readProfiles, saveProfile, type CollectionProfile} from '../api/settings'
 import {useLanguage} from '../i18n'
+import {BackButton} from '../ui/BackButton'
 import {Loading, Retry} from '../ui/Feedback'
 import {useResource, useTask} from '../ui/async'
 import {DeleteSetting} from './DeleteSetting'
@@ -53,7 +54,7 @@ function ProfileEditor({current, fallback, refresh}: {current?: CollectionProfil
   }
 
   return <SettingsPanel title={base?.name ?? t('settingsNewProfile')} description={t('settingsProfilesHelp')} busy={task.busy}
-    actions={<Link href={settingsHref('profiles')}>{t('settingsProfiles')}</Link>}
+    actions={<BackButton to={settingsHref('profiles')} destination={t('settingsProfiles')} />}
     disabled={!dirty || !values || !name.trim()} onApply={() => void task.run(async signal => {
       if (!values) return
       show(await saveProfile(base, name.trim(), values, signal))

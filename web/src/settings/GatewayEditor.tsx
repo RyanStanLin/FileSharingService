@@ -1,5 +1,4 @@
 import {useState} from 'react'
-import {Link} from '@primer/react'
 import {ApiError} from '../api/client'
 import {
   createGatewayAccount, gatewayMode, readGatewayAccount, removeGatewayAccount, updateGatewayAccount, validGatewayPassword,
@@ -8,6 +7,7 @@ import {
 import {readRoots} from '../api/settings'
 import type {Device} from '../api/types'
 import {useLanguage} from '../i18n'
+import {BackButton} from '../ui/BackButton'
 import {ChoiceMenu} from '../ui/ChoiceMenu'
 import {ErrorText, Loading} from '../ui/Feedback'
 import {Modal} from '../ui/Modal'
@@ -53,7 +53,7 @@ export function GatewayEditor({current, endpoints, devices, refresh}: {
   }
 
   return <SettingsPanel title={base?.name ?? t('settingsGatewayNew')} description={t('settingsGatewayHelp')}
-    actions={<Link href={settingsHref('gateway')}>{t('settingsGateway')}</Link>} busy={task.busy}
+    actions={<BackButton to={settingsHref('gateway')} destination={t('settingsGateway')} />} busy={task.busy}
     disabled={!dirty || !nameValid || !passwordValid || (draft.scope === 'grants' && draft.rootIds.length === 0) || !modes.length}
     onApply={() => void task.run(async signal => {
       const input = {...draft, name: draft.name.trim(), rootIds: draft.scope === 'grants' ? draft.rootIds : [], password: draft.password || undefined}

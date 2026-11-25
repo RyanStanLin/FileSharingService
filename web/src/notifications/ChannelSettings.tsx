@@ -8,6 +8,7 @@ import {DeleteSetting} from '../settings/DeleteSetting'
 import {SettingsRow, SettingsRows} from '../settings/SettingsFields'
 import {SettingsBand, SettingsNotice, SettingsPanel} from '../settings/SettingsPanel'
 import {NEW_ITEM, settingsHref} from '../settings/settingsLocation'
+import {BackButton} from '../ui/BackButton'
 import {Loading, Retry} from '../ui/Feedback'
 import {useRefresh, useResource, useTask} from '../ui/async'
 import {ChannelActions} from './ChannelActions'
@@ -67,7 +68,7 @@ function ChannelEditor({current, credentialsEnabled, refresh, encryptionConfigur
   }
 
   return <SettingsPanel title={base?.name ?? t('notificationAddChannel')} description={t('notificationChannelsHelp')}
-    actions={<Link href={settingsHref('channels')}>{t('notificationChannels')}</Link>}
+    actions={<BackButton to={settingsHref('channels')} destination={t('notificationChannels')} />}
     disabled={!dirty || (!base && !credentialsEnabled)} busy={task.busy} onApply={() => {
       setAttempted(true)
       if (Object.keys(errors).length || !draft.name.trim()) return
