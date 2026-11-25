@@ -53,6 +53,7 @@ public static class Program
         builder.Services.AddSingleton<AgentBroker>();
         builder.Services.AddSingleton<AgentIngest>();
         builder.Services.AddSingleton<DeviceService>();
+        builder.Services.AddSingleton<IDeviceMaintenance, DeviceMaintenance>();
         builder.Services.AddSingleton<EventFeed>();
         builder.Services.AddSingleton<WatchRegistry>();
         builder.Services.AddSingleton<WindowFeed>();
@@ -175,6 +176,7 @@ public static class Program
         var api = app.MapGroup("/api/v1");
         AuthEndpoints.Map(api);
         ManagementEndpoints.Map(api);
+        DeviceMaintenanceEndpoints.Map(api);
         FtpEndpoints.Map(api);
         DataEndpoints.Map(api);
         NotificationEndpoints.Map(api);

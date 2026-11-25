@@ -1,5 +1,14 @@
 # FileSharing 验收记录
 
+## Agent 0.5.12 · 维护模式
+
+- `test_maintenance_restart_is_held_and_can_end_while_agent_is_offline` 验证 WSS 下发、本地确认、十分钟硬上限、拒绝延长和停机期间提前结束，并校验 WebSocket 状态与新连接上的再次开启。
+- `test_maintenance_deadline_recovers_without_server_via_http_fallback` 验证 HTTPS 下发、服务器停止后的自主恢复和等待进程被再次杀掉后的原截止时间。
+- `test_maintenance_rejects_old_agents_and_releases_unconfirmed_ticket` 验证旧版 Agent 能力判断，以及提前结束与迟到确认并发时的处理。
+- 隔离的 macOS Aqua LaunchAgent 验证了真实 launchd 的重启行为。Agent 被 SIGKILL 后进入等待。服务器重启后可提前结束，launchd 会加载替换后的可执行文件，已核对新进程映射的文件 inode。另用缩短的隔离测试截止时间验证服务器关闭时的本地自动恢复，等待进程持续时间超过常规启动 watchdog 的间隔。
+
+[维护 API 与操作步骤](maintenance-mode.md)
+
 ## Agent 0.5.9
 
 `test_terminal_runs_across_server_restart_and_replays_all_output` 关闭服务端并让 Mac 在离线时生成超过一页的 PTY 输出。启动新服务端并用 Passkey 重新解锁后，验证 PID 保持、同一会话自动绑定新设备连接、帧及下载内容完整、退出码可查询，以及等待中的终止请求和删除记录。Chrome 回归验证会话选择、重新加载后查看已终止的记录，以及删除流程。 [终端 API](api.md#远程终端会话)

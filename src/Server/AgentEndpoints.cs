@@ -236,6 +236,11 @@ internal static class AgentEndpoints
         });
         group.MapGet("/policy", async (HttpContext ctx, AgentBroker broker, DeviceService devices, CancellationToken ct) =>
             TypedResults.Ok(await Policy(broker.OpenChannel(ctx), broker, devices, ct)));
+        group.MapGet("/maintenance/{leaseId}", async (string leaseId, HttpContext context, IDeviceMaintenance maintenance, CancellationToken ct) =>
+        {
+            var header = context.Request.Headers[DeviceMaintenance.TicketHeader];
+            return TypedResults.Ok(await maintenance.CheckTicket(leaseId, header.Count == 1 ? header[0] : null, ct));
+        });
         group.MapGet("/ws", Socket).RequireRateLimiting("agent-connect");
     }
 

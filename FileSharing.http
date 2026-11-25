@@ -8,6 +8,7 @@
 @targetRoot = 25595568-2f3e-4300-8ca3-a9abf709728f
 @localRoot = 93327b87-7c53-4a91-85c3-78105b3916b8
 @connection = 2191fa7c-cebe-40ad-baea-56b42a4276dc
+@maintenanceLease = 00000000-0000-0000-0000-000000000000
 @profile = default
 @revision = 1
 @listingRevision = REPLACE
@@ -506,4 +507,22 @@ Origin: {{origin}}
 
 ### Invalid identifier
 GET {{api}}/devices/invalid-device
+Cookie: {{cookie}}
+
+
+### Read the device's restart maintenance window
+GET {{api}}/devices/{{device}}/maintenance
+Cookie: {{cookie}}
+
+### Start a ten-minute restart maintenance window
+POST {{api}}/devices/{{device}}/maintenance
+Origin: {{origin}}
+Cookie: {{cookie}}
+Content-Type: application/json
+
+{"connectionId":"{{connection}}"}
+
+### End the current window using the returned lease ID
+DELETE {{api}}/devices/{{device}}/maintenance/{{maintenanceLease}}
+Origin: {{origin}}
 Cookie: {{cookie}}

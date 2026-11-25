@@ -117,6 +117,10 @@ Profile 为 `{id,name,settings,revision}`。采样周期以秒为单位，`0` �
 {"cpu":0,"memory":0,"disk":60,"battery":60,"displays":0,"network":30,"system":60,"agent":60,"power":60,"storage":60,"appsRunning":60,"keepAwake":true}
 ```
 
+## Agent 维护模式
+
+`GET/POST /devices/D/maintenance` 读取或开启单台 Mac 的十分钟维护租约，`DELETE /devices/D/maintenance/{leaseId}` 提前结束它。开启需要已授权的当前连接和 Agent 的本地确认。结束支持 Agent 已停机的情况。状态、更新流程及 `maintenance.changed` 订阅见 [维护模式](maintenance-mode.md)。
+
 ## 根与权限
 
 | 方法与路径 | 参数 / 请求体 | 响应 |

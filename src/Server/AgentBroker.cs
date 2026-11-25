@@ -27,7 +27,7 @@ internal sealed class AgentBroker(Database db, AgentRegistration registration, N
 
     private enum PresenceChange { None, Open, Close }
 
-    internal sealed class Link(string device, string protocol, string? peerAddress, string? notificationProof)
+    internal sealed class Link(string device, string protocol, string? peerAddress, string? notificationProof, bool maintenanceSupported)
     {
         private readonly CancellationTokenSource stop = new();
 
@@ -36,6 +36,7 @@ internal sealed class AgentBroker(Database db, AgentRegistration registration, N
         public string Protocol { get; } = protocol;
         public string? PeerAddress { get; } = peerAddress;
         public string? NotificationProof { get; } = notificationProof;
+        public bool MaintenanceSupported { get; } = maintenanceSupported;
         public bool NotificationTrusted { get; set; }
         public SemaphoreSlim Lifecycle { get; } = new(1, 1);
         public string? Channel { get; } = protocol == "https" ? Secrets.New() : null;
@@ -76,7 +77,7 @@ internal sealed class AgentBroker(Database db, AgentRegistration registration, N
                     throw Fault.Conflict("device_already_connected");
             }
             await registration.Register(device, name, ct);
-            var link = new Link(device, protocol, context.Connection.RemoteIpAddress?.ToString(), proof);
+            var link = new Link(device, protocol, context.Connection.RemoteIpAddress?.ToString(), proof, hello.MaintenanceSupported == true);
             await Publish(link, CancellationToken.None, PresenceChange.Open);
             links[device] = link;
             if (link.Channel is { } channel)
@@ -108,6 +109,14 @@ internal sealed class AgentBroker(Database db, AgentRegistration registration, N
             return new(false, null, null, lastSeen is { } last ? Clock.At(last) : null, null, null, null, false, null);
         lock (link)
             return Read(link);
+    }
+
+    public bool SupportsMaintenance(string device)
+    {
+        if (!links.TryGetValue(device, out var link))
+            return false;
+        lock (link)
+            return Online(link) && link.MaintenanceSupported;
     }
 
     public string RequireAccess(string device, string? connectionId = null) => AccessibleLink(device, connectionId).Id;
@@ -445,6 +454,8 @@ internal sealed class AgentBroker(Database db, AgentRegistration registration, N
     private static Fault RemoteFault(string? code) => code switch
     {
         "invalid_diagnostic_command" => Fault.Bad(code),
+        "maintenance_lease_ended" => Fault.Conflict(code),
+        "maintenance_state_unavailable" or "maintenance_ticket_unavailable" => Fault.Unavailable(code),
         "terminal_busy" or "terminal_closed" or "terminal_command_ended" or "terminal_input_busy" => Fault.Conflict(code),
         "invalid_terminal_input" => Fault.Bad(code),
         "permission_denied" or "filesystem_access_denied" or "invalid_path" or "notification_permission_required" or "interactive_session_required" => Fault.Forbidden(code),

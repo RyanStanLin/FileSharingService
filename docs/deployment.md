@@ -50,6 +50,8 @@ SFTP 使用独立的 SSH TCP 入口，只需发布一个端口。Compose 在服�
 - Agent 上线后，选择当前设备连接开启远程文件操作。Desktop、Documents 和 Downloads 由用户在 macOS 的授权弹窗或系统设置中处理。若需新增企业目录，在受管用户进程调用 App 内的 `roots add read|write /absolute/path`，重启后台服务后在管理端授权。
 - DMG 采用本地 ad-hoc 签名的非公证 App，并内置用户 LaunchAgent。仓库中的特权电源辅助代码独立于这份拖装包。文件联调用默认本机地址时，Agent 保持只读并关闭电源修改。 [Apple 的首次打开说明](https://support.apple.com/en-us/102445) · [Apple 的内置 LaunchAgent 布局](https://developer.apple.com/documentation/servicemanagement/updating-helper-executables-from-earlier-versions-of-macos)
 
+Agent 0.5.12 起可使用服务端维护租约安排后续更新。收到本机确认后再停止常规 Agent，停机时保留已注册的 LaunchAgent。 [维护和恢复步骤](maintenance-mode.md)
+
 ## 从早期设备协议升级
 
 先备份 SQLite，再同步升级服务与 Agent。数据库在启动时迁移并保留设备 UUID、别名、目录授权、历史及管理员 Passkey。Agent 使用早期版本的本机 `enrollment.json` 继续识别已登记的设备。新协议使用 WSS hello 或公开的 HTTPS connect 接口。升级后，在新连接上重新开启远程操作。恢复旧版时使用升级前的数据库备份。

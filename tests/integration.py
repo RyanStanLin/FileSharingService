@@ -1,6 +1,7 @@
 import base64
 from contextlib import closing
 import concurrent.futures
+import ctypes
 from datetime import datetime, timezone
 import fcntl
 import ftplib
@@ -616,6 +617,7 @@ class Acceptance(unittest.TestCase):
                 DROP TABLE TerminalFrames;
                 DROP TABLE TerminalDeletions;
                 DROP TABLE TerminalSessions;
+                DROP TABLE DeviceMaintenance;
                 CREATE TABLE FtpAccountsPrior(
                     Id TEXT PRIMARY KEY, Name TEXT NOT NULL COLLATE NOCASE UNIQUE, Owner TEXT NOT NULL REFERENCES Operators(Id),
                     Mode TEXT NOT NULL CHECK(Mode IN ('ftp','ftps')), SecretHash TEXT NOT NULL,
@@ -646,7 +648,7 @@ class Acceptance(unittest.TestCase):
         item = self.api("GET", self.device_api + f"/clipboard/records/{clipboard_id}").json()
         self.assertEqual((item["occurredAt"], item["content"]), (stamp, "N/A"))
         with closing(sqlite3.connect(self.work / "db" / "filesharing.db")) as data, data:
-            self.assertEqual(data.execute("PRAGMA user_version").fetchone()[0], 9)
+            self.assertEqual(data.execute("PRAGMA user_version").fetchone()[0], 10)
             self.assertEqual(data.execute("PRAGMA foreign_key_check").fetchall(), [])
             self.assertNotIn("PublicKey", [row[1] for row in data.execute("PRAGMA table_info(Devices)")])
             self.assertEqual(data.execute("SELECT COUNT(*) FROM sqlite_master WHERE name IN ('AgentTokens','Activations')").fetchone()[0], 0)
@@ -2824,10 +2826,157 @@ precondition(board.setString("ISOLATED_CLIPBOARD_CONTENT", forType: .string))
         self.send_agent_frames(connection, added(second, "new.txt"))
         self.assertEqual(self.wait_rule_event(rule, "file.added")["message"]["body"], "new.txt")
 
+    def test_maintenance_restart_is_held_and_can_end_while_agent_is_offline(self):
+        registration = self.setup_device(allow_access=False)
+        route = self.device_api + "/maintenance"
+        connection_id = registration["connection"]["connectionId"]
+        start = {"connectionId": connection_id}
+        self.api("GET", route, 401, session=self.client())
+        self.assertEqual(self.api("GET", route).json()["state"], "inactive")
+        self.assertTrue(self.api("GET", route).json()["supported"])
+        self.api("POST", route, 403, json=start)
+        self.set_access(connection_id, True)
+        self.api("POST", route, 409, json={"connectionId": str(uuid.uuid4())})
+        self.api("POST", route, 400, json=start | {"durationSeconds": 3600})
+        ws = self.channel()
+        self.addCleanup(ws.close)
+        self.receive(ws, lambda frame: frame["type"] == "ready")
+        ws.send(json.dumps({"type": "subscribe", "id": "maintenance", "deviceId": self.device, "topic": "maintenance.changed"}))
+        self.receive(ws, lambda frame: frame["type"] == "subscribed")
+        response = self.api("POST", route, 201, json=start)
+        self.assertEqual(response.headers["Location"], route)
+        lease = response.json()
+        self.assertEqual(lease["state"], "active")
+        update = self.receive(ws, lambda frame: frame["type"] == "event")["item"]["payload"]
+        self.assertEqual((update["leaseId"], update["state"], update["expiresAt"]), (lease["leaseId"], "active", lease["expiresAt"]))
+        self.assertIsNotNone(lease["confirmedAt"])
+        self.assertEqual((datetime.fromisoformat(lease["expiresAt"]) - datetime.fromisoformat(lease["startedAt"])).total_seconds(), 600)
+        self.assertEqual(self.api("POST", route, 409, json=start).json()["code"], "maintenance_already_open")
+        self.assertEqual(self.api("GET", route).json()["expiresAt"], lease["expiresAt"])
+
+        marker = self.agent_state / "restart-maintenance.json"
+        local = json.loads(marker.read_text())
+        self.assertEqual(local["id"], lease["leaseId"])
+        self.assertEqual(stat.S_IMODE(marker.stat().st_mode), 0o600)
+        self.assertNotIn(local["ticket"], response.text)
+        ticket_path = "/agent/v1/maintenance/" + lease["leaseId"]
+        self.api("GET", ticket_path, 404)
+        self.api("GET", ticket_path, 404, headers={"X-FileSharing-Maintenance": secrets.token_urlsafe(32)})
+        with closing(sqlite3.connect(self.work / "db" / "filesharing.db")) as data:
+            stored_hash, = data.execute("SELECT TicketHash FROM DeviceMaintenance").fetchone()
+            self.assertEqual(stored_hash, hashlib.sha256(local["ticket"].encode()).hexdigest().upper())
+
+        self.agent.kill()
+        self.agent.wait(timeout=5)
+        self.wait(lambda: not self.api("GET", self.device_api).json()["connection"]["online"])
+        gate = self.spawn([str(APP), "run"], "agent.log", self.env)
+        time.sleep(1)
+        self.assertIsNone(gate.poll())
+        self.assertFalse(self.api("GET", self.device_api).json()["connection"]["online"])
+        self.assertEqual(self.api("GET", route).json()["state"], "active")
+        self.api("DELETE", route + "/" + str(uuid.uuid4()), 404)
+        close_path = route + "/" + lease["leaseId"]
+        self.api("DELETE", close_path, 204)
+        self.api("DELETE", close_path, 204)
+        self.assertEqual(self.api("GET", route).json()["state"], "ended")
+        update = self.receive(ws, lambda frame: frame["type"] == "event")["item"]["payload"]
+        self.assertEqual((update["leaseId"], update["state"]), (lease["leaseId"], "ended"))
+        self.assertEqual(self.api("GET", ticket_path, headers={"X-FileSharing-Maintenance": local["ticket"]}).json(),
+                         {"remainingMilliseconds": 0})
+        self.assertEqual(gate.wait(timeout=9), 0)
+        self.assertFalse(marker.exists())
+
+        self.agent = self.spawn([str(APP), "run"], "agent.log", self.env)
+        restored = self.wait(lambda: (presence if (presence := self.api("GET", self.device_api).json()["connection"])["online"] else None))
+        self.assertNotEqual(restored["connectionId"], connection_id)
+        self.assertFalse(restored["accessGranted"])
+        self.set_access(restored["connectionId"], True)
+        next_lease = self.api("POST", route, 201, json={"connectionId": restored["connectionId"]}).json()
+        self.assertNotEqual(next_lease["leaseId"], lease["leaseId"])
+        self.api("DELETE", close_path, 404)
+        self.api("DELETE", route + "/" + next_lease["leaseId"], 204)
+        self.wait(lambda: not marker.exists())
+
+    def test_maintenance_deadline_recovers_without_server_via_http_fallback(self):
+        self.stop(self.server)
+        self.start_server(polling=True)
+        registration = self.setup_device()
+        self.assertEqual(registration["connection"]["protocol"], "https")
+        route = self.device_api + "/maintenance"
+        lease = self.api("POST", route, 201, json={"connectionId": registration["connection"]["connectionId"]}).json()
+        self.assertEqual(lease["state"], "active")
+        marker = self.agent_state / "restart-maintenance.json"
+        local = json.loads(marker.read_text())
+        self.assertGreater(local["deadline"] - local["observed"], 590_000_000_000)
+        self.assertLessEqual(local["deadline"] - local["observed"], 600_000_000_000)
+
+        self.agent.kill()
+        self.agent.wait(timeout=5)
+        self.stop(self.server)
+        clock = ctypes.CDLL(None).clock_gettime_nsec_np
+        clock.argtypes = (ctypes.c_uint,)
+        clock.restype = ctypes.c_uint64
+        # Shorten the deadline only in this isolated fixture, using Darwin's CLOCK_MONOTONIC_RAW.
+        local["deadline"] = clock(4) + 5_000_000_000
+        marker.write_text(json.dumps(local))
+        gate = self.spawn([str(APP), "run"], "agent.log", self.env)
+        time.sleep(0.7)
+        self.assertIsNone(gate.poll())
+        gate.kill()
+        gate.wait(timeout=5)
+        gate = self.spawn([str(APP), "run"], "agent.log", self.env)
+        self.assertEqual(gate.wait(timeout=9), 0)
+        self.assertGreaterEqual(clock(4), local["deadline"])
+        self.assertFalse(marker.exists())
+        self.start_server(polling=True)
+        self.agent = self.spawn([str(APP), "run"], "agent.log", self.env)
+        self.wait(lambda: self.api("GET", self.device_api).json()["connection"]["protocol"] == "https")
+
+    def test_maintenance_rejects_old_agents_and_releases_unconfirmed_ticket(self):
+        self.register()
+        self.unlock()
+        agent_url = self.origin.replace("http:", "ws:") + "/agent/v1/ws"
+        with connect(agent_url, proxy=None, open_timeout=6) as agent:
+            old = str(uuid.uuid4())
+            agent.send(json.dumps({"type": "hello", "deviceId": old, "name": "Legacy Agent"}))
+            ready = self.receive(agent, lambda f: f["type"] == "ready")
+            self.device_api = f"{API}/devices/{old}"
+            self.set_access(ready["connectionId"], True)
+            old_route = self.device_api + "/maintenance"
+            self.assertFalse(self.api("GET", old_route).json()["supported"])
+            self.assertEqual(self.api("POST", old_route, 422, json={"connectionId": ready["connectionId"]}).json()["code"],
+                             "maintenance_agent_upgrade_required")
+
+        with connect(agent_url, proxy=None, open_timeout=6) as agent:
+            device = str(uuid.uuid4())
+            agent.send(json.dumps({"type": "hello", "deviceId": device, "name": "Maintenance fixture", "maintenanceSupported": True}))
+            ready = self.receive(agent, lambda f: f["type"] == "ready")
+            self.device_api = f"{API}/devices/{device}"
+            self.set_access(ready["connectionId"], True)
+            route = self.device_api + "/maintenance"
+            alternate = self.client()
+            alternate.cookies.update(self.browser.cookies)
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                start = executor.submit(self.api, "POST", route, 409, alternate, json={"connectionId": ready["connectionId"]})
+                command = self.receive(agent, lambda f: f["type"] == "command" and f["kind"] == "maintenance.arm")
+                lease = self.api("GET", route).json()
+                self.assertEqual((lease["state"], lease["leaseId"]), ("preparing", command["id"]))
+                self.api("DELETE", route + "/" + lease["leaseId"], 204)
+                agent.send(json.dumps({"type": "result", "id": lease["leaseId"], "ok": True,
+                                       "payload": {"leaseId": lease["leaseId"]}}))
+                self.assertEqual(start.result(timeout=12).json()["code"], "maintenance_lease_ended")
+
+            ticket = command["payload"]["ticket"]
+            self.assertEqual(self.api("GET", "/agent/v1/maintenance/" + lease["leaseId"],
+                                      headers={"X-FileSharing-Maintenance": ticket}).json()["remainingMilliseconds"], 0)
+            self.assertEqual(self.api("GET", route).json()["state"], "ended")
+
     def test_openapi_contract(self):
         contract = self.api("GET", "/openapi/v1.json").json()
         paths = contract["paths"]
         for expected in ("/api/v1/auth/passkeys/recovery", "/api/v1/auth/status", "/api/v1/auth/lock",
+                         "/api/v1/devices/{id}/maintenance", "/api/v1/devices/{id}/maintenance/{leaseId}",
                          "/api/v1/devices/{id}/policy", "/api/v1/devices/{id}/connection-access", "/api/v1/devices/{id}/files/thumbnail",
                          "/api/v1/devices/{id}/files/trash", "/api/v1/devices/{id}/files/renames",
                          "/api/v1/ftp/accounts/{id}/password", "/api/v1/transfers/{id}/content", "/api/v1/events/ws",

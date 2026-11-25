@@ -1,7 +1,7 @@
 asyncapi: 3.0.0
 info:
   title: FileSharing browser events
-  version: 1.6.0
+  version: 1.7.0
 servers:
   enterprise:
     host: filesharing.example.com
@@ -340,6 +340,25 @@ components:
         ruleId:
           type: [string, 'null']
           format: uuid
+    MaintenanceChange:
+      type: object
+      required: [leaseId, state, startedAt, expiresAt, endedAt]
+      description: An acknowledged start or an early end. Derive automatic expiry from expiresAt.
+      properties:
+        leaseId:
+          type: string
+          format: uuid
+        state:
+          enum: [active, ended]
+        startedAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+        endedAt:
+          type: [string, 'null']
+          format: date-time
     EventItem:
       type: object
       required: [sequence, deviceId, topic, time, payload]
@@ -404,6 +423,14 @@ components:
             properties:
               payload:
                 $ref: '#/components/schemas/JobChanged'
+        - if:
+            properties:
+              topic:
+                const: maintenance.changed
+          then:
+            properties:
+              payload:
+                $ref: '#/components/schemas/MaintenanceChange'
       properties:
         deviceId:
           type: [string, 'null']

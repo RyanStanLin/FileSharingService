@@ -8,10 +8,10 @@ struct AgentHttp: Sendable {
     let session: URLSession
     let base: URL
 
-    static func createSession() -> URLSession {
+    static func createSession(requestTimeout: TimeInterval = 29, resourceTimeout: TimeInterval = 15 * 60) -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.timeoutIntervalForRequest = 29
-        configuration.timeoutIntervalForResource = 15 * 60
+        configuration.timeoutIntervalForRequest = requestTimeout
+        configuration.timeoutIntervalForResource = resourceTimeout
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         configuration.httpCookieStorage = nil
         configuration.urlCache = nil
@@ -126,6 +126,9 @@ actor AgentTransport {
     private var operations = [String: Task<Void, Never>]()
     private var managedOperations = Set<String>()
     private let terminals: TerminalRuntime
+    private let restartMaintenance: RestartMaintenance?
+    private var maintenanceRequest: String?
+    private var maintenanceMonitor: Task<Void, Never>?
     private var activeOrigin: URL?
     private let interactions: DeviceInteractions
     private var recent = [(id: String, value: JSON)]()
@@ -145,11 +148,14 @@ actor AgentTransport {
     private var windowLease: String?
     private var notificationWatchOwner = JSON.id()
     private static let windowTopic = "windows.changed"
-    @MainActor init(enrollment: Enrollment, state: LocalState) {
+    @MainActor init(enrollment: Enrollment, state: LocalState, supportsMaintenance: Bool) {
         self.id = enrollment.deviceId
         let name = Host.current().localizedName ?? ProcessInfo.processInfo.hostName
         var hello: [String: JSON] = ["type": "hello", "deviceId": .string(enrollment.deviceId), "name": .string(name)]
         if let key = enrollment.notificationKey { hello["notificationKey"] = .string(key) }
+        let canMaintain = supportsMaintenance && RestartMaintenance.supported
+        if canMaintain { hello["maintenanceSupported"] = true }
+        self.restartMaintenance = canMaintain ? RestartMaintenance(directory: state.directory) : nil
         self.hello = .object(hello)
         self.state = state
         self.terminals = TerminalRuntime(state: state, origins: EndpointProfile.origins)
@@ -643,7 +649,7 @@ actor AgentTransport {
         let input = command["payload"]
         let notificationWatch = kind == "files.watch" && input["purpose"].string == "notification"
         let managed = ["diagnostics.run", "terminal.create", "terminal.input", "terminal.control", "interaction.dialog", "interaction.dialog.masked", "interaction.dialog.form",
-                       "interaction.notification"].contains(kind)
+                       "interaction.notification", "maintenance.arm"].contains(kind)
             || notificationWatch
         if managed { managedOperations.insert(id) }
         operations[id] = Task {
@@ -709,6 +715,15 @@ actor AgentTransport {
             return [:]
         case "permissions.request":
             return try await telemetry.permission(input.requireString("permission"))
+        case "maintenance.arm":
+            guard let restartMaintenance, let activeOrigin else { throw AgentError("maintenance_state_unavailable") }
+            maintenanceRequest = id
+            let lease = try await restartMaintenance.prepare(input, from: activeOrigin)
+            guard maintenanceRequest == id, lease.id == id else { throw AgentError("maintenance_lease_ended") }
+            try restartMaintenance.arm(lease)
+            maintenanceMonitor?.cancel()
+            maintenanceMonitor = Task { await restartMaintenance.waitForRelease(lease) }
+            return ["leaseId": .string(lease.id)]
         case "interaction.dialog", "interaction.dialog.masked", "interaction.dialog.form":
             guard activeOrigin != nil else { throw AgentError("connection_unavailable") }
             guard (kind == "interaction.dialog.masked") == (input["maskText"].bool == true),

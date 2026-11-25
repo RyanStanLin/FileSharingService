@@ -22,21 +22,33 @@ struct FileSharingAgent {
             TerminalHelper.serve(rootKey: arguments[arguments.index(after: arguments.startIndex)])
             return
         }
+        let launchWatchdog = arguments.first == "run" ? AgentWatchdog() : nil
+        if let launchWatchdog, let state = try? LocalState() {
+            let maintenance = RestartMaintenance(directory: state.directory)
+            if let lease = maintenance.activeLease() {
+                Task {
+                    await maintenance.waitForRelease(lease)
+                    // The loaded job will start the executable at the installation path again.
+                    exit(EXIT_SUCCESS)
+                }
+                withExtendedLifetime(launchWatchdog) { dispatchMain() }
+            }
+        }
         #if FILESHARING_APP || FILESHARING_TEST
         if arguments.isEmpty || arguments == ["run"] || arguments == ["dialog-helper"] {
             let app = NSApplication.shared
             app.setActivationPolicy(.accessory)
-            Task { await execute(arguments); exit(EXIT_SUCCESS) }
+            Task { await execute(arguments, launchWatchdog: launchWatchdog); exit(EXIT_SUCCESS) }
             app.run()
             return
         }
         #endif
-        Task { await execute(arguments); exit(EXIT_SUCCESS) }
+        Task { await execute(arguments, launchWatchdog: launchWatchdog); exit(EXIT_SUCCESS) }
         dispatchMain()
     }
 
     @MainActor
-    private static func execute(_ arguments: [String]) async {
+    private static func execute(_ arguments: [String], launchWatchdog: AgentWatchdog?) async {
         do {
             #if FILESHARING_APP
             if arguments.isEmpty {
@@ -60,10 +72,10 @@ struct FileSharingAgent {
             case "roots":
                 try updateRoots(LocalState(), arguments: Array(arguments.dropFirst()))
             case nil, "run":
-                let watchdog = AgentWatchdog()
+                let watchdog = launchWatchdog ?? AgentWatchdog()
                 let state = try LocalState()
                 let enrollment = try state.loadOrCreate(homeWritable: EndpointProfile.homeWritable)
-                let transport = AgentTransport(enrollment: enrollment, state: state)
+                let transport = AgentTransport(enrollment: enrollment, state: state, supportsMaintenance: arguments.first == "run")
                 await transport.run(watchdog: watchdog)
             default:
                 throw AgentError("usage_run_roots_version")

@@ -57,6 +57,9 @@ jobs:
             Acceptance.test_directory_websocket_rename_and_external_change \
             Acceptance.test_stream_ranges_resume_and_version_precondition \
             Acceptance.test_running_agent_recovers_when_server_restarts \
+            Acceptance.test_maintenance_restart_is_held_and_can_end_while_agent_is_offline \
+            Acceptance.test_maintenance_deadline_recovers_without_server_via_http_fallback \
+            Acceptance.test_maintenance_rejects_old_agents_and_releases_unconfirmed_ticket \
             Acceptance.test_sqlite_upgrade_preserves_preexisting_device_and_grant
 
   invalidate_cache:

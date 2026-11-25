@@ -2,7 +2,7 @@ using Dapper;
 
 namespace FileSharing;
 
-internal sealed record AgentHello(string? Type, string DeviceId, string Name, string? NotificationKey);
+internal sealed record AgentHello(string? Type, string DeviceId, string Name, string? NotificationKey, bool? MaintenanceSupported);
 
 internal sealed class AgentRegistration(Database db, Settings settings)
 {

@@ -91,7 +91,7 @@ final class Telemetry {
         }
     }
 
-    static let version = "0.5.9"
+    static let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.5.12"
     private static let applicationQueue = DispatchQueue(label: "FileSharing.applications", qos: .utility)
     private let boot = Date()
     private let roots: [LocalRoot]
