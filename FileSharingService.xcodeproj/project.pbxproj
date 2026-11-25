@@ -1,137 +1,341 @@
+// !$*UTF8*$!
 {
-    archiveVersion = 1;
-    classes = {};
-    objectVersion = 56;
-    objects = {
-        B10100000000000000000001 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ApplicationIcons.swift"; sourceTree = "<group>"; };
-        B10100000000000000000002 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ClipboardObserver.swift"; sourceTree = "<group>"; };
-        B10100000000000000000003 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DiagnosticRunner.swift"; sourceTree = "<group>"; };
-        B10100000000000000000004 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DeviceInteractions.swift"; sourceTree = "<group>"; };
-        B10100000000000000000005 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DialogProcess.swift"; sourceTree = "<group>"; };
-        B10100000000000000000006 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NativeDialog.swift"; sourceTree = "<group>"; };
-        B10100000000000000000007 = { isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = "FileSharing.icon"; sourceTree = "<group>"; };
-        B10100000000000000000008 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WindowTelemetry.swift"; sourceTree = "<group>"; };
-        B10100000000000000000009 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalHelper.swift"; sourceTree = "<group>"; };
-        B1010000000000000000000A = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalProcess.swift"; sourceTree = "<group>"; };
-        B1010000000000000000000B = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalArchive.swift"; sourceTree = "<group>"; };
-        B1010000000000000000000C = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalRuntime.swift"; sourceTree = "<group>"; };
-        B1010000000000000000000D = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RestartMaintenance.swift"; sourceTree = "<group>"; };
-        5BC972524BE141B11CF906F9 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentTransport.swift"; sourceTree = "<group>"; };
-        A9C6787316A5BC56B1A5EADB = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DirectoryObserver.swift"; sourceTree = "<group>"; };
-        50B1A08F69DE5ABC9C80354E = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "EndpointProfile.swift"; sourceTree = "<group>"; };
-        664DED10825BD4F19A8553AA = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FileMetadata.swift"; sourceTree = "<group>"; };
-        FF45F7C56E4634D42B8B5B3A = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "JSON.swift"; sourceTree = "<group>"; };
-        9AD957105A45E80030E40BA4 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LidLease.swift"; sourceTree = "<group>"; };
-        22844FBBB553EE5B5EB9D172 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LocalState.swift"; sourceTree = "<group>"; };
-        19A1D10F65C5130D491DB55A = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Main.swift"; sourceTree = "<group>"; };
-        9517CF781D7AEAF9548DC7BF = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Permissions.swift"; sourceTree = "<group>"; };
-        425A4111F3B59A6EBE3B9FE0 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ScopedFiles.swift"; sourceTree = "<group>"; };
-        56698EE434BDE43F9A6D5196 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Telemetry.swift"; sourceTree = "<group>"; };
-        899D515DA10407B919351CE8 = { isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "in.ryanl.filesharing.agent.plist"; sourceTree = "<group>"; };
-        ACDB3D7698DE3C076C245E16 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FirstLaunch.swift"; sourceTree = "<group>"; };
-        ED8F7DF021C9E9C519408A96 = { isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "Info.plist"; sourceTree = "<group>"; };
-        8A677C6962E0A9A479527735 = { isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FileSharingService.app; sourceTree = BUILT_PRODUCTS_DIR; };
-        06EDFB44D7066568190D8226 = { isa = PBXGroup; children = (5BC972524BE141B11CF906F9, B10100000000000000000004, B10100000000000000000005, B10100000000000000000006, B10100000000000000000003, B10100000000000000000002, B10100000000000000000001, A9C6787316A5BC56B1A5EADB, 50B1A08F69DE5ABC9C80354E, 664DED10825BD4F19A8553AA, FF45F7C56E4634D42B8B5B3A, 9AD957105A45E80030E40BA4, 22844FBBB553EE5B5EB9D172, 19A1D10F65C5130D491DB55A, 9517CF781D7AEAF9548DC7BF, 425A4111F3B59A6EBE3B9FE0, 56698EE434BDE43F9A6D5196, B10100000000000000000008, B10100000000000000000009, B1010000000000000000000A, B1010000000000000000000B, B1010000000000000000000C, B1010000000000000000000D, 899D515DA10407B919351CE8,); name = Agent; path = src/Mac; sourceTree = "<group>"; };
-        FC233BDA2344D97687F5A251 = { isa = PBXGroup; children = (ACDB3D7698DE3C076C245E16, ED8F7DF021C9E9C519408A96, B10100000000000000000007,); name = App; path = src/MacApp; sourceTree = "<group>"; };
-        0A3E27B8CA818264D75C8D81 = { isa = PBXGroup; children = (8A677C6962E0A9A479527735,); name = Products; sourceTree = "<group>"; };
-        19F479106CE8C3BA8C106518 = { isa = PBXGroup; children = (FC233BDA2344D97687F5A251, 06EDFB44D7066568190D8226, 0A3E27B8CA818264D75C8D81,); sourceTree = "<group>"; };
-        B10200000000000000000001 = { isa = PBXBuildFile; fileRef = B10100000000000000000001; };
-        B10200000000000000000002 = { isa = PBXBuildFile; fileRef = B10100000000000000000002; };
-        B10200000000000000000003 = { isa = PBXBuildFile; fileRef = B10100000000000000000003; };
-        B10200000000000000000004 = { isa = PBXBuildFile; fileRef = B10100000000000000000004; };
-        B10200000000000000000005 = { isa = PBXBuildFile; fileRef = B10100000000000000000005; };
-        B10200000000000000000006 = { isa = PBXBuildFile; fileRef = B10100000000000000000006; };
-        B10200000000000000000007 = { isa = PBXBuildFile; fileRef = B10100000000000000000007; };
-        B10200000000000000000008 = { isa = PBXBuildFile; fileRef = B10100000000000000000008; };
-        DDA795190462AFB8E229D1FB = { isa = PBXBuildFile; fileRef = 5BC972524BE141B11CF906F9; };
-        B10200000000000000000009 = { isa = PBXBuildFile; fileRef = B10100000000000000000009; };
-        B1020000000000000000000A = { isa = PBXBuildFile; fileRef = B1010000000000000000000A; };
-        B1020000000000000000000B = { isa = PBXBuildFile; fileRef = B1010000000000000000000B; };
-        B1020000000000000000000C = { isa = PBXBuildFile; fileRef = B1010000000000000000000C; };
-        B1020000000000000000000D = { isa = PBXBuildFile; fileRef = B1010000000000000000000D; };
-        4E818F7C413AEE5B499BFD0E = { isa = PBXBuildFile; fileRef = A9C6787316A5BC56B1A5EADB; };
-        1FEA82787FB2185511E8F5AC = { isa = PBXBuildFile; fileRef = 50B1A08F69DE5ABC9C80354E; };
-        C552602B3655B5243DBD44ED = { isa = PBXBuildFile; fileRef = 664DED10825BD4F19A8553AA; };
-        47758F6A7BCB267F312D8A08 = { isa = PBXBuildFile; fileRef = FF45F7C56E4634D42B8B5B3A; };
-        C930020A6BEB58C6BA4D81DF = { isa = PBXBuildFile; fileRef = 9AD957105A45E80030E40BA4; };
-        8C15F2C1EB06B2B4E7632A85 = { isa = PBXBuildFile; fileRef = 22844FBBB553EE5B5EB9D172; };
-        C39AD6D089862EF4D95BBE46 = { isa = PBXBuildFile; fileRef = 19A1D10F65C5130D491DB55A; };
-        E93AC97AAB69B96DDEFD44A2 = { isa = PBXBuildFile; fileRef = 9517CF781D7AEAF9548DC7BF; };
-        83C45F66F4AC716EDF07F6A8 = { isa = PBXBuildFile; fileRef = 425A4111F3B59A6EBE3B9FE0; };
-        EDE9E3AC73EB9677D1A11688 = { isa = PBXBuildFile; fileRef = 56698EE434BDE43F9A6D5196; };
-        0346702B0498450D6F9185D9 = { isa = PBXBuildFile; fileRef = ACDB3D7698DE3C076C245E16; };
-        678CEF8587367FDE1F33EE69 = { isa = PBXBuildFile; fileRef = 899D515DA10407B919351CE8; };
-        878A52FC5FF6A57D50B7B870 = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; runOnlyForDeploymentPostprocessing = 0; files = (DDA795190462AFB8E229D1FB, B10200000000000000000004, B10200000000000000000005, B10200000000000000000006, B10200000000000000000003, B10200000000000000000002, B10200000000000000000001, 4E818F7C413AEE5B499BFD0E, 1FEA82787FB2185511E8F5AC, C552602B3655B5243DBD44ED, 47758F6A7BCB267F312D8A08, C930020A6BEB58C6BA4D81DF, 8C15F2C1EB06B2B4E7632A85, C39AD6D089862EF4D95BBE46, E93AC97AAB69B96DDEFD44A2, 83C45F66F4AC716EDF07F6A8, EDE9E3AC73EB9677D1A11688, B10200000000000000000008, B10200000000000000000009, B1020000000000000000000A, B1020000000000000000000B, B1020000000000000000000C, B1020000000000000000000D, 0346702B0498450D6F9185D9,); };
-        E2AA269EB967A8853A258BFA = { isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; runOnlyForDeploymentPostprocessing = 0; files = (); };
-        41D311A605520FC7B8B9A980 = { isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; runOnlyForDeploymentPostprocessing = 0; files = (B10200000000000000000007,); };
-        5E037D4A9CF40635EE64CB5D = { isa = PBXCopyFilesBuildPhase; buildActionMask = 2147483647; runOnlyForDeploymentPostprocessing = 0; dstPath = Contents/Library/LaunchAgents; dstSubfolderSpec = 1; files = (678CEF8587367FDE1F33EE69,); name = "Embed LaunchAgent"; };
-        488864B3D19480A82F7F1786 = { isa = XCBuildConfiguration;
-            name = Debug;
-            buildSettings = {
-                SDKROOT = "macosx";
-            }; };
-        35B1014F135DE9B45529B733 = { isa = XCBuildConfiguration;
-            name = Release;
-            buildSettings = {
-                SDKROOT = "macosx";
-            }; };
-        B4E10CAA9C5E22150B71559C = { isa = XCConfigurationList; buildConfigurations = (488864B3D19480A82F7F1786, 35B1014F135DE9B45529B733,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
-        2A04C20BF6D5C20A63A1D4CC = { isa = XCBuildConfiguration;
-            name = Debug;
-            buildSettings = {
-                ALWAYS_SEARCH_USER_PATHS = "NO";
-                ASSETCATALOG_COMPILER_APPICON_NAME = FileSharing;
-                CODE_SIGN_STYLE = "Manual";
-                CODE_SIGN_IDENTITY = "-";
-                CODE_SIGNING_REQUIRED = "YES";
-                CURRENT_PROJECT_VERSION = "27";
-                DEVELOPMENT_TEAM = "";
-                ENABLE_APP_SANDBOX = "NO";
-                FILESHARING_ALLOW_HOME_WRITE = "YES";
-                FILESHARING_ORIGIN = "https://filesharing.ryanl.in";
-                FILESHARING_BACKUP_ORIGIN = "";
-                FILESHARING_MANAGED_USER = "";
-                GENERATE_INFOPLIST_FILE = "NO";
-                INFOPLIST_FILE = "src/MacApp/Info.plist";
-                MACOSX_DEPLOYMENT_TARGET = "15.0";
-                MARKETING_VERSION = "0.5.12";
-                PRODUCT_BUNDLE_IDENTIFIER = "in.ryanl.filesharing.agent";
-                PRODUCT_NAME = "FileSharingService";
-                SDKROOT = "macosx";
-                SWIFT_ACTIVE_COMPILATION_CONDITIONS = "FILESHARING_APP";
-                SWIFT_VERSION = "5.0";
-                SWIFT_OPTIMIZATION_LEVEL = "-Onone";
-            }; };
-        E28089EB494F94D6F9770EC2 = { isa = XCBuildConfiguration;
-            name = Release;
-            buildSettings = {
-                ALWAYS_SEARCH_USER_PATHS = "NO";
-                ASSETCATALOG_COMPILER_APPICON_NAME = FileSharing;
-                CODE_SIGN_STYLE = "Manual";
-                CODE_SIGN_IDENTITY = "-";
-                CODE_SIGNING_REQUIRED = "YES";
-                CURRENT_PROJECT_VERSION = "27";
-                DEVELOPMENT_TEAM = "";
-                ENABLE_APP_SANDBOX = "NO";
-                FILESHARING_ALLOW_HOME_WRITE = "YES";
-                FILESHARING_ORIGIN = "https://filesharing.ryanl.in";
-                FILESHARING_BACKUP_ORIGIN = "";
-                FILESHARING_MANAGED_USER = "";
-                GENERATE_INFOPLIST_FILE = "NO";
-                INFOPLIST_FILE = "src/MacApp/Info.plist";
-                MACOSX_DEPLOYMENT_TARGET = "15.0";
-                MARKETING_VERSION = "0.5.12";
-                PRODUCT_BUNDLE_IDENTIFIER = "in.ryanl.filesharing.agent";
-                PRODUCT_NAME = "FileSharingService";
-                SDKROOT = "macosx";
-                SWIFT_ACTIVE_COMPILATION_CONDITIONS = "FILESHARING_APP";
-                SWIFT_VERSION = "5.0";
-                SWIFT_OPTIMIZATION_LEVEL = "-O";
-                ONLY_ACTIVE_ARCH = "NO";
-            }; };
-        7BCEE9A04133D8A2FED7D4D3 = { isa = XCConfigurationList; buildConfigurations = (2A04C20BF6D5C20A63A1D4CC, E28089EB494F94D6F9770EC2,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
-        34A04005BCAF206EEC990BD9 = { isa = PBXNativeTarget; buildConfigurationList = 7BCEE9A04133D8A2FED7D4D3; buildPhases = (878A52FC5FF6A57D50B7B870, E2AA269EB967A8853A258BFA, 41D311A605520FC7B8B9A980, 5E037D4A9CF40635EE64CB5D,); buildRules = (); dependencies = (); name = FileSharingService; productName = FileSharingService; productReference = 8A677C6962E0A9A479527735; productType = "com.apple.product-type.application"; };
-        244210E48437B6556980A702 = { isa = PBXProject; buildConfigurationList = B4E10CAA9C5E22150B71559C; compatibilityVersion = "Xcode 14.0"; developmentRegion = en; hasScannedForEncodings = 0; knownRegions = (en, Base,); mainGroup = 19F479106CE8C3BA8C106518; productRefGroup = 0A3E27B8CA818264D75C8D81; projectDirPath = ""; projectRoot = ""; targets = (34A04005BCAF206EEC990BD9,); };
-    };
-    rootObject = 244210E48437B6556980A702;
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0346702B0498450D6F9185D9 /* FirstLaunch.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACDB3D7698DE3C076C245E16 /* FirstLaunch.swift */; };
+		1FEA82787FB2185511E8F5AC /* EndpointProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50B1A08F69DE5ABC9C80354E /* EndpointProfile.swift */; };
+		47758F6A7BCB267F312D8A08 /* JSON.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF45F7C56E4634D42B8B5B3A /* JSON.swift */; };
+		4E818F7C413AEE5B499BFD0E /* DirectoryObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9C6787316A5BC56B1A5EADB /* DirectoryObserver.swift */; };
+		678CEF8587367FDE1F33EE69 /* in.ryanl.filesharing.agent.plist in Embed LaunchAgent */ = {isa = PBXBuildFile; fileRef = 899D515DA10407B919351CE8 /* in.ryanl.filesharing.agent.plist */; };
+		83C45F66F4AC716EDF07F6A8 /* ScopedFiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = 425A4111F3B59A6EBE3B9FE0 /* ScopedFiles.swift */; };
+		8C15F2C1EB06B2B4E7632A85 /* LocalState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22844FBBB553EE5B5EB9D172 /* LocalState.swift */; };
+		B10200000000000000000001 /* ApplicationIcons.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10100000000000000000001 /* ApplicationIcons.swift */; };
+		B10200000000000000000002 /* ClipboardObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10100000000000000000002 /* ClipboardObserver.swift */; };
+		B10200000000000000000003 /* DiagnosticRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10100000000000000000003 /* DiagnosticRunner.swift */; };
+		B10200000000000000000004 /* DeviceInteractions.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10100000000000000000004 /* DeviceInteractions.swift */; };
+		B10200000000000000000005 /* DialogProcess.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10100000000000000000005 /* DialogProcess.swift */; };
+		B10200000000000000000006 /* NativeDialog.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10100000000000000000006 /* NativeDialog.swift */; };
+		B10200000000000000000007 /* FileSharing.icon in Resources */ = {isa = PBXBuildFile; fileRef = B10100000000000000000007 /* FileSharing.icon */; };
+		B10200000000000000000008 /* WindowTelemetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10100000000000000000008 /* WindowTelemetry.swift */; };
+		B10200000000000000000009 /* TerminalHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10100000000000000000009 /* TerminalHelper.swift */; };
+		B1020000000000000000000A /* TerminalProcess.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1010000000000000000000A /* TerminalProcess.swift */; };
+		B1020000000000000000000B /* TerminalArchive.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1010000000000000000000B /* TerminalArchive.swift */; };
+		B1020000000000000000000C /* TerminalRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1010000000000000000000C /* TerminalRuntime.swift */; };
+		B1020000000000000000000D /* RestartMaintenance.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1010000000000000000000D /* RestartMaintenance.swift */; };
+		C39AD6D089862EF4D95BBE46 /* Main.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19A1D10F65C5130D491DB55A /* Main.swift */; };
+		C552602B3655B5243DBD44ED /* FileMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 664DED10825BD4F19A8553AA /* FileMetadata.swift */; };
+		C930020A6BEB58C6BA4D81DF /* LidLease.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AD957105A45E80030E40BA4 /* LidLease.swift */; };
+		DDA795190462AFB8E229D1FB /* AgentTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BC972524BE141B11CF906F9 /* AgentTransport.swift */; };
+		E93AC97AAB69B96DDEFD44A2 /* Permissions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9517CF781D7AEAF9548DC7BF /* Permissions.swift */; };
+		EDE9E3AC73EB9677D1A11688 /* Telemetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56698EE434BDE43F9A6D5196 /* Telemetry.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		5E037D4A9CF40635EE64CB5D /* Embed LaunchAgent */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = Contents/Library/LaunchAgents;
+			dstSubfolderSpec = 1;
+			files = (
+				678CEF8587367FDE1F33EE69 /* in.ryanl.filesharing.agent.plist in Embed LaunchAgent */,
+			);
+			name = "Embed LaunchAgent";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		19A1D10F65C5130D491DB55A /* Main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Main.swift; sourceTree = "<group>"; };
+		22844FBBB553EE5B5EB9D172 /* LocalState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalState.swift; sourceTree = "<group>"; };
+		425A4111F3B59A6EBE3B9FE0 /* ScopedFiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScopedFiles.swift; sourceTree = "<group>"; };
+		50B1A08F69DE5ABC9C80354E /* EndpointProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EndpointProfile.swift; sourceTree = "<group>"; };
+		56698EE434BDE43F9A6D5196 /* Telemetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Telemetry.swift; sourceTree = "<group>"; };
+		5BC972524BE141B11CF906F9 /* AgentTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentTransport.swift; sourceTree = "<group>"; };
+		664DED10825BD4F19A8553AA /* FileMetadata.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileMetadata.swift; sourceTree = "<group>"; };
+		899D515DA10407B919351CE8 /* in.ryanl.filesharing.agent.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = in.ryanl.filesharing.agent.plist; sourceTree = "<group>"; };
+		8A677C6962E0A9A479527735 /* FileSharingService.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FileSharingService.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		9517CF781D7AEAF9548DC7BF /* Permissions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Permissions.swift; sourceTree = "<group>"; };
+		9AD957105A45E80030E40BA4 /* LidLease.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LidLease.swift; sourceTree = "<group>"; };
+		A9C6787316A5BC56B1A5EADB /* DirectoryObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DirectoryObserver.swift; sourceTree = "<group>"; };
+		ACDB3D7698DE3C076C245E16 /* FirstLaunch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirstLaunch.swift; sourceTree = "<group>"; };
+		B10100000000000000000001 /* ApplicationIcons.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplicationIcons.swift; sourceTree = "<group>"; };
+		B10100000000000000000002 /* ClipboardObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardObserver.swift; sourceTree = "<group>"; };
+		B10100000000000000000003 /* DiagnosticRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticRunner.swift; sourceTree = "<group>"; };
+		B10100000000000000000004 /* DeviceInteractions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceInteractions.swift; sourceTree = "<group>"; };
+		B10100000000000000000005 /* DialogProcess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DialogProcess.swift; sourceTree = "<group>"; };
+		B10100000000000000000006 /* NativeDialog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDialog.swift; sourceTree = "<group>"; };
+		B10100000000000000000007 /* FileSharing.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = FileSharing.icon; sourceTree = "<group>"; };
+		B10100000000000000000008 /* WindowTelemetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowTelemetry.swift; sourceTree = "<group>"; };
+		B10100000000000000000009 /* TerminalHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalHelper.swift; sourceTree = "<group>"; };
+		B1010000000000000000000A /* TerminalProcess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalProcess.swift; sourceTree = "<group>"; };
+		B1010000000000000000000B /* TerminalArchive.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalArchive.swift; sourceTree = "<group>"; };
+		B1010000000000000000000C /* TerminalRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalRuntime.swift; sourceTree = "<group>"; };
+		B1010000000000000000000D /* RestartMaintenance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestartMaintenance.swift; sourceTree = "<group>"; };
+		ED8F7DF021C9E9C519408A96 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		FF45F7C56E4634D42B8B5B3A /* JSON.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSON.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		E2AA269EB967A8853A258BFA /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		06EDFB44D7066568190D8226 /* Agent */ = {
+			isa = PBXGroup;
+			children = (
+				5BC972524BE141B11CF906F9 /* AgentTransport.swift */,
+				B10100000000000000000004 /* DeviceInteractions.swift */,
+				B10100000000000000000005 /* DialogProcess.swift */,
+				B10100000000000000000006 /* NativeDialog.swift */,
+				B10100000000000000000003 /* DiagnosticRunner.swift */,
+				B10100000000000000000002 /* ClipboardObserver.swift */,
+				B10100000000000000000001 /* ApplicationIcons.swift */,
+				A9C6787316A5BC56B1A5EADB /* DirectoryObserver.swift */,
+				50B1A08F69DE5ABC9C80354E /* EndpointProfile.swift */,
+				664DED10825BD4F19A8553AA /* FileMetadata.swift */,
+				FF45F7C56E4634D42B8B5B3A /* JSON.swift */,
+				9AD957105A45E80030E40BA4 /* LidLease.swift */,
+				22844FBBB553EE5B5EB9D172 /* LocalState.swift */,
+				19A1D10F65C5130D491DB55A /* Main.swift */,
+				9517CF781D7AEAF9548DC7BF /* Permissions.swift */,
+				425A4111F3B59A6EBE3B9FE0 /* ScopedFiles.swift */,
+				56698EE434BDE43F9A6D5196 /* Telemetry.swift */,
+				B10100000000000000000008 /* WindowTelemetry.swift */,
+				B10100000000000000000009 /* TerminalHelper.swift */,
+				B1010000000000000000000A /* TerminalProcess.swift */,
+				B1010000000000000000000B /* TerminalArchive.swift */,
+				B1010000000000000000000C /* TerminalRuntime.swift */,
+				B1010000000000000000000D /* RestartMaintenance.swift */,
+				899D515DA10407B919351CE8 /* in.ryanl.filesharing.agent.plist */,
+			);
+			name = Agent;
+			path = src/Mac;
+			sourceTree = "<group>";
+		};
+		0A3E27B8CA818264D75C8D81 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				8A677C6962E0A9A479527735 /* FileSharingService.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		19F479106CE8C3BA8C106518 = {
+			isa = PBXGroup;
+			children = (
+				FC233BDA2344D97687F5A251 /* App */,
+				06EDFB44D7066568190D8226 /* Agent */,
+				0A3E27B8CA818264D75C8D81 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		FC233BDA2344D97687F5A251 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				ACDB3D7698DE3C076C245E16 /* FirstLaunch.swift */,
+				ED8F7DF021C9E9C519408A96 /* Info.plist */,
+				B10100000000000000000007 /* FileSharing.icon */,
+			);
+			name = App;
+			path = src/MacApp;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		34A04005BCAF206EEC990BD9 /* FileSharingService */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7BCEE9A04133D8A2FED7D4D3 /* Build configuration list for PBXNativeTarget "FileSharingService" */;
+			buildPhases = (
+				878A52FC5FF6A57D50B7B870 /* Sources */,
+				E2AA269EB967A8853A258BFA /* Frameworks */,
+				41D311A605520FC7B8B9A980 /* Resources */,
+				5E037D4A9CF40635EE64CB5D /* Embed LaunchAgent */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = FileSharingService;
+			productName = FileSharingService;
+			productReference = 8A677C6962E0A9A479527735 /* FileSharingService.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		244210E48437B6556980A702 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+			};
+			buildConfigurationList = B4E10CAA9C5E22150B71559C /* Build configuration list for PBXProject "FileSharingService" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 19F479106CE8C3BA8C106518;
+			productRefGroup = 0A3E27B8CA818264D75C8D81 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				34A04005BCAF206EEC990BD9 /* FileSharingService */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		41D311A605520FC7B8B9A980 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B10200000000000000000007 /* FileSharing.icon in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		878A52FC5FF6A57D50B7B870 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DDA795190462AFB8E229D1FB /* AgentTransport.swift in Sources */,
+				B10200000000000000000004 /* DeviceInteractions.swift in Sources */,
+				B10200000000000000000005 /* DialogProcess.swift in Sources */,
+				B10200000000000000000006 /* NativeDialog.swift in Sources */,
+				B10200000000000000000003 /* DiagnosticRunner.swift in Sources */,
+				B10200000000000000000002 /* ClipboardObserver.swift in Sources */,
+				B10200000000000000000001 /* ApplicationIcons.swift in Sources */,
+				4E818F7C413AEE5B499BFD0E /* DirectoryObserver.swift in Sources */,
+				1FEA82787FB2185511E8F5AC /* EndpointProfile.swift in Sources */,
+				C552602B3655B5243DBD44ED /* FileMetadata.swift in Sources */,
+				47758F6A7BCB267F312D8A08 /* JSON.swift in Sources */,
+				C930020A6BEB58C6BA4D81DF /* LidLease.swift in Sources */,
+				8C15F2C1EB06B2B4E7632A85 /* LocalState.swift in Sources */,
+				C39AD6D089862EF4D95BBE46 /* Main.swift in Sources */,
+				E93AC97AAB69B96DDEFD44A2 /* Permissions.swift in Sources */,
+				83C45F66F4AC716EDF07F6A8 /* ScopedFiles.swift in Sources */,
+				EDE9E3AC73EB9677D1A11688 /* Telemetry.swift in Sources */,
+				B10200000000000000000008 /* WindowTelemetry.swift in Sources */,
+				B10200000000000000000009 /* TerminalHelper.swift in Sources */,
+				B1020000000000000000000A /* TerminalProcess.swift in Sources */,
+				B1020000000000000000000B /* TerminalArchive.swift in Sources */,
+				B1020000000000000000000C /* TerminalRuntime.swift in Sources */,
+				B1020000000000000000000D /* RestartMaintenance.swift in Sources */,
+				0346702B0498450D6F9185D9 /* FirstLaunch.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		2A04C20BF6D5C20A63A1D4CC /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_APPICON_NAME = FileSharing;
+				CODE_SIGNING_REQUIRED = YES;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				CURRENT_PROJECT_VERSION = 27;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_APP_SANDBOX = NO;
+				FILESHARING_ALLOW_HOME_WRITE = YES;
+				FILESHARING_BACKUP_ORIGIN = "";
+				FILESHARING_MANAGED_USER = "";
+				FILESHARING_ORIGIN = "https://filesharing.ryanl.in";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = src/MacApp/Info.plist;
+				MACOSX_DEPLOYMENT_TARGET = "$(RECOMMENDED_MACOSX_DEPLOYMENT_TARGET)";
+				MARKETING_VERSION = 0.5.12;
+				PRODUCT_BUNDLE_IDENTIFIER = in.ryanl.filesharing.agent;
+				PRODUCT_NAME = FileSharingService;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = FILESHARING_APP;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		35B1014F135DE9B45529B733 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		488864B3D19480A82F7F1786 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		E28089EB494F94D6F9770EC2 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_APPICON_NAME = FileSharing;
+				CODE_SIGNING_REQUIRED = YES;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				CURRENT_PROJECT_VERSION = 27;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_APP_SANDBOX = NO;
+				FILESHARING_ALLOW_HOME_WRITE = YES;
+				FILESHARING_BACKUP_ORIGIN = "";
+				FILESHARING_MANAGED_USER = "";
+				FILESHARING_ORIGIN = "https://filesharing.ryanl.in";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = src/MacApp/Info.plist;
+				MACOSX_DEPLOYMENT_TARGET = "$(RECOMMENDED_MACOSX_DEPLOYMENT_TARGET)";
+				MARKETING_VERSION = 0.5.12;
+				ONLY_ACTIVE_ARCH = NO;
+				PRODUCT_BUNDLE_IDENTIFIER = in.ryanl.filesharing.agent;
+				PRODUCT_NAME = FileSharingService;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = FILESHARING_APP;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		7BCEE9A04133D8A2FED7D4D3 /* Build configuration list for PBXNativeTarget "FileSharingService" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				2A04C20BF6D5C20A63A1D4CC /* Debug */,
+				E28089EB494F94D6F9770EC2 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B4E10CAA9C5E22150B71559C /* Build configuration list for PBXProject "FileSharingService" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				488864B3D19480A82F7F1786 /* Debug */,
+				35B1014F135DE9B45529B733 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 244210E48437B6556980A702 /* Project object */;
 }
