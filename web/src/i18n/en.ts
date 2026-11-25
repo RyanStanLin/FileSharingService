@@ -1,3 +1,6 @@
+import {settingsEn, settingsErrorsEn} from './settings'
+import {notificationsEn} from './notifications'
+import {notificationErrorsEn} from './notificationErrors'
 import {fileMutationEn, fileMutationErrorsEn} from './file-mutations'
 import {dataEn} from './data'
 import {activityEn} from './activity'
@@ -10,6 +13,8 @@ export const en = {
   ...activityEn,
   ...alertsEn,
   ...terminalEn,
+  ...settingsEn,
+  ...notificationsEn,
   app: 'FileSharing',
   files: 'File System',
   data: 'Data',
@@ -138,6 +143,8 @@ export const en = {
 
 export const errorsEn: Readonly<Record<string, string>> = {
   ...terminalErrorsEn,
+  ...settingsErrorsEn,
+  ...notificationErrorsEn,
   ...alertErrorsEn,
   ...fileMutationErrorsEn,
   data_sampling_failed: 'The Mac could not deliver a new sample. Try again.',

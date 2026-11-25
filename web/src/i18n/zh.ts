@@ -1,3 +1,6 @@
+import {settingsZh, settingsErrorsZh} from './settings'
+import {notificationsZh} from './notifications'
+import {notificationErrorsZh} from './notificationErrors'
 import type {en} from './en'
 import {fileMutationErrorsZh, fileMutationZh} from './file-mutations'
 import {dataZh} from './data'
@@ -11,6 +14,8 @@ export const zh: Record<keyof typeof en, string> = {
   ...activityZh,
   ...alertsZh,
   ...terminalZh,
+  ...settingsZh,
+  ...notificationsZh,
   app: 'FileSharing',
   files: '文件系统',
   data: '数据',
@@ -139,6 +144,8 @@ export const zh: Record<keyof typeof en, string> = {
 
 export const errorsZh: Readonly<Record<string, string>> = {
   ...terminalErrorsZh,
+  ...settingsErrorsZh,
+  ...notificationErrorsZh,
   ...alertErrorsZh,
   window_snapshot_unavailable: 'Mac 还没有发送窗口布局。',
   ...fileMutationErrorsZh,

@@ -1,5 +1,5 @@
 import {
-  AppsIcon, CpuIcon, DatabaseIcon, DeviceDesktopIcon, GlobeIcon, GraphIcon,
+  BellIcon, LogIcon, AppsIcon, CpuIcon, DatabaseIcon, DeviceDesktopIcon, GlobeIcon, GraphIcon,
   HistoryIcon, MeterIcon, PlugIcon, PulseIcon, ShieldIcon, type Icon,
 } from '@primer/octicons-react'
 import type {Message} from '../i18n'
@@ -14,8 +14,12 @@ export const categories = {
   applications: {label: 'dataApps', icon: AppsIcon},
   permissions: {label: 'dataPermissions', icon: ShieldIcon},
   events: {label: 'dataEvents', icon: HistoryIcon},
+  deliveries: {label: 'notificationDeliveries', icon: BellIcon},
+  audit: {label: 'notificationAudit', icon: LogIcon},
 } as const
 
+export const logCategories = ['deliveries', 'audit'] as const
+export type LogCategory = typeof logCategories[number]
 export type Category = keyof typeof categories
 export const categoryKeys = Object.keys(categories) as Category[]
 

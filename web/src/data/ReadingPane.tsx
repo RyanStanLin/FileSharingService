@@ -14,7 +14,7 @@ import {useEventArrivals} from './useEventArrivals'
 
 export interface ReadingChrome {
   heading: string
-  deviceName: string
+  deviceName?: string
   stream: string
   offline: boolean
   pending: boolean
@@ -41,7 +41,7 @@ export function ReadingPane({chrome, dataset, controls, ...table}: Props) {
   const outdated = dataset.snapshot?.stale && !chrome.offline
   return <>
     <ExplorerHeader title={<ExplorerTitle id={chrome.heading} title={dataset.title}
-      detail={[t('dataOnDevice', {name: chrome.deviceName}), dataset.description].filter(Boolean).join(' · ')} />}
+      detail={[chrome.deviceName && t('dataOnDevice', {name: chrome.deviceName}), dataset.description].filter(Boolean).join(' · ')} />}
       facts={<ExplorerFacts items={[
         [table.pagination ? 'dataLoadedRecords' : 'dataListCount', decimal(dataset.rows.length, locale)],
         ['dataUpdated', <TimestampDetails key={dataset.key} value={observedAt} label="dataUpdated" />],

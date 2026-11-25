@@ -229,3 +229,10 @@
 - `QuickRun.svg` 和 `QuickRun_1.svg` 以各自 viewBox 比较布局。使用 Dialog 标准遮罩与焦点管理，Autocomplete 复用已共享路径解析。实测搜索态 960 × 213 px，建议面板横向内收 32 px，三条建议均为 870 × 32 px。命令预览复用正文结构并提供已保存会话入口。实时数据、焦点、宿主背景及系统字体影响整图差分。 [Dialog](https://primer.style/product/components/dialog/) · [Autocomplete](https://primer.style/product/components/autocomplete/)
 - 会话列表、创建、命令提交、中断、终止、回放、下载和删除接入 Agent 0.5.9 的持久化会话接口。新增列表字段 `firstCommand` 从同一会话的归档帧读取，旧记录可直接使用。WebSocket 和 REST 共用游标与输入确认 ID。沉浸小窗使用 Demo 同版本 xterm.js 和 FitAddon，渲染原始 PTY 字节，协商窗口尺寸及输入。 [远程终端 API](../docs/api.md#远程终端会话) · [xterm.js Terminal](https://xtermjs.org/docs/api/terminal/classes/terminal/)
 - Chromium 验证了路径建议和打开文件、Quick Run 输出、会话搜索与重新加载、断线后输出续读、NDJSON 下载、删除确认、窄屏及真实 Vim 小窗。用中文输入后缩放小窗、断开浏览器 WebSocket 并继续编辑保存。WebKit 验证路径、执行与实时输出、终止和历史分类。后端回归覆盖按键去重与服务端重启续传。Primer CSS 工具返回空诊断，PostCSS 解析了六份样式并核对了四套主题的 684 处变量引用。
+
+## Settings 与 Event Subscription
+
+- 对照 `Settings.svg` 的 1280 × 950 viewBox 核对亮色布局。浏览器实测全局标题栏高 108px，侧栏连分隔线宽 232px，标题分隔线在 y192，首个设置分区在 y203，内容从 x372 起、最大宽度为 768px。原设计中的文本框高 40px，Primer medium 文本框使用已核对的 control 尺寸 token 达到该高度。首个文本框与参考相差 1px，成组的设置行和分区底线对齐。SVG 占位字段映射为实际设备标识、授权与配置。
+- Settings 使用 SplitPageLayout、NavList、Stack、FormControl、TextInput、ToggleSwitch 和 ActionMenu。分组的薄边框、内部行分隔线、标题和 Apply 位置来自 SVG。窄屏使用 Dialog 展开分类。复用现有系统配色、高对比度与语言偏好。 [SplitPageLayout](https://primer.style/product/components/split-page-layout/) · [Forms](https://primer.style/product/ui-patterns/forms/) · [Saving](https://primer.style/product/ui-patterns/saving/)
+- 订阅沿用设置分区，使用 SelectPanel 搜索与多选事件及渠道，使用 ActionMenu 查看和插入当前所选事件提供的模板变量。按设备和共享根读取目录监听状态。预览接受样本值。经过版本校验的渠道和规则变更由命令按钮提交。Data 的投递与审计继续使用既有 ExplorerHeader、ReadingTable、RelativeTime、详情对话框和滚动分页。 [SelectPanel](https://primer.style/product/components/select-panel/) · [通知 API](../docs/notifications.md)
+- Chromium 验证设备编辑、采样间隔、采集配置、渠道保存、Telegram 目标验证、多事件预览、变量插入、真实 Mac Agent 的目录变更驱动夹具投递、日志实时刷新和滚动分页。390px 暗色验证了分类对话框和视口。WebKit 验证了宽度、事件选择、中英文和高对比度。PostCSS 解析了 Settings 样式，并在四套主题中核对了 27 个不同的变量引用。Primer CSS 工具返回空错误诊断。

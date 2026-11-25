@@ -14,7 +14,7 @@ import {deviceDatasets, performanceDatasets, powerDatasets} from './telemetryDat
 import type {TelemetryView} from './useTelemetry'
 import styles from './dashboard.module.css'
 
-type TelemetryCategory = Exclude<Category, 'overview' | 'applications' | 'events'>
+type TelemetryCategory = Exclude<Category, 'overview' | 'applications' | 'events' | 'deliveries' | 'audit'>
 
 export function TelemetryReading({category, view, device, telemetry, history, chrome}: {
   category: TelemetryCategory

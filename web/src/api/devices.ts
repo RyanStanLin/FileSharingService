@@ -4,9 +4,9 @@ import type {Connection, Device, LocalRoot, Permissions, PermissionKind, Root} f
 export const deviceRoute = (id: string) => '/devices/' + encodeURIComponent(id)
 export const readDevices = (signal?: AbortSignal) => readAll<Device>('/devices', signal)
 
-export function setAccess(device: Device, enabled: boolean) {
+export function setAccess(device: Device, enabled: boolean, signal?: AbortSignal) {
   return send<Connection>(deviceRoute(device.id) + '/connection-access', 'PUT',
-    {connectionId: device.connection.connectionId, enabled})
+    {connectionId: device.connection.connectionId, enabled}, {signal})
 }
 
 export async function readShares(deviceId: string, signal: AbortSignal) {
@@ -44,7 +44,7 @@ interface Job {
   error: string | null
 }
 
-export async function requestPermission(deviceId: string, kind: PermissionKind, signal: AbortSignal) {
+export async function requestPermission(deviceId: string, kind: PermissionKind | 'inputMonitoring' | 'pasteboard', signal: AbortSignal) {
   let job = await send<Job>(deviceRoute(deviceId) + '/permissions/requests', 'POST', {kind}, {signal})
   for (let attempt = 0; attempt < 150 && (job.state === 'queued' || job.state === 'running'); attempt++) {
     await wait(1000, signal)

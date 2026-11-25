@@ -1,6 +1,6 @@
 import {NavList} from '@primer/react'
 import {useLanguage} from '../i18n'
-import {categories, categoryKeys, dataHref, type Category} from './categories'
+import {categories, categoryKeys, dataHref, logCategories, type Category} from './categories'
 import {eventCategories, eventViews, type EventView} from './eventViews'
 import styles from './dashboard.module.css'
 
@@ -20,7 +20,7 @@ export function DataSidebar({selected, eventView, close}: {selected: Category; e
     <NavList.Heading visuallyHidden>{t('dataCategories')}</NavList.Heading>
     {item('overview')}
     <NavList.Group title={t('dataCategories')} hideDivider>
-      {categoryKeys.filter(key => key !== 'overview' && key !== 'events').map(item)}
+      {categoryKeys.filter(key => key !== 'overview' && key !== 'events' && key !== 'deliveries' && key !== 'audit').map(item)}
     </NavList.Group>
     <NavList.Group title={t('dataEventGroup')} hideDivider>
       {eventViews.map(view => {
@@ -32,5 +32,6 @@ export function DataSidebar({selected, eventView, close}: {selected: Category; e
         </NavList.Item>
       })}
     </NavList.Group>
+    <NavList.Group title={t('notificationLogs')} hideDivider>{logCategories.map(item)}</NavList.Group>
   </NavList>
 }

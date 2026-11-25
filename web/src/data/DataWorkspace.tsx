@@ -1,17 +1,17 @@
-import {useEffect, useId, useRef, useState} from 'react'
-import {Button, Heading, Label, SplitPageLayout, Stack, useResponsiveValue} from '@primer/react'
-import {ListUnorderedIcon, SyncIcon} from '@primer/octicons-react'
+import {useEffect, useId, useState, type ReactNode} from 'react'
+import {Button, Heading, Label, Stack} from '@primer/react'
+import {SyncIcon} from '@primer/octicons-react'
 import {requestSample} from '../api/telemetry'
 import type {Device} from '../api/types'
 import {useLanguage} from '../i18n'
 import {ErrorText, Loading} from '../ui/Feedback'
-import {Modal} from '../ui/Modal'
 import {useTask} from '../ui/async'
 import {ThumbnailProvider} from '../ui/thumbnails'
 import {ActivityList} from './ActivityList'
 import {ApplicationInventory} from './ApplicationInventory'
 import {DataOverview} from './DataOverview'
-import {DataSidebar} from './DataSidebar'
+import {DataFrame} from './DataFrame'
+import {DataLogs} from './DataLogs'
 import type {ReadingChrome} from './ReadingPane'
 import {TelemetryReading} from './TelemetryReading'
 import {categoryFromHash} from './categories'
@@ -20,10 +20,9 @@ import {useTelemetry} from './useTelemetry'
 import {useTelemetryHistory} from './useTelemetryHistory'
 import styles from './dashboard.module.css'
 
-const sidebarWidth = {min: '176px', default: '272px', max: '480px'} as const
 const streamLabels = {connecting: 'dataConnecting', live: 'dataLive', polling: 'dataPolling', offline: 'dataOffline'} as const
 
-interface Props {
+interface DeviceProps {
   device: Device
   hash: string
   refreshDevice: () => void
@@ -32,18 +31,26 @@ interface Props {
   authorizationError: unknown
 }
 
-export default function DataWorkspace({device, hash, refreshDevice, authorize, authorizationBusy, authorizationError}: Props) {
+export default function DataWorkspace(props: Omit<DeviceProps, 'device'> & {
+  device?: Device; devices: Device[]; unavailable: ReactNode
+}) {
+  const heading = useId()
+  const category = categoryFromHash(props.hash)
+  if (category === 'deliveries' || category === 'audit') return <DataFrame category={category} eventView="all" heading={heading}>
+    <DataLogs key={props.hash} category={category} hash={props.hash} devices={props.devices} heading={heading} />
+  </DataFrame>
+  return props.device ? <DeviceDataWorkspace key={props.device.id} {...props} device={props.device} /> :
+    <DataFrame category={category} eventView="all">{props.unavailable}</DataFrame>
+}
+
+function DeviceDataWorkspace({device, hash, refreshDevice, authorize, authorizationBusy, authorizationError}: DeviceProps) {
   const {t} = useLanguage()
   const category = categoryFromHash(hash)
   const parameters = new URLSearchParams(hash.split('?')[1])
   const view = parameters.get('view')
   const eventView = eventViewFromQuery(view)
   const heading = useId()
-  const sidebarId = useId()
-  const menu = useRef<HTMLButtonElement>(null)
-  const [showNavigation, setShowNavigation] = useState(false)
   const [sampleReady, setSampleReady] = useState(false)
-  const narrow = useResponsiveValue({narrow: true, regular: false, wide: false}, false)
   const telemetry = useTelemetry(device, refreshDevice)
   const {connection, pending, error} = telemetry
   const stream = connection.online ? telemetry.stream : 'offline'
@@ -52,7 +59,6 @@ export default function DataWorkspace({device, hash, refreshDevice, authorize, a
   const {history, trends, activity} = useTelemetryHistory(device.id, telemetry.history, stream === 'live', showActivity)
   const task = useTask()
 
-  useEffect(() => { if (!narrow) setShowNavigation(false) }, [narrow])
   useEffect(() => { setSampleReady(false) }, [category])
 
   function refresh() {
@@ -111,29 +117,12 @@ export default function DataWorkspace({device, hash, refreshDevice, authorize, a
     content = <ActivityList deviceId={device.id} eventView={eventView} streaming={stream === 'live'}
       newestClipboard={telemetry.history['clipboard.changed']?.at(-1)?.sequence} history={history}
       historyReady={activity.data !== undefined} pending={activity.pending && !activity.data} chrome={chrome} />
-  } else {
+  } else if (category !== 'audit' && category !== 'deliveries') {
     content = <TelemetryReading key={category} category={category} view={view}
       device={device} telemetry={telemetry} history={history} chrome={chrome} />
   }
 
   return <ThumbnailProvider>
-    <SplitPageLayout className={styles.workspace}>
-      {!narrow && <SplitPageLayout.Sidebar padding="none" divider="line" width={sidebarWidth}
-        resizable widthStorageKey="filesharing.data-sidebar-width" aria-label={t('dataCategories')}>
-        <div className={styles.sidebar}><DataSidebar selected={category} eventView={eventView} /></div>
-      </SplitPageLayout.Sidebar>}
-      <SplitPageLayout.Content width="full" padding="none" className={styles.content}>
-        <Stack as="main" aria-labelledby={heading} className={styles.pane} gap="none">
-          {narrow && <div className={styles.mobileNavigation}>
-            <Button ref={menu} size="medium" leadingVisual={ListUnorderedIcon} aria-haspopup="dialog" aria-expanded={showNavigation}
-              aria-controls={sidebarId} onClick={() => setShowNavigation(true)}>{t('dataCategories')}</Button>
-          </div>}
-          {content}
-        </Stack>
-      </SplitPageLayout.Content>
-    </SplitPageLayout>
-    {narrow && showNavigation && <Modal title={t('dataCategories')} onClose={() => setShowNavigation(false)} returnFocusRef={menu}>
-      <div id={sidebarId}><DataSidebar selected={category} eventView={eventView} close={() => setShowNavigation(false)} /></div>
-    </Modal>}
+    <DataFrame category={category} eventView={eventView} heading={heading}>{content}</DataFrame>
   </ThumbnailProvider>
 }

@@ -10,16 +10,17 @@ interface Props<Value extends string | number> {
   block?: boolean
   disabled?: boolean
   className?: string
+  prefix?: string
 }
 
-export function ChoiceMenu<Value extends string | number>({label, value, options, onChange, block, disabled, className}: Props<Value>) {
+export function ChoiceMenu<Value extends string | number>({label, value, options, onChange, block, disabled, className, prefix}: Props<Value>) {
   const {t} = useLanguage()
   const id = useId()
   const selected = options.find(option => option.value === value)
   const menu = <ActionMenu>
     <ActionMenu.Button id={id} size="medium" block={block} alignContent={block ? 'start' : undefined} labelWrap
       disabled={disabled} aria-label={selected ? t('choiceMenuLabel', {label, value: selected.label}) : label}>
-      {selected?.label ?? label}
+      {prefix && selected ? prefix + ' ' : ''}{selected?.label ?? label}
     </ActionMenu.Button>
     <ActionMenu.Overlay align={block ? 'start' : 'end'} width="small" maxHeight="medium">
       <ActionList selectionVariant="single">

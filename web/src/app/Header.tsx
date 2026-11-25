@@ -1,6 +1,6 @@
 import {useId, type RefObject} from 'react'
 import {ActionList, ActionMenu, Button, IconButton, Stack, ToggleSwitch, UnderlineNav} from '@primer/react'
-import {FileDirectoryIcon, GlobeIcon, GraphIcon, PlayIcon, TerminalIcon, ThreeBarsIcon, VersionsIcon} from '@primer/octicons-react'
+import {BellIcon, FileDirectoryIcon, GearIcon, GlobeIcon, GraphIcon, PlayIcon, TerminalIcon, ThreeBarsIcon, VersionsIcon} from '@primer/octicons-react'
 import type {Device} from '../api/types'
 import {useLanguage} from '../i18n'
 import {duration} from '../i18n/format'
@@ -129,6 +129,10 @@ export function Header(props: Props) {
           icon={TerminalIcon}>{t('terminal')}</UnderlineNav.Item>
         <UnderlineNav.Item href="#alerts" aria-current={props.page === 'alerts' ? 'page' : undefined}
           icon={PlayIcon}>{t('alerts')}</UnderlineNav.Item>
+        <UnderlineNav.Item href={props.page === 'settings' ? window.location.hash : '#settings'}
+          aria-current={props.page === 'settings' ? 'page' : undefined} icon={GearIcon}>{t('settings')}</UnderlineNav.Item>
+        <UnderlineNav.Item href={props.page === 'subscriptions' ? window.location.hash : '#subscriptions'}
+          aria-current={props.page === 'subscriptions' ? 'page' : undefined} icon={BellIcon}>{t('subscriptions')}</UnderlineNav.Item>
       </UnderlineNav>
     </header>
   )

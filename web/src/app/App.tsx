@@ -22,6 +22,8 @@ const WindowActivity = lazy(() => import('../activity/WindowActivity'))
 const AlertWorkspace = lazy(() => import('../alerts/AlertWorkspace'))
 const TerminalWorkspace = lazy(() => import('../terminal/TerminalWorkspace'))
 const ImmersiveTerminal = lazy(() => import('../terminal/ImmersiveTerminal'))
+const SettingsWorkspace = lazy(() => import('../settings/SettingsWorkspace'))
+const SubscriptionsWorkspace = lazy(() => import('../notifications/SubscriptionsWorkspace'))
 const QuickRunDialog = lazy(() => import('../terminal/QuickRunDialog'))
 
 export function App() {
@@ -136,16 +138,21 @@ export function App() {
         revoke={() => authorize(false)} accessRef={accessRef} commandRef={commandRef}
         openQuick={canQuickRun ? () => setQuick(true) : undefined}
         openPath={workspace ? () => setGoTo(true) : undefined} />}
-      {terminal ? <Suspense fallback={<Loading />}>
+      {unlocked && page === 'settings' ? <Suspense fallback={<Loading />}>
+        <SettingsWorkspace hash={hash} device={device} devices={items} refresh={devices.refresh}
+          deviceError={devices.error} devicesLoading={devices.pending} />
+      </Suspense> : unlocked && page === 'subscriptions' ? <Suspense fallback={<Loading />}>
+        <SubscriptionsWorkspace hash={hash} devices={items} device={device} refreshDevices={devices.refresh} />
+      </Suspense> : terminal ? <Suspense fallback={<Loading />}>
         {immersive ? <ImmersiveTerminal key={terminal.id + immersive} deviceId={terminal.id} id={immersive} />
           : <TerminalWorkspace key={terminal.id} device={terminal} hash={hash} authorize={() => authorize(true)}
               authorizationBusy={connectionTask.busy} authorizationError={connectionTask.error} />}
       </Suspense> : workspace
         ? <Workspace key={device.id + device.connection.connectionId} device={device} refreshDevice={devices.refresh}
             shareManager={shareManager} setShareManager={setShareManager} goTo={goTo} closeGoTo={() => setGoTo(false)} />
-        : page === 'data' && unlocked && device
+        : page === 'data' && unlocked
           ? <Suspense fallback={<Stack as="main" gap="none" className={styles.main}><Loading /></Stack>}>
-              <DataWorkspace key={device.id} device={device} hash={hash} refreshDevice={devices.refresh}
+              <DataWorkspace device={device} devices={items} unavailable={content} hash={hash} refreshDevice={devices.refresh}
                 authorize={() => authorize(true)} authorizationBusy={connectionTask.busy} authorizationError={connectionTask.error} />
             </Suspense>
           : <Stack as="main" gap="none" className={page === 'alerts' ? styles.workArea : styles.main}>{content}</Stack>}

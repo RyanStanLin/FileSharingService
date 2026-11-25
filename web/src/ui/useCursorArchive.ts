@@ -17,7 +17,8 @@ function mergeRecent<T extends {id: string}>(current: Page<T> | undefined, recen
 }
 
 export function useCursorArchive<T extends {id: string}>(key: string | null,
-  readPage: (key: string, cursor: string | undefined, signal: AbortSignal) => Promise<Page<T>>) {
+  readPage: (key: string, cursor: string | undefined, signal: AbortSignal) => Promise<Page<T>>,
+  reconcile = mergeRecent<T>) {
   const [archive, setArchive] = useState<Archive<T>>({loading: key === null ? null : 'recent'})
   const active = useRef<AbortController | null>(null)
   const queuedRefresh = useRef(false)
@@ -41,7 +42,7 @@ export function useCursorArchive<T extends {id: string}>(key: string | null,
             items: [...current.page.items, ...incoming.items], nextCursor: incoming.nextCursor === cursor ? null : incoming.nextCursor,
           }}
         }
-        const page = mergeRecent(current.page, incoming)
+        const page = reconcile(current.page, incoming)
         return {...current, page, moreError: page === incoming ? undefined : current.moreError}
       })
     } catch (error) {
@@ -57,7 +58,7 @@ export function useCursorArchive<T extends {id: string}>(key: string | null,
         } else setArchive(current => ({...current, loading: null}))
       }
     }
-  }, [key, readPage])
+  }, [key, readPage, reconcile])
 
   const refresh = useCallback(() => { void load() }, [load])
   useEffect(() => {

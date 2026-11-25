@@ -5,13 +5,14 @@ function subscribe(callback: () => void) {
   return () => window.removeEventListener('hashchange', callback)
 }
 
-export type AppPage = 'files' | 'data' | 'activity' | 'alerts' | 'terminal'
+const pages = ['files', 'data', 'activity', 'alerts', 'terminal', 'settings', 'subscriptions'] as const
+export type AppPage = typeof pages[number]
 
 export function useAppPage() {
   const hash = useSyncExternalStore(subscribe, () => window.location.hash)
   const files = useRef('#files')
   const section = hash.slice(1).split('?', 1)[0]
-  const page: AppPage = section === 'data' || section === 'activity' || section === 'alerts' || section === 'terminal' ? section : 'files'
+  const page = pages.find(item => item === section) ?? 'files'
 
   useEffect(() => {
     if (page === 'files') files.current = hash || '#files'
