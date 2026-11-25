@@ -16,7 +16,7 @@ trap cleanup EXIT
 mode="${1:-dmg}"
 
 if [ "$mode" = test ]; then
-    swiftc -swift-version 5 -O -target "$(uname -m)-apple-macosx15.0" -D FILESHARING_TEST \
+    swiftc -swift-version 5 -O -target "$(uname -m)-apple-macosx14.0" -D FILESHARING_TEST \
         "$root"/src/Mac/*.swift -o "$stage/FileSharingAgent.loopback"
     mv "$stage/FileSharingAgent.loopback" "$root/artifacts/FileSharingAgent.loopback"
     exit 0
