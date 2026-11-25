@@ -2348,7 +2348,7 @@ precondition(board.setString("ISOLATED_CLIPBOARD_CONTENT", forType: .string))
             return result if result["state"] != "queued" else None
         return self.wait(complete)
 
-    def notification_fixture(self, polling=False):
+    def notification_fixture(self, polling=False, *, credential_key=True):
         fixture = NotificationFixture()
         worker = threading.Thread(target=fixture.serve_forever, daemon=True)
         worker.start()
@@ -2356,10 +2356,13 @@ precondition(board.setString("ISOLATED_CLIPBOARD_CONTENT", forType: .string))
         self.addCleanup(worker.join, 2)
         self.addCleanup(fixture.shutdown)
         self.env.update({
-            "FileSharing__Notifications__CredentialKey": secrets.token_hex(32),
             "FileSharing__Notifications__BarkOrigins": fixture.origin,
             "FileSharing__Notifications__TestTelegramOrigin": fixture.origin,
         })
+        if credential_key:
+            self.env["FileSharing__Notifications__CredentialKey"] = secrets.token_hex(32)
+        else:
+            self.env.pop("FileSharing__Notifications__CredentialKey", None)
         self.stop(self.server)
         self.start_server(polling=polling)
         return fixture
@@ -2369,6 +2372,66 @@ precondition(board.setString("ISOLATED_CLIPBOARD_CONTENT", forType: .string))
             current = self.api("GET", f"{NOTIFICATIONS}/deliveries/{delivery['id']}").json()
             return current if current["state"] == state else None
         return self.wait(reached, seconds=20)
+
+    def test_notification_encryption_setup_is_idempotent_and_durable(self):
+        fixture = self.notification_fixture(credential_key=False)
+        setup = NOTIFICATIONS + "/encryption/setup"
+        catalog = NOTIFICATIONS + "/event-types"
+        self.api("POST", setup, 401)
+        self.register()
+        self.unlock()
+        self.assertFalse(self.api("GET", catalog).json()["credentialsEnabled"])
+        self.api("POST", setup, 403, headers={"Origin": "http://other.invalid"})
+
+        second = self.client()
+        second.cookies.update(self.browser.cookies)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            responses = list(pool.map(lambda client: self.api("POST", setup, 204, session=client), (self.browser, second)))
+        self.assertTrue(all(not response.content for response in responses))
+        key_path = self.work / "db" / "notification-credential-key"
+        self.assertEqual(key_path.stat().st_size, 32)
+        if os.name == "posix":
+            self.assertEqual(stat.S_IMODE(key_path.stat().st_mode), 0o600)
+        fingerprint = digest(key_path.read_bytes())
+        audit = self.api("GET", API + "/audit", params={"action": "notification.encryption_configured"}).json()
+        self.assertEqual([item["detail"] for item in audit["items"]], [{"source": "generated"}])
+        self.assertTrue(self.api("GET", catalog).json()["credentialsEnabled"])
+
+        bark = self.notification_channel(fixture)
+        telegram = self.api("POST", NOTIFICATIONS + "/channels", 201, json={
+            "name": "Operations", "kind": "telegram", "enabled": True,
+            "telegram": {"chatId": "-1001234567890", "botToken": "42:TelegramTestToken"}
+        }).json()
+        self.stop(self.server)
+        self.start_server()
+        self.assertTrue(self.api("GET", catalog).json()["credentialsEnabled"])
+        self.api("POST", setup, 204)
+        self.assertTrue(digest(key_path.read_bytes()) == fingerprint)
+        for channel in (bark, telegram):
+            delivery = self.api("POST", f"{NOTIFICATIONS}/channels/{channel['id']}/test", 202,
+                                headers={"Idempotency-Key": "configured-notification-test"}, json={}).json()
+            self.assertEqual(self.wait_delivery(delivery)["state"], "sent")
+
+    def test_notification_encryption_setup_preserves_existing_credentials(self):
+        fixture = self.notification_fixture()
+        setup = NOTIFICATIONS + "/encryption/setup"
+        self.register()
+        self.unlock()
+        channel = self.notification_channel(fixture)
+        key_path = self.work / "db" / "notification-credential-key"
+        self.api("POST", setup, 204)
+        self.assertFalse(key_path.exists())
+        self.stop(self.server)
+        credential_key = self.env.pop("FileSharing__Notifications__CredentialKey")
+        self.start_server()
+        self.assertEqual(self.api("POST", setup, 409).json()["code"], "notification_key_restore_required")
+        self.assertFalse(key_path.exists())
+        self.stop(self.server)
+        self.env["FileSharing__Notifications__CredentialKey"] = credential_key
+        self.start_server()
+        delivery = self.api("POST", f"{NOTIFICATIONS}/channels/{channel['id']}/test", 202,
+                            headers={"Idempotency-Key": "existing-notification-test"}, json={}).json()
+        self.assertEqual(self.wait_delivery(delivery)["state"], "sent")
 
     def test_notification_destinations_and_durable_delivery(self):
         fixture = self.notification_fixture()

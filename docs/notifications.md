@@ -4,8 +4,11 @@ Base URL 为 `/api/v1/notifications`。所有请求使用已解锁的 Passkey �
 
 ## 渠道设置
 
+在网页的 **Settings → Notification channels** 点击「启用通知加密」，服务端会生成一份供 Bark 与 Telegram 共用的凭据加密密钥。初始化完成后可直接新建渠道。
+
 | 方法与路径 | 行为 |
 | --- | --- |
+| `POST /encryption/setup` | 首次初始化服务端加密密钥，无请求体。启用成功或已经启用时返回 204。已有渠道需要原密钥时返回 409 `notification_key_restore_required`。 |
 | `GET /channels?cursor=&limit=` | 以渠道 UUID 分页，返回 `items,nextCursor`。 |
 | `POST /channels` | 新建渠道。返回 201 与 `Location`。 |
 | `GET /channels/{id}` | 读取公开设置、`credentialConfigured`、修订号与时间。 |
@@ -48,7 +51,7 @@ Base URL 为 `/api/v1/notifications`。所有请求使用已解锁的 Passkey �
 - Bark 从 App 获取设备 Key。默认访问 `https://api.day.app`。部署端可在 `FILESHARING_BARK_ORIGINS` 增加逗号分隔的 HTTPS origin。更换 origin 时需要提交有效设备 Key。可选的 `level` 为 `active,timeSensitive,passive,critical`。发送使用 BarkerSharper 文档同样的 `POST /push` JSON 协议。服务管理连接超时及重试，并以 Bark 的成功回执为准。 [BarkerSharper](https://github.com/RyanStanLin/BarkerSharper) · [Bark API](https://github.com/Finb/Bark/blob/master/docs/en-us/tutorial.md)
 - Telegram 从 BotFather 取得 Bot Token。私聊先给 bot 发送 `/start`。群组将 bot 加入并允许发言，频道授予发布权限。用带符号的十进制 Chat ID 字符串，受 Telegram 支持的公开目标也可用 `@username`。论坛 topic 可加正整数 `messageThreadId`。先调用 `verify` 确认目标，再调用 `test` 验证发言权限。 [BotFather 指南](https://core.telegram.org/bots/tutorial) · [Telegram Bot API](https://core.telegram.org/bots/api#sendmessage)
 - 测试需要 `Idempotency-Key`，同一渠道与消息重放返回原投递。请求正文为 `{"title":"测试通知","body":"FileSharing 已接通"}`，也可提交 `{}` 使用默认文案。
-- 创建需要服务端启用独立的 32 字节密钥。Bark Key 与 Bot Token 写入时加密，读取、审计及 WebSocket 只含公开字段。保存渠道和编辑规则均不触发测试消息。部署设置见 [生产部署](deployment.md)。
+- Bark Device Key 与 Telegram Bot Token 写入时使用同一份 32 字节服务端密钥加密，读取、审计及 WebSocket 只含公开字段。保存渠道和编辑规则均不触发测试消息。部署设置见 [生产部署](deployment.md)。
 
 ## 投递与重放
 

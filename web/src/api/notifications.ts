@@ -11,6 +11,8 @@ const itemRoute = (route: string, id: string) => route + '/' + encodeURIComponen
 
 export const readChannels = (signal: AbortSignal) => readAll<NotificationChannel>(channelRoute, signal)
 export const readCatalog = (signal: AbortSignal) => request<NotificationCatalog>(base + '/event-types', {signal})
+export const setUpNotificationEncryption = (signal: AbortSignal) =>
+  send<void>(base + '/encryption/setup', 'POST', undefined, {signal})
 export const readRules = (signal: AbortSignal) => readAll<NotificationRule>(ruleRoute, signal)
 export const readWatches = (signal: AbortSignal) => request<NotificationWatch[]>(base + '/watches', {signal})
 

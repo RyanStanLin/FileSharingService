@@ -21,11 +21,13 @@
 | `FILESHARING_TLS_DIR` | 证书目录。新证书就绪后重建或重启服务及 Nginx，再验证两种 TLS 入口。 |
 | `FILESHARING_GATEWAY_KEY` | 可选。由 `openssl rand -hex 32` 单独生成，用于加密供管理员查看的网关密码。与数据库备份分开保管。 |
 
-启用通知时使用 `FILESHARING_NOTIFICATION_KEY`。新部署的 `init-env.sh` 自动生成它。既有部署以 `openssl rand -hex 32` 生成并追加到现有 `.env`，直接运行服务时使用 `FileSharing__Notifications__CredentialKey`。密钥与数据库分别备份。更换密钥后，用渠道更新 API 重新输入每个渠道的凭据。
+在 **Settings → Notification channels** 点击「启用通知加密」即可初始化。生成的 32 字节密钥独立存放在数据目录的 `notification-credential-key` 文件，macOS 和 Linux 上的文件权限为 `0600`。密钥启用后立即生效，服务重启时会加载同一文件。
+
+部署端也可预置 `FILESHARING_NOTIFICATION_KEY`，直接运行服务时使用 `FileSharing__Notifications__CredentialKey`。新部署的 `init-env.sh` 自动生成环境变量所需的值。显式提供的环境配置优先于密钥文件。密钥与数据库分别备份，恢复时沿用原密钥。数据库已有渠道且密钥丢失时，需要先从备份恢复原密钥。
 
 | 通知设置 | 用途 |
 | --- | --- |
-| `FILESHARING_NOTIFICATION_KEY` | 64 个十六进制字符。用独立密钥加密 Bark Key 与 Telegram Bot Token。留空时消息队列暂停发送。 |
+| `FILESHARING_NOTIFICATION_KEY` | 64 个十六进制字符，用于加密 Bark Device Key 与 Telegram Bot Token。留空时读取已生成的密钥文件。两处均未配置时暂停投递。 |
 | `FILESHARING_BARK_ORIGINS` | 自建 Bark 服务的 HTTPS origin，多个值用逗号分隔。默认允许 `https://api.day.app`。 |
 
 DNS/证书续期由部署环境维护。生产反向代理覆盖 `Host`、`X-Forwarded-Host`、`X-Forwarded-For`、`X-Forwarded-Proto`。仅将直接上游代理 IP 加到 `FileSharing__KnownProxies`。Nginx 模板还转发 WebSocket Upgrade 并关闭流量缓冲。Caddy 可以用 `reverse_proxy` 保持这些头部和升级语义。Kestrel 的 HTTP 端口仅留在容器网络。

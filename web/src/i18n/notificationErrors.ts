@@ -1,5 +1,7 @@
 const errors: Record<string, readonly [string, string]> = {
   notification_vault_unconfigured: ['Configure the server’s notification encryption key first.', '请先配置服务端通知凭据加密密钥。'],
+  notification_key_restore_required: ['Restore the original server encryption key to use the saved channels.', '已有渠道使用原密钥加密。请在服务端恢复原密钥后继续。'],
+  notification_key_storage_unavailable: ['The server could not access notification key storage. Check its data directory and try again.', '服务端无法访问通知密钥存储。请检查服务端数据目录后重试。'],
   notification_credential_required: ['Enter the provider credential.', '请输入通知服务凭据。'],
   notification_credential_unavailable: ['The saved credential is unavailable. Enter a replacement.', '已保存的凭据无法读取。请输入新凭据。'],
   invalid_bark_origin: ['Enter an HTTPS origin with no path, query or fragment.', '请输入不含路径、查询参数或片段的 HTTPS 源。'],

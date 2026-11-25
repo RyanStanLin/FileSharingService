@@ -15,6 +15,7 @@ internal static class NotificationEndpoints
             return await next(context);
         });
 
+        group.MapPost("/encryption/setup", SetUpEncryption).WithSummary("Enable notification credential encryption");
         group.MapGet("/channels", ListChannels).WithSummary("List saved notification channels with redacted credentials");
         group.MapGet("/channels/{id}", GetChannel).WithSummary("Get a saved notification channel");
         group.MapPost("/channels", CreateChannel).WithSummary("Create a Bark or Telegram notification channel");
@@ -37,6 +38,12 @@ internal static class NotificationEndpoints
     }
 
     internal static string Actor(HttpContext context) => ((Review)context.Items[typeof(Review)]!).Initiator;
+
+    private static async Task<NoContent> SetUpEncryption(HttpContext context, NotificationVault vault, CancellationToken ct)
+    {
+        await vault.SetUp(Actor(context), ct);
+        return TypedResults.NoContent();
+    }
 
     private static async Task<Ok<Page<NotificationChannelView>>> ListChannels(string? cursor, int? limit, INotificationChannels channels, CancellationToken ct) =>
         TypedResults.Ok(await channels.List(cursor, limit, ct));

@@ -24,6 +24,8 @@ const messages = {
   notificationTelegramSilent: ['Send silently', '静默发送'],
   notificationCredentialSaved: ['A credential is saved. Enter a new value to replace it.', '已有凭据。输入新值可更换。'],
   notificationVaultUnavailable: ['The server has no notification encryption key configured.', '服务器尚未配置通知凭据加密密钥。'],
+  notificationEncryptionSetup: ['Enable notification encryption', '启用通知加密'],
+  notificationEncryptionSetupHelp: ['Generate a server key to protect Bark and Telegram credentials.', '生成一份服务端密钥，用于保护 Bark 和 Telegram 凭据。'],
   notificationVerify: ['Verify bot and chat', '验证机器人与会话'],
   notificationVerified: ['Verified {bot} · {chat} ({type})', '已验证 {bot} · {chat}（{type}）'],
   notificationTest: ['Send test', '发送测试通知'],

@@ -1,5 +1,5 @@
 import {useState} from 'react'
-import {Banner, Button, Link} from '@primer/react'
+import {Button, Link} from '@primer/react'
 import {PlusIcon} from '@primer/octicons-react'
 import {deleteChannel, readCatalog, readChannels, saveChannel} from '../api/notifications'
 import type {NotificationChannel} from '../api/notificationTypes'
@@ -12,6 +12,7 @@ import {Loading, Retry} from '../ui/Feedback'
 import {useRefresh, useResource, useTask} from '../ui/async'
 import {ChannelActions} from './ChannelActions'
 import {ChannelFields, providerName} from './ChannelFields'
+import {NotificationEncryptionSetup} from './NotificationEncryptionSetup'
 import {channelDraft, channelErrors, channelInput} from './channelDraft'
 import {useNotificationUpdates} from './useNotificationUpdates'
 
@@ -25,8 +26,10 @@ export function ChannelSettings({item}: {item?: string}) {
   useRefresh(true, channels.refresh, live ? 30_000 : 8_000)
   const current = channels.data?.find(channel => channel.id === item)
   const vault = catalog.data?.credentialsEnabled
+  useRefresh(vault === false, catalog.refresh, 15_000)
   if (vault !== undefined && (current || item === NEW_ITEM)) {
-    return <ChannelEditor key={item} current={current} credentialsEnabled={vault} refresh={channels.refresh} />
+    return <ChannelEditor key={item} current={current} credentialsEnabled={vault} refresh={channels.refresh}
+      encryptionConfigured={catalog.refresh} />
   }
 
   const error = channels.error ?? catalog.error
@@ -35,7 +38,7 @@ export function ChannelSettings({item}: {item?: string}) {
       onClick={() => { window.location.hash = settingsHref('channels', NEW_ITEM) }}>{t('notificationAddChannel')}</Button>}>
     {error ? <Retry error={error} refresh={() => { channels.refresh(); catalog.refresh() }} /> :
       !channels.data || vault === undefined ? <Loading /> : <SettingsBand>
-        {!vault && <Banner variant="warning" title={t('notificationVaultUnavailable')} />}
+        {!vault && <NotificationEncryptionSetup onConfigured={catalog.refresh} />}
         {channels.data.length ? <SettingsRows>
           {channels.data.map(channel => <SettingsRow key={channel.id}
             title={<Link href={settingsHref('channels', channel.id)}>{channel.name}</Link>}
@@ -45,8 +48,8 @@ export function ChannelSettings({item}: {item?: string}) {
   </SettingsPanel>
 }
 
-function ChannelEditor({current, credentialsEnabled, refresh}: {
-  current?: NotificationChannel; credentialsEnabled: boolean; refresh: () => void
+function ChannelEditor({current, credentialsEnabled, refresh, encryptionConfigured}: {
+  current?: NotificationChannel; credentialsEnabled: boolean; refresh: () => void; encryptionConfigured: () => void
 }) {
   const {t} = useLanguage()
   const [base, setBase] = useState(current)
@@ -75,7 +78,7 @@ function ChannelEditor({current, credentialsEnabled, refresh}: {
       })
     }}>
     <SettingsBand title={t('notificationChannelKind')}>
-      {!credentialsEnabled && <Banner variant="warning" title={t('notificationVaultUnavailable')} />}
+      {!credentialsEnabled && <NotificationEncryptionSetup onConfigured={encryptionConfigured} />}
       <ChannelFields draft={draft} change={setDraft} base={base} disabled={task.busy} errors={attempted ? errors : {}} />
       <SettingsNotice error={task.error} saved={saved && !dirty} reload={base && (() => void task.run(async signal => {
         const latest = (await readChannels(signal)).find(channel => channel.id === base.id)

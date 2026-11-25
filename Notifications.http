@@ -4,6 +4,11 @@
 @channelId = 00000000-0000-0000-0000-000000000000
 @deliveryId = 00000000-0000-0000-0000-000000000000
 
+### Enable encryption for Bark and Telegram credentials
+POST {{notifications}}/encryption/setup
+Origin: {{base}}
+Cookie: {{cookie}}
+
 ### List channels
 GET {{notifications}}/channels?limit=50
 Cookie: {{cookie}}
