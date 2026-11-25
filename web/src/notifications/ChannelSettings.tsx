@@ -35,7 +35,7 @@ export function ChannelSettings({item}: {item?: string}) {
       onClick={() => { window.location.hash = settingsHref('channels', NEW_ITEM) }}>{t('notificationAddChannel')}</Button>}>
     {error ? <Retry error={error} refresh={() => { channels.refresh(); catalog.refresh() }} /> :
       !channels.data || vault === undefined ? <Loading /> : <SettingsBand>
-        {!vault && <Banner variant="warning" description={t('notificationVaultUnavailable')} />}
+        {!vault && <Banner variant="warning" title={t('notificationVaultUnavailable')} />}
         {channels.data.length ? <SettingsRows>
           {channels.data.map(channel => <SettingsRow key={channel.id}
             title={<Link href={settingsHref('channels', channel.id)}>{channel.name}</Link>}
@@ -75,7 +75,7 @@ function ChannelEditor({current, credentialsEnabled, refresh}: {
       })
     }}>
     <SettingsBand title={t('notificationChannelKind')}>
-      {!credentialsEnabled && <Banner variant="warning" description={t('notificationVaultUnavailable')} />}
+      {!credentialsEnabled && <Banner variant="warning" title={t('notificationVaultUnavailable')} />}
       <ChannelFields draft={draft} change={setDraft} base={base} disabled={task.busy} errors={attempted ? errors : {}} />
       <SettingsNotice error={task.error} saved={saved && !dirty} reload={base && (() => void task.run(async signal => {
         const latest = (await readChannels(signal)).find(channel => channel.id === base.id)
