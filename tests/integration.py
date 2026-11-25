@@ -2490,6 +2490,16 @@ precondition(board.setString("ISOLATED_CLIPBOARD_CONTENT", forType: .string))
                            "context": {"device.name": "Preview", "app.name": "{{event.type}}"}}).json()
         self.assertEqual(preview, {"message": {"title": "Preview", "body": "{{event.type}} application.launched ()"},
                                    "missingVariables": ["app.version"]})
+        multi_preview = {
+            "event": "lid.closed", "events": ["lid.closed", "application.launched"],
+            "template": {"body": "{{event.type}} · {{app.name}}"},
+        }
+        self.assertEqual(self.api("POST", rules + "/preview", json=multi_preview).json(), {
+            "message": {"title": "FileSharing", "body": "lid.closed · "},
+            "missingVariables": ["app.name"],
+        })
+        self.api("POST", rules + "/preview", 400, json=multi_preview | {"events": ["application.launched"]})
+        self.api("POST", rules + "/preview", 400, json=multi_preview | {"context": {"app.name": "Editor"}})
         rule_response = self.api("POST", rules, 201, json=body)
         rule = rule_response.json()
         route = rules + "/" + rule["id"]
@@ -2515,6 +2525,13 @@ precondition(board.setString("ISOLATED_CLIPBOARD_CONTENT", forType: .string))
         self.assertEqual(rows[0]["message"], {"title": "Desk Mac", "body": "Editor & 閱讀 application.launched (3)"})
         self.assertEqual(rows[0]["context"]["app.bundleId"], "com.example.Editor")
         self.assertEqual({x["channelId"] for x in rows[:2]}, {phone["id"], second["id"]})
+        params = {"ruleId": rule["id"], "descending": "true", "limit": 2}
+        recent = self.api("GET", NOTIFICATIONS + "/deliveries", params=params).json()
+        self.assertTrue(recent["hasMore"])
+        self.assertEqual([item["id"] for item in recent["items"]], [row["id"] for row in rows[2:][::-1]])
+        older = self.api("GET", NOTIFICATIONS + "/deliveries", params=params | {"after": recent["cursor"]}).json()
+        self.assertFalse(older["hasMore"])
+        self.assertEqual([item["id"] for item in older["items"]], [row["id"] for row in rows[:2][::-1]])
         state = self.api("GET", route).json()
         self.assertEqual((state["matchedEvents"], state["enqueuedDeliveries"], state["skippedDeliveries"]), (3, 4, 2))
         self.api("DELETE", f"{NOTIFICATIONS}/channels/{phone['id']}", 409, params={"revision": phone["revision"]})

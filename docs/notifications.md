@@ -53,6 +53,7 @@ Base URL 为 `/api/v1/notifications`。所有请求使用已解锁的 Passkey �
 ## 投递与重放
 
 - `GET /deliveries?after=&limit=&channelId=&ruleId=&deviceId=&state=` 使用序号字符串向前翻页，每页最多 200 条，返回 `items,cursor,hasMore`。
+- 日志浏览可传 `descending=true` 从最新记录开始。继续传回同一筛选条件、`descending=true` 与 `after={cursor}` 读取更早记录。
 - `GET /deliveries/{id}` 查看触发时间、投递状态、消息正文、尝试次数、上游 HTTP 状态、重试时间和 Telegram message ID。
 - 状态为 `queued,sending,retryScheduled,sent,failed,cancelled`。成功表示上游接受发送请求。网络故障、HTTP 408、429 和 5xx 最多尝试 5 次，初始退避为 5 秒，逐次增至 20、80、320 秒，必要时遵循服务商的 `Retry-After` 或 `retry_after`。运输失败若发生在上游接受后，补发可能产生重复消息。
 - SQLite 在同一事务写入投递和状态摘要，服务重启恢复队列。渠道或规则修改后取消尚未发出的旧修订投递。设备或根授权撤销会取消对应待投递及补发。已进入上游调用的请求可能完成。
@@ -100,6 +101,8 @@ Base URL 为 `/api/v1/notifications`。所有请求使用已解锁的 Passkey �
   "context": {"device.name": "Desk Mac", "app.name": "Editor"}
 }
 ```
+
+多事件规则的预览可另传 `events`，内容为完整规则类型列表并包含当前预览的 `event`。模板按这些类型的变量并集校验，样本 `context` 仍只接受当前预览事件的变量。
 
 | 事件族 | 触发来源 |
 | --- | --- |

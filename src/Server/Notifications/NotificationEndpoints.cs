@@ -76,8 +76,8 @@ internal static class NotificationEndpoints
     }
 
     private static async Task<Ok<NotificationDeliveriesPage>> ListDeliveries(string? after, int? limit, string? channelId, string? ruleId,
-        string? deviceId, string? state, INotificationDeliveries deliveries, CancellationToken ct) =>
-        TypedResults.Ok(await deliveries.List(after, limit, channelId, ruleId, deviceId, state, ct));
+        string? deviceId, string? state, bool? descending, INotificationDeliveries deliveries, CancellationToken ct) =>
+        TypedResults.Ok(await deliveries.List(after, limit, channelId, ruleId, deviceId, state, descending == true, ct));
 
     private static async Task<Ok<NotificationDeliveryView>> GetDelivery(string id, INotificationDeliveries deliveries, CancellationToken ct) =>
         TypedResults.Ok(await deliveries.Get(id, ct));

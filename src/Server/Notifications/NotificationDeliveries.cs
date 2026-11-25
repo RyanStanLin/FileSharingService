@@ -28,7 +28,7 @@ internal interface INotificationDeliveries
     Task<NotificationDeliveryView> Test(string channelId, string? idempotencyKey, NotificationTestRequest request, string actor, CancellationToken ct);
     Task<NotificationDeliveryView> Get(string id, CancellationToken ct);
     Task<NotificationDeliveriesPage> List(string? after, int? limit, string? channelId, string? ruleId, string? deviceId, string? state,
-        CancellationToken ct);
+        bool descending, CancellationToken ct);
 }
 
 internal sealed class NotificationDeliveries(Database db, NotificationVault vault) : INotificationDeliveries
@@ -88,7 +88,7 @@ internal sealed class NotificationDeliveries(Database db, NotificationVault vaul
             ?? throw Fault.Missing("notification_delivery_not_found")).View;
 
     public async Task<NotificationDeliveriesPage> List(string? after, int? limit, string? channelId, string? ruleId, string? deviceId,
-        string? state, CancellationToken ct)
+        string? state, bool descending, CancellationToken ct)
     {
         if (state is not (null or "queued" or "sending" or "retryScheduled" or "sent" or "failed" or "cancelled"))
             throw Fault.Bad("invalid_notification_delivery_state");
@@ -99,13 +99,15 @@ internal sealed class NotificationDeliveries(Database db, NotificationVault vaul
         if (deviceId is not null)
             Secrets.Identifier(deviceId);
         var take = Page<NotificationDeliveryView>.Size(limit);
-        var cursor = EventFeed.Cursor(after);
-        var rows = await db.List<NotificationDeliveryRow>("""
+        var cursor = descending && after is null ? long.MaxValue : EventFeed.Cursor(after);
+        var comparison = descending ? "<" : ">";
+        var direction = descending ? "DESC" : "ASC";
+        var rows = await db.List<NotificationDeliveryRow>($"""
             SELECT * FROM NotificationDeliveries
-            WHERE Sequence>@cursor AND (@channelId IS NULL OR ChannelId=@channelId)
+            WHERE Sequence{comparison}@cursor AND (@channelId IS NULL OR ChannelId=@channelId)
               AND (@ruleId IS NULL OR RuleId=@ruleId) AND (@deviceId IS NULL OR DeviceId=@deviceId)
               AND (@state IS NULL OR State=@state)
-            ORDER BY Sequence LIMIT @size
+            ORDER BY Sequence {direction} LIMIT @size
             """, new { cursor, channelId, ruleId, deviceId, state, size = take + 1 }, ct);
         var items = rows.Take(take).Select(row => row.View).ToArray();
         return new(items, items.LastOrDefault()?.Sequence ?? cursor.ToString(CultureInfo.InvariantCulture), rows.Count > take);

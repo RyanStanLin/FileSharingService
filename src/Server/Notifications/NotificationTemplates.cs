@@ -18,7 +18,10 @@ internal static class NotificationTemplates
     {
         var type = NotificationCatalog.Require(request.Event);
         var variables = NotificationCatalog.Variables([type]);
-        Validate(request.Template, variables);
+        var types = request.Events is null ? [type] : NotificationCatalog.RequireSelection(request.Events);
+        if (!types.Contains(type))
+            throw Fault.Bad("invalid_notification_events");
+        Validate(request.Template, NotificationCatalog.Variables(types));
         var values = new Dictionary<string, string>(StringComparer.Ordinal);
         if (request.Context is { } context)
         {

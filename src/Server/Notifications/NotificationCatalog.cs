@@ -35,7 +35,8 @@ internal sealed record NotificationRuleView(string Id, string Name, string Devic
 
 /// <summary>A template to render against sample context without sending a message.</summary>
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-internal sealed record NotificationPreviewRequest(string Event, NotificationTemplate Template, IReadOnlyDictionary<string, string>? Context);
+internal sealed record NotificationPreviewRequest(string Event, NotificationTemplate Template, IReadOnlyDictionary<string, string>? Context,
+    IReadOnlyList<string>? Events = null);
 
 /// <summary>Rendered notification content and the variables that were missing.</summary>
 internal sealed record NotificationPreview(NotificationMessage Message, IReadOnlyList<string> MissingVariables);
@@ -155,6 +156,14 @@ internal static class NotificationCatalog
         Find(type) ?? throw Fault.Bad("invalid_notification_event");
 
     public static NotificationEventType? Find(string? type) => type is null ? null : ByType.GetValueOrDefault(type);
+
+    public static NotificationEventType[] RequireSelection(IReadOnlyList<string>? events)
+    {
+        if (events is not { Count: >= 1 and <= 16 } ||
+            events.Distinct(StringComparer.Ordinal).Count() != events.Count)
+            throw Fault.Bad("invalid_notification_events");
+        return events.Select(Require).ToArray();
+    }
 
     public static HashSet<string> Variables(IEnumerable<NotificationEventType> types) =>
         types.SelectMany(type => type.Variables.Select(variable => variable.Name)).ToHashSet(StringComparer.Ordinal);

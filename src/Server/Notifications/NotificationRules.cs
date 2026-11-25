@@ -32,7 +32,6 @@ internal sealed class NotificationRules(Database db) : INotificationRules
     public const int Maximum = 128;
     public const int MaximumPerDevice = 32;
     public const int MaximumChannels = 8;
-    private const int MaximumEvents = 16;
 
     public async Task<Page<NotificationRuleView>> List(string? cursor, int? limit, string? deviceId, bool? enabled, CancellationToken ct)
     {
@@ -156,10 +155,7 @@ internal sealed class NotificationRules(Database db) : INotificationRules
     {
         var name = Secrets.Text(request.Name);
         Secrets.Identifier(request.DeviceId);
-        if (request.Events is not { Count: >= 1 and <= MaximumEvents } ||
-            request.Events.Distinct(StringComparer.Ordinal).Count() != request.Events.Count)
-            throw Fault.Bad("invalid_notification_events");
-        var types = request.Events.Select(NotificationCatalog.Require).ToArray();
+        var types = NotificationCatalog.RequireSelection(request.Events);
         if (request.ChannelIds is not { Count: >= 1 and <= MaximumChannels } ||
             request.ChannelIds.Distinct(StringComparer.Ordinal).Count() != request.ChannelIds.Count)
             throw Fault.Bad("invalid_notification_channels");
