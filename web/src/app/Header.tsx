@@ -4,6 +4,7 @@ import {BellIcon, FileDirectoryIcon, GearIcon, GlobeIcon, GraphIcon, PlayIcon, T
 import type {Device} from '../api/types'
 import {useLanguage} from '../i18n'
 import {duration} from '../i18n/format'
+import {MaintenanceCountdown} from '../maintenance/MaintenanceCountdown'
 import {Timestamp, timestampEpoch} from '../ui/Timestamp'
 import {useAppearance} from './AppTheme'
 import type {AppPage} from './useAppPage'
@@ -25,6 +26,7 @@ interface Props {
   revoke: () => void
   page: AppPage
   filesHref: string
+  maintenanceCountdown?: string
 }
 
 function DeviceMenu({devices, device, select, unlocked, shares, openPath, revoke}: Props) {
@@ -83,16 +85,17 @@ function DeviceMenu({devices, device, select, unlocked, shares, openPath, revoke
 export function Header(props: Props) {
   const {t, locale} = useLanguage()
   const access = useId()
-  const {device} = props
+  const {device, maintenanceCountdown} = props
   const connection = device?.connection
   const connectedAt = timestampEpoch(connection?.connectedAt) !== undefined ? connection?.connectedAt : undefined
   const onlineDuration = connectedAt ? <Timestamp value={connectedAt} variant="elapsed" />
     : connection?.connectionSeconds == null ? undefined : duration(connection.connectionSeconds, locale)
   return (
     <header className={styles.header}>
-      <Stack direction="horizontal" align="center" gap={{narrow: "condensed", regular: "normal"}} padding={{narrow: "condensed", regular: "normal"}}>
+      <Stack direction="horizontal" align="center" gap={{narrow: "condensed", regular: "normal"}} padding={{narrow: "condensed", regular: "normal"}}
+        wrap={maintenanceCountdown ? {narrow: 'wrap', regular: 'nowrap'} : 'nowrap'}>
         <DeviceMenu {...props} />
-        <Stack.Item grow className={styles.context}>
+        <Stack.Item grow className={maintenanceCountdown ? `${styles.context} ${styles.maintenanceContext}` : styles.context}>
           <Stack align="center" direction="horizontal" gap="condensed" className={styles.identity}>
             <span>{t('app')}</span>
             {device && <>
@@ -105,6 +108,9 @@ export function Header(props: Props) {
             </>}
           </Stack>
         </Stack.Item>
+        {maintenanceCountdown && <Stack.Item shrink={false} className={styles.maintenanceStatus}>
+          <MaintenanceCountdown value={maintenanceCountdown} showContext />
+        </Stack.Item>}
         <Stack direction="horizontal" align="center" gap="condensed">
           <Button type="button" ref={props.commandRef} size="medium" className={styles.command} alignContent="start"
             disabled={!props.openQuick} onClick={props.openQuick} aria-haspopup="dialog" aria-label={t('command')}>

@@ -2,9 +2,11 @@ import type {Device} from '../api/types'
 import {useLanguage, type Message} from '../i18n'
 import {Loading, Retry, State} from '../ui/Feedback'
 import {ChannelSettings} from '../notifications/ChannelSettings'
+import type {MaintenanceControl} from '../maintenance/useMaintenance'
 import {DeviceSettings} from './DeviceSettings'
 import {FileAccessSettings} from './FileAccessSettings'
 import {GatewaySettings} from './GatewaySettings'
+import {MaintenanceSettings} from './MaintenanceSettings'
 import {PreferencesSettings} from './PreferencesSettings'
 import {ProfileSettings} from './ProfileSettings'
 import {ReportingSettings} from './ReportingSettings'
@@ -17,6 +19,7 @@ const categoryGroups = [
     ['general', 'settingsGeneral', 'settingsGeneralHelp'],
     ['reporting', 'settingsReporting', 'settingsReportingHelp'],
     ['fileAccess', 'settingsFileAccess', 'settingsFileAccessHelp'],
+    ['maintenance', 'maintenanceTitle', 'maintenanceKeywords'],
   ]},
   {label: 'settingsManagement', items: [
     ['profiles', 'settingsProfiles', 'settingsProfilesHelp'],
@@ -26,8 +29,9 @@ const categoryGroups = [
   ]},
 ] as const satisfies readonly {label: Message; items: readonly (readonly [SettingsSection, Message, Message])[]}[]
 
-export default function SettingsWorkspace({device, devices, hash, refresh, deviceError, devicesLoading}: {
+export default function SettingsWorkspace({device, devices, hash, refresh, deviceError, devicesLoading, maintenance}: {
   device?: Device; devices: Device[]; hash: string; refresh: () => void; deviceError?: unknown; devicesLoading: boolean
+  maintenance: MaintenanceControl
 }) {
   const {t} = useLanguage()
   const {section, item} = settingsLocation(hash)
@@ -49,6 +53,7 @@ export default function SettingsWorkspace({device, devices, hash, refresh, devic
         </SettingsPanel>
       } else if (section === 'reporting') content = <ReportingSettings key={device.id} device={device} refresh={refresh} />
       else if (section === 'fileAccess') content = <FileAccessSettings key={device.id} device={device} item={item} refreshDevice={refresh} />
+      else if (section === 'maintenance') content = <MaintenanceSettings key={device.id} device={device} maintenance={maintenance} refreshDevice={refresh} />
       else content = <DeviceSettings key={device.id} device={device} refresh={refresh} />
   }
 

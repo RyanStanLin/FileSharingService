@@ -17,14 +17,15 @@ export function SettingsRow({title, description, children}: {title: ReactNode; d
   </Stack>
 }
 
-export function SettingsSwitch({title, description, checked, onChange, disabled}: {
+export function SettingsSwitch({title, description, checked, onChange, disabled, loading, size = 'small'}: {
   title: string; description?: string; checked: boolean; onChange: (checked: boolean) => void; disabled?: boolean
+  loading?: boolean; size?: 'small' | 'medium'
 }) {
   const id = useId()
   const hint = useId()
   const {t} = useLanguage()
   return <SettingsRow title={<span id={id}>{title}</span>} description={description && <span id={hint}>{description}</span>}>
-    <ToggleSwitch size="small" checked={checked} onChange={onChange} disabled={disabled}
+    <ToggleSwitch size={size} checked={checked} onChange={onChange} disabled={disabled} loading={loading}
       aria-labelledby={id} aria-describedby={description ? hint : undefined} statusLabelPosition="start"
       buttonLabelOn={t('on')} buttonLabelOff={t('off')} loadingLabel={t('loading')} />
   </SettingsRow>

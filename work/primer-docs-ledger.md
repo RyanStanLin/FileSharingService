@@ -236,3 +236,9 @@
 - Settings 使用 SplitPageLayout、NavList、Stack、FormControl、TextInput、ToggleSwitch 和 ActionMenu。分组的薄边框、内部行分隔线、标题和 Apply 位置来自 SVG。窄屏使用 Dialog 展开分类。复用现有系统配色、高对比度与语言偏好。 [SplitPageLayout](https://primer.style/product/components/split-page-layout/) · [Forms](https://primer.style/product/ui-patterns/forms/) · [Saving](https://primer.style/product/ui-patterns/saving/)
 - 订阅沿用设置分区，使用 SelectPanel 搜索与多选事件及渠道，使用 ActionMenu 查看和插入当前所选事件提供的模板变量。按设备和共享根读取目录监听状态。预览接受样本值。经过版本校验的渠道和规则变更由命令按钮提交。Data 的投递与审计继续使用既有 ExplorerHeader、ReadingTable、RelativeTime、详情对话框和滚动分页。 [SelectPanel](https://primer.style/product/components/select-panel/) · [通知 API](../docs/notifications.md)
 - Chromium 验证设备编辑、采样间隔、采集配置、渠道保存、Telegram 目标验证、多事件预览、变量插入、真实 Mac Agent 的目录变更驱动夹具投递、日志实时刷新和滚动分页。390px 暗色验证了分类对话框和视口。WebKit 验证了宽度、事件选择、中英文和高对比度。PostCSS 解析了 Settings 样式，并在四套主题中核对了 27 个不同的变量引用。Primer CSS 工具返回空错误诊断。
+
+## Agent 维护模式
+
+- 将维护模式放入现有 Settings 设备分组，沿用 SplitPageLayout、NavList、768px 内容栏和成组设置行。使用 medium ToggleSwitch 即时提交，由 Agent 确认后更新状态。加载时保留键盘焦点，离线时可关闭已开启的窗口。授权、升级、请求失败均有对应的说明或操作。 [ToggleSwitch](https://primer.style/product/components/toggle-switch/) · [Saving](https://primer.style/product/ui-patterns/saving/)
+- 设置页、标题栏和沉浸式终端共用当前设备的维护状态。等待 Mac 确认时显示进行中状态，确认后用 attention Label 和 RelativeTime 按秒显示剩余时间，详情显示精确的自动结束时间。窄屏倒计时在标题栏内换行。黄色来自组件的 `fgColor-attention` 和 `bgColor-attention-emphasis`，状态同时有可读文本。 [Label](https://primer.style/product/components/label/) · [RelativeTime](https://primer.style/product/components/relative-time/guidelines/) · [维护 API](../docs/maintenance-mode.md)
+- 本轮环境未提供 Primer MCP。组件用法、示例和颜色按官方文档及安装版 Primer React 38.46.0 核对，两个 CSS 模块通过 PostCSS 语法解析。Chromium 验证了四套主题、320px 布局和键盘开关，WebKit 验证了真实 Agent 开启、倒计时与结束。

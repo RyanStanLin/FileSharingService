@@ -139,6 +139,16 @@
   .deviceStatus {
     display: none;
   }
+
+  .maintenanceContext {
+    flex-basis: 0;
+  }
+
+  .maintenanceStatus {
+    order: 1;
+    flex-basis: 100%;
+    text-align: end;
+  }
 }
 
 @media (width < 30rem) {

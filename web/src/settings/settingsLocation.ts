@@ -1,4 +1,4 @@
-const sections = ['general', 'reporting', 'fileAccess', 'profiles', 'channels', 'gateway', 'preferences'] as const
+const sections = ['general', 'reporting', 'fileAccess', 'maintenance', 'profiles', 'channels', 'gateway', 'preferences'] as const
 export type SettingsSection = typeof sections[number]
 
 export function settingsLocation(hash: string) {

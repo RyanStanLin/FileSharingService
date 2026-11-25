@@ -2,6 +2,7 @@ import {Button, Heading, Stack} from '@primer/react'
 import {DownloadIcon} from '@primer/octicons-react'
 import {terminalDownload} from '../api/terminals'
 import {useLanguage} from '../i18n'
+import {MaintenanceCountdown} from '../maintenance/MaintenanceCountdown'
 import {BackButton} from '../ui/BackButton'
 import {Loading, Retry} from '../ui/Feedback'
 import {TerminalComposer} from './TerminalComposer'
@@ -9,7 +10,7 @@ import {terminalHref} from './terminalLocation'
 import {useImmersiveScreen} from './useImmersiveScreen'
 import styles from './immersive.module.css'
 
-export default function ImmersiveTerminal({deviceId, id}: {deviceId: string; id: string}) {
+export default function ImmersiveTerminal({deviceId, id, maintenanceCountdown}: {deviceId: string; id: string; maintenanceCountdown?: string}) {
   const {t} = useLanguage()
   const {host, pending, session, prompt, hasCommand, error, retry} = useImmersiveScreen(deviceId, id)
   const status = session?.state === 'starting' ? t('terminalOpening') : session?.state === 'terminating' ? t('terminalEnding')
@@ -19,6 +20,7 @@ export default function ImmersiveTerminal({deviceId, id}: {deviceId: string; id:
       paddingBlock="cozy" paddingInline="normal" className={styles.toolbar}>
       <BackButton to={terminalHref(id, deviceId)} destination={t('terminal')} />
       <Heading as="h1" className={styles.title}>{t('terminalImmersive')}</Heading>
+      {maintenanceCountdown && <MaintenanceCountdown value={maintenanceCountdown} showContext />}
       <Button as="a" href={terminalDownload({deviceId, id})} size="medium" leadingVisual={DownloadIcon} download>{t('terminalDownload')}</Button>
     </Stack>
     {pending && <Loading message="terminalOpening" />}

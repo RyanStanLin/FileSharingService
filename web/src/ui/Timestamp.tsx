@@ -9,6 +9,7 @@ const formats = {
   exact: {format: 'datetime', ...calendar, weekday: 'long', month: 'long', second: '2-digit', timeZoneName: 'shortOffset'},
   clock: {format: 'datetime', ...clock, weekday: undefined, year: undefined, month: undefined, day: undefined},
   elapsed: {format: 'duration', formatStyle: 'short', precision: 'second', tense: 'past'},
+  countdown: {format: 'duration', formatStyle: 'short', precision: 'second', tense: 'future'},
 } as const
 
 export function timestampEpoch(value: string | null | undefined) {

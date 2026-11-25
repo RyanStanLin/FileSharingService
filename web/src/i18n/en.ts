@@ -6,6 +6,7 @@ import {dataEn} from './data'
 import {activityEn} from './activity'
 import {alertErrorsEn, alertsEn} from './alerts'
 import {terminalEn, terminalErrorsEn} from './terminal'
+import {maintenanceEn, maintenanceErrorsEn} from './maintenance'
 
 export const en = {
   ...fileMutationEn,
@@ -14,6 +15,7 @@ export const en = {
   ...alertsEn,
   ...terminalEn,
   ...settingsEn,
+  ...maintenanceEn,
   ...notificationsEn,
   app: 'FileSharing',
   files: 'File System',
@@ -146,6 +148,7 @@ export const en = {
 export const errorsEn: Readonly<Record<string, string>> = {
   ...terminalErrorsEn,
   ...settingsErrorsEn,
+  ...maintenanceErrorsEn,
   ...notificationErrorsEn,
   ...alertErrorsEn,
   ...fileMutationErrorsEn,

@@ -6,6 +6,7 @@ import type {Device} from '../api/types'
 import {primaryModifier} from '../files/explorerInput'
 import {Workspace} from '../files/Workspace'
 import {useLanguage} from '../i18n'
+import {useMaintenance} from '../maintenance/useMaintenance'
 import {terminalLocation} from '../terminal/terminalLocation'
 import {Loading, Retry, State} from '../ui/Feedback'
 import {useRefresh, useResource, useTask} from '../ui/async'
@@ -43,6 +44,7 @@ export function App() {
   const items = devices.data ?? []
   const terminalRoute = terminalLocation(hash)
   const device = items.find(item => item.id === (terminalRoute.deviceId ?? deviceId)) ?? items.find(item => item.connection.online) ?? items[0]
+  const maintenance = useMaintenance(unlocked ? device : undefined, devices.refresh)
 
   useEffect(() => {
     if (!unlocked) return
@@ -134,17 +136,18 @@ export function App() {
     <Stack gap="none" className={styles.app}>
       {!immersive && <Header devices={items} device={device ?? (!unlocked ? lastDevice.current : undefined)} unlocked={unlocked}
         ready={Boolean(session.current)} busy={session.task.busy} toggle={session.change} select={select}
-        page={page} filesHref={filesHref} shares={workspace ? () => setShareManager(true) : undefined}
+        page={page} filesHref={filesHref} maintenanceCountdown={maintenance.countdown} shares={workspace ? () => setShareManager(true) : undefined}
         revoke={() => authorize(false)} accessRef={accessRef} commandRef={commandRef}
         openQuick={canQuickRun ? () => setQuick(true) : undefined}
         openPath={workspace ? () => setGoTo(true) : undefined} />}
       {unlocked && page === 'settings' ? <Suspense fallback={<Loading />}>
         <SettingsWorkspace hash={hash} device={device} devices={items} refresh={devices.refresh}
-          deviceError={devices.error} devicesLoading={devices.pending} />
+          deviceError={devices.error} devicesLoading={devices.pending} maintenance={maintenance} />
       </Suspense> : unlocked && page === 'subscriptions' ? <Suspense fallback={<Loading />}>
         <SubscriptionsWorkspace hash={hash} devices={items} device={device} refreshDevices={devices.refresh} />
       </Suspense> : terminal ? <Suspense fallback={<Loading />}>
-        {immersive ? <ImmersiveTerminal key={terminal.id + immersive} deviceId={terminal.id} id={immersive} />
+        {immersive ? <ImmersiveTerminal key={terminal.id + immersive} deviceId={terminal.id} id={immersive}
+            maintenanceCountdown={maintenance.countdown} />
           : <TerminalWorkspace key={terminal.id} device={terminal} hash={hash} authorize={() => authorize(true)}
               authorizationBusy={connectionTask.busy} authorizationError={connectionTask.error} />}
       </Suspense> : workspace

@@ -1,0 +1,4 @@
+.countdown {
+  column-gap: var(--base-size-4);
+  font-variant-numeric: tabular-nums;
+}
